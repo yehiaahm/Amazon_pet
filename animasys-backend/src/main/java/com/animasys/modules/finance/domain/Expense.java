@@ -1,0 +1,44 @@
+package com.animasys.modules.finance.domain;
+
+import com.animasys.modules.iam.domain.Branch;
+import com.animasys.modules.iam.domain.Tenant;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+@Entity
+@Table(name = "expenses")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Expense {
+    @Id
+    private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    private Tenant tenant;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "branch_id", nullable = false)
+    private Branch branch;
+
+    @Column(nullable = false)
+    private String category; // RENT, SALARY, UTILITIES, SUPPLIES
+
+    @Column(nullable = false)
+    private BigDecimal amount;
+
+    @Column(nullable = false)
+    private LocalDate date;
+
+    private String description;
+
+    @Column(name = "paid_from", nullable = false)
+    private String paidFrom; // CASH, BANK
+}

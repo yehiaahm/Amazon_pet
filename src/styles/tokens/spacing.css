@@ -1,0 +1,12 @@
+:root {
+  --spacing-1: 4px;   /* 0.5 unit */
+  --spacing-2: 8px;   /* 1 unit */
+  --spacing-3: 12px;  /* 1.5 units */
+  --spacing-4: 16px;  /* 2 units */
+  --spacing-5: 20px;  /* 2.5 units */
+  --spacing-6: 24px;  /* 3 units */
+  --spacing-8: 32px;  /* 4 units */
+  --spacing-10: 40px; /* 5 units */
+  --spacing-12: 48px; /* 6 units */
+  --spacing-16: 64px; /* 8 units */
+}
