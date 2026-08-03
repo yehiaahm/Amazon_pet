@@ -46,9 +46,9 @@ public class CatalogMigrationLifecycle {
                 return;
             }
             log.info("Running catalog SKU merge before applying V18 constraints");
-            // ProductVariant JPA mapping already includes barcode columns (added in V21).
-            // Ensure they exist before merge queries run at V17.
-            ensureProductVariantBarcodeColumns(jdbcTemplate);
+            // JPA mappings include columns added in later migrations. Ensure they exist
+            // before merge queries run while Flyway is paused at V17.
+            ensureCatalogMergeEntityCompatibilityColumns(jdbcTemplate);
 
             var report = duplicateMergeService.mergeAllTenants();
             if (!report.isDatabaseClean()) {
@@ -108,7 +108,8 @@ public class CatalogMigrationLifecycle {
         flyway.migrate();
     }
 
-    private void ensureProductVariantBarcodeColumns(JdbcTemplate jdbc) {
+    private void ensureCatalogMergeEntityCompatibilityColumns(JdbcTemplate jdbc) {
+        addColumnIfMissing(jdbc, "products", "reorder_level", "INT NOT NULL DEFAULT 0");
         addColumnIfMissing(jdbc, "product_variants", "barcode", "VARCHAR(255) NULL");
         addColumnIfMissing(jdbc, "product_variants", "barcode_format", "VARCHAR(50) NULL");
         addColumnIfMissing(jdbc, "product_variants", "barcode_generated", "BOOLEAN DEFAULT FALSE");
@@ -121,8 +122,8 @@ public class CatalogMigrationLifecycle {
     private void addColumnIfMissing(JdbcTemplate jdbc, String table, String column, String definition) {
         Integer count = jdbc.queryForObject(
                 """
-                SELECT COUNT(*) FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE()
+                SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE UPPER(TABLE_SCHEMA) = UPPER(SCHEMA())
                   AND TABLE_NAME = ?
                   AND COLUMN_NAME = ?
                 """,
