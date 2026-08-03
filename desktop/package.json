@@ -11,9 +11,8 @@
     "make-installer": "node build-installer.js",
     "make-installer:fast": "node build-installer.js --skip-build"
   },
-  "dependencies": {},
   "devDependencies": {
-    "electron": "^31.0.0",
+    "electron": "^39.8.1",
     "electron-builder": "^24.13.3",
     "fs-extra": "^11.2.0"
   },
@@ -40,7 +39,9 @@
       }
     ],
     "win": {
-      "target": ["dir"],
+      "target": [
+        "dir"
+      ],
       "icon": "icon.ico"
     },
     "asar": true

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
+import readXlsxFile from 'read-excel-file';
 import {
   useImportHistory,
   useStartImportSession,
@@ -33,6 +33,41 @@ async function hashFile(file: File): Promise<string> {
 function cellValue(row: Record<string, unknown>, header: string): unknown {
   if (!header) return undefined;
   return row[header];
+}
+
+async function readWorkbookRows(file: File): Promise<Record<string, unknown>[]> {
+  if (file.name.toLowerCase().endsWith('.csv')) {
+    const csvText = await file.text();
+    const [headerLine, ...dataLines] = csvText.split(/\r?\n/).filter((line) => line.trim() !== '');
+    if (!headerLine) return [];
+    const headers = headerLine.split(',').map((h) => h.trim());
+    return dataLines.map((line) => {
+      const values = line.split(',');
+      const row: Record<string, unknown> = {};
+      headers.forEach((header, index) => {
+        if (!header) return;
+        row[header] = values[index] ?? '';
+      });
+      return row;
+    });
+  }
+
+  const rows = await readXlsxFile(file);
+  if (rows.length === 0) return [];
+  const headers = rows[0].map((h) => String(h ?? '').trim());
+  if (headers.length === 0) return [];
+
+  const normalizedRows: Record<string, unknown>[] = [];
+  for (let rowNumber = 1; rowNumber < rows.length; rowNumber += 1) {
+    const row = rows[rowNumber];
+    const rowObject: Record<string, unknown> = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      rowObject[header] = row[index] ?? '';
+    });
+    normalizedRows.push(rowObject);
+  }
+  return normalizedRows;
 }
 
 function mapRowToItem(
@@ -78,10 +113,7 @@ const ImportPanel: React.FC = () => {
     setImporting(true);
     setPreviewCount(null);
     try {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      const rows = await readWorkbookRows(file);
       if (rows.length === 0) {
         addNotification('WARNINGS', 'ملف فارغ', 'لا توجد صفوف بيانات في الملف.');
         return;

@@ -19,7 +19,7 @@ import Select from '../../components/ui/Select';
 import Input from '../../components/ui/Input';
 import DataTable from '../../components/ui/DataTable';
 import Badge from '../../components/ui/Badge';
-import * as XLSX from 'xlsx';
+import { Workbook } from 'exceljs';
 import {
   isCompletedSale,
   saleCogs,
@@ -461,7 +461,7 @@ export const Reports: React.FC = () => {
   ];
 
   // Excel Export Handler
-  const handleExcelExport = (type: 'SALES' | 'PURCHASES' | 'EXPENSES' | 'PL') => {
+  const handleExcelExport = async (type: 'SALES' | 'PURCHASES' | 'EXPENSES' | 'PL') => {
     let exportData: any[] = [];
     let fileName = '';
     let sheetName = '';
@@ -520,10 +520,29 @@ export const Reports: React.FC = () => {
       ];
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-    XLSX.writeFile(workbook, `${fileName}.xlsx`);
+    const workbook = new Workbook();
+    const worksheet = workbook.addWorksheet(sheetName);
+
+    if (exportData.length > 0) {
+      const headers = Object.keys(exportData[0] as Record<string, unknown>);
+      worksheet.columns = headers.map((header) => ({
+        header,
+        key: header,
+        width: Math.min(Math.max(header.length + 4, 18), 45),
+      }));
+      exportData.forEach((row) => worksheet.addRow(row as Record<string, unknown>));
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${fileName}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Printable P&L triggering
@@ -612,7 +631,7 @@ export const Reports: React.FC = () => {
           actions={
             <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
               <Can anyOf={[PERMISSIONS.REPORTS_EXPORT_EXCEL]}>
-                <Button onClick={() => handleExcelExport(activeTab)} variant="secondary" size="sm">
+                <Button onClick={() => void handleExcelExport(activeTab)} variant="secondary" size="sm">
                   <Download size={14} /> تصدير إكسل ({activeTab === 'PL' ? 'كشف الأرباح' : 'الجدول'})
                 </Button>
               </Can>
