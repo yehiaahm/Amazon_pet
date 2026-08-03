@@ -6,32 +6,53 @@ server:
 spring:
   application:
     name: animasys-backend
-  
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/animasys_erp?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:yehia.hema195200}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    # Never commit real passwords — set SPRING_DATASOURCE_PASSWORD in the environment
+    password: ${SPRING_DATASOURCE_PASSWORD:}
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      # Flyway owns schema; avoid Hibernate DDL (prevents duplicate CREATE TABLE noise on H2)
+      ddl-auto: none
     properties:
       hibernate:
         show_sql: false
         format_sql: true
-    open-in-view: false
+    open-in-view: true
 
   flyway:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
 
-# Custom App Configurations
 app:
+  # Local sandbox only — never enable in production
+  allow-h2-fallback: ${ALLOW_H2_FALLBACK:false}
+  # Optional demo catalog/services. Core login accounts are always created when employees table is empty.
+  seed-demo-data: ${SEED_DEMO_DATA:false}
+  # Desktop installer sets true once to repair PIN hashes that drifted from the login UI
+  sync-default-pins: ${SYNC_DEFAULT_PINS:false}
+  # Comma-separated CORS origins for the API, e.g. http://localhost:5173,https://app.example.com
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:}
+  security:
+    public-swagger: ${APP_SECURITY_PUBLIC_SWAGGER:false}
+  # Used when MySQL is unreachable and allow-h2-fallback=true (file URL keeps data across restarts)
+  h2-fallback:
+    jdbc-url: ${H2_FALLBACK_JDBC_URL:jdbc:h2:file:./.data/animasys_erp;MODE=MySQL;AUTO_SERVER=TRUE;DATABASE_TO_UPPER=false}
   jwt:
-    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970} # 256-bit hex key
-    expiration-ms: 86400000 # 24 hours
+    # Provide JWT_SECRET (min 32 chars) via environment in every non-local deploy
+    secret: ${JWT_SECRET}
+    expiration-ms: 86400000
   ai:
+    mock-enabled: ${AI_MOCK_ENABLED:false}
+    request-timeout-ms: ${AI_REQUEST_TIMEOUT_MS:60000}
+    max-image-base64-length: ${AI_MAX_IMAGE_BASE64_LENGTH:15728640}
     gemini:
       api-key: ${GEMINI_API_KEY:}

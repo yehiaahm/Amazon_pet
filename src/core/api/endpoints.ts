@@ -1,495 +1,1183 @@
-import { mockDb } from './mockDb';
 import { 
   Product, ProductVariant, Warehouse, StockMovement, 
   Customer, Pet, Service, Appointment, Expense, 
-  DailyClosing, POSSession, Sale, KPIMetrics, AIAdvisorInsight 
+  DailyClosing, POSSession, Sale, KPIMetrics, DashboardMetrics, AIAdvisorInsight, ImportSession,
+  PurchaseInvoice, BoardingReservation, TenantBarcodeSettings,
+  PurchaseInvoiceCreateResponse, SaleRefundResult, SaleBatchAllocationRow,
+  AccountsPayableDashboard, PurchaseInvoiceInstallment,
+  SalesQueryParams, SalesPageResult
 } from '../../types/erp';
+import { useUIStore } from '../stores/uiStore';
+import { usePermissionStore } from '../permissions/permissionStore';
+import { getBackendUrl } from './backendUrl';
 
-// Simulated delay helper
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export interface CatalogQueryParams {
+  page?: number;
+  size?: number;
+  sort?: string;
+  search?: string;
+  category?: string;
+  brand?: string;
+  supplier?: string;
+  status?: string;
+  barcode?: string;
+  sku?: string;
+  lowStock?: boolean;
+}
 
-// Fetch helpers for Spring Boot integration
-const getHeaders = () => {
-  const token = localStorage.getItem('token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-  };
-};
+export interface CatalogVariantRow {
+  variantId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  variantName: string;
+  price: number;
+  cost: number;
+  wholesalePrice?: number;
+  stockQuantity: number;
+  minStockLimit: number;
+  reorderLevel: number;
+  barcode?: string;
+  barcodeFormat?: ProductVariant['barcodeFormat'];
+  barcodeGenerated?: boolean;
+  barcodeSource?: ProductVariant['barcodeSource'];
+  barcodeStatus?: ProductVariant['barcodeStatus'];
+  categoryId?: string;
+  categoryName?: string;
+  brandId?: string;
+  brandName?: string;
+  supplierId?: string;
+  supplierName?: string;
+}
 
-const getBackendUrl = () => localStorage.getItem('BACKEND_URL') || 'http://localhost:8080/api';
+export interface CatalogPageResult {
+  content: CatalogVariantRow[];
+  totalElements: number;
+  totalPages: number;
+  page: number;
+  size: number;
+  sort: string;
+}
 
-async function ensureAuthenticated() {
-  const isReal = localStorage.getItem('USE_REAL_BACKEND') === 'true';
-  if (!isReal) return;
-  if (localStorage.getItem('token')) return;
-  try {
-    const res = await fetch(`${getBackendUrl()}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: 'admin' })
+function mapCatalogToProducts(rows: CatalogVariantRow[]): Product[] {
+  const byProduct = new Map<string, Product>();
+  for (const row of rows) {
+    if (!row.productId || byProduct.has(row.productId)) continue;
+    byProduct.set(row.productId, {
+      id: row.productId,
+      sku: row.sku,
+      name: row.productName,
+      categoryId: row.categoryId || 'cat-1',
+      brandId: row.brandId || 'br-1',
+      unitId: 'u-1',
+      minStockLimit: row.minStockLimit ?? 10,
+      reorderLevel: row.reorderLevel ?? 0,
+      categoryName: row.categoryName,
+      brandName: row.brandName,
+      supplierId: row.supplierId,
+      supplierName: row.supplierName,
     });
-    const json = await res.json();
-    if (json.success && json.data.token) {
-      localStorage.setItem('token', json.data.token);
-    }
+  }
+  return Array.from(byProduct.values());
+}
+
+function mapCatalogToVariants(rows: CatalogVariantRow[]): ProductVariant[] {
+  return rows.map((row) => ({
+    id: row.variantId,
+    productId: row.productId,
+    name: row.variantName,
+    price: Number(row.price),
+    cost: Number(row.cost),
+    wholesalePrice: row.wholesalePrice != null ? Number(row.wholesalePrice) : undefined,
+    stockQuantity: row.stockQuantity,
+    barcode: row.barcode,
+    barcodeFormat: row.barcodeFormat,
+    barcodeGenerated: row.barcodeGenerated,
+    barcodeSource: row.barcodeSource,
+    barcodeStatus: row.barcodeStatus,
+  }));
+}
+
+// ─── HTTP helpers ───────────────────────────────────────────────────────────
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+function generateRequestId(): string {
+  return crypto.randomUUID?.()?.substring(0, 12) ?? `${Date.now()}`;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
-    console.error("Failed to authenticate with Spring Boot backend", err);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('انتهت مهلة الطلب — تحقق من اتصال الخادم وحاول مجدداً');
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('لا يوجد اتصال بالشبكة — تحقق من الإنترنت أو الخادم');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-export const api = {
-  // PRODUCTS & STOCK
-  async getProducts(): Promise<Product[]> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/inventory/variants`, { headers: getHeaders() });
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          const productsMap: Record<string, Product> = {};
-          json.data.forEach((v: any) => {
-            if (v.product) {
-              productsMap[v.product.id] = {
-                id: v.product.id,
-                sku: v.product.sku,
-                name: v.product.name,
-                categoryId: v.product.category?.id || 'cat-1',
-                brandId: v.product.brand?.id || 'brand-1',
-                unitId: v.product.unit?.id || 'unit-1',
-                minStockLimit: v.product.minStockLimit
-              };
-            }
-          });
-          return Object.values(productsMap);
-        }
-      } catch (err) {
-        console.error("Error fetching products from backend", err);
-      }
+const getHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    'X-Request-Id': generateRequestId(),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
+/** Like apiFetch but also returns optional API warnings (e.g. purchase receipt lines). */
+async function apiFetchWithMeta<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<{ data: T; warnings: unknown[] }> {
+  const url = `${getBackendUrl()}${path}`;
+  const res = await fetchWithTimeout(url, {
+    ...options,
+    headers: {
+      ...getHeaders(),
+      ...(options.headers as Record<string, string> || {}),
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      localStorage.removeItem('token');
+      useUIStore.getState().setAuthenticated(false);
+      useUIStore.getState().setCurrentEmployee(null);
+      usePermissionStore.getState().clearPermissions();
     }
-    await delay(200);
-    return [...mockDb.products];
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const errorJson = await res.json();
+      if (errorJson && errorJson.message) {
+        errMsg = errorJson.message;
+      }
+    } catch (_) {
+      // ignore
+    }
+    throw new Error(errMsg);
+  }
+
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.message || 'Request failed');
+  }
+  return {
+    data: json.data as T,
+    warnings: Array.isArray(json.warnings) ? json.warnings : [],
+  };
+}
+
+/** Central fetch with unified error handling — no silent swallows */
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const { data } = await apiFetchWithMeta<T>(path, options);
+  return data;
+}
+
+// ─── API surface ─────────────────────────────────────────────────────────────
+
+/** Normalize sale payload from API (nested employee/customer → flat ids). */
+function normalizeSale(s: any): Sale {
+  return {
+    ...s,
+    employeeId: s.employee?.id ?? s.employeeId,
+    employeeFullName: s.employee?.fullName ?? s.employeeFullName,
+    customerId: s.customer?.id ?? s.customerId,
+    posSessionId: s.posSession?.id ?? s.posSessionId,
+    items: (s.items || []).map((item: any) => ({
+      ...item,
+      quantityReturned: item.quantityReturned ?? 0,
+    })),
+  };
+}
+
+export const api = {
+
+  // ── PRODUCTS & VARIANTS (paginated catalog) ─────────────────────────────
+
+  async getCatalog(params: CatalogQueryParams = {}): Promise<CatalogPageResult> {
+    const qs = new URLSearchParams();
+    if (params.page != null) qs.set('page', String(params.page));
+    if (params.size != null) qs.set('size', String(params.size));
+    if (params.sort) qs.set('sort', params.sort);
+    if (params.search) qs.set('search', params.search);
+    if (params.category) qs.set('category', params.category);
+    if (params.brand) qs.set('brand', params.brand);
+    if (params.supplier) qs.set('supplier', params.supplier);
+    if (params.status) qs.set('status', params.status);
+    if (params.barcode) qs.set('barcode', params.barcode);
+    if (params.sku) qs.set('sku', params.sku);
+    if (params.lowStock != null) qs.set('lowStock', String(params.lowStock));
+    const query = qs.toString();
+    const data = await apiFetch<CatalogPageResult>(
+      `/v1/inventory/variants${query ? `?${query}` : ''}`
+    );
+    return data;
   },
 
-  async getVariants(): Promise<ProductVariant[]> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/inventory/variants`, { headers: getHeaders() });
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          return json.data.map((v: any) => ({
-            id: v.id,
-            productId: v.product?.id || 'p-1',
-            name: v.name,
-            price: v.price,
-            cost: v.cost,
-            stockQuantity: v.stockQuantity
-          }));
-        }
-      } catch (err) {
-        console.error("Error fetching variants from backend", err);
-      }
-    }
-    await delay(150);
-    return [...mockDb.variants];
+  /** @deprecated Use getCatalog — returns first page mapped to legacy Product shape. */
+  async getProducts(params?: CatalogQueryParams): Promise<Product[]> {
+    const page = await api.getCatalog({ page: 0, size: 100, sort: 'name,asc', ...params });
+    return mapCatalogToProducts(page.content);
+  },
+
+  /** @deprecated Use getCatalog — returns first page mapped to legacy ProductVariant shape. */
+  async getVariants(params?: CatalogQueryParams): Promise<ProductVariant[]> {
+    const page = await api.getCatalog({ page: 0, size: 100, sort: 'name,asc', ...params });
+    return mapCatalogToVariants(page.content);
   },
 
   async getBatches(): Promise<any[]> {
-    await delay(100);
-    return [...mockDb.batches];
+    const data = await apiFetch<any[]>('/v1/inventory/batches');
+    return data.map((b: any) => ({
+      id: b.id,
+      productVariantId: b.productVariantId,
+      batchNumber: b.batchNumber,
+      expiryDate: b.expiryDate || '',
+      quantity: b.quantity ?? b.remainingQuantity ?? 0,
+      unitCost: b.unitCost,
+      purchaseInvoiceId: b.purchaseInvoiceId,
+    }));
+  },
+
+  async getFifoValuation(): Promise<{
+    totalValuation: number;
+    totalActiveBatches?: number;
+    totalQuantityInStock?: number;
+    generatedAt?: string;
+    batchSummaries?: Array<{
+      batchId: string;
+      batchNumber: string;
+      productVariantName?: string;
+      remainingQuantity: number;
+      unitCost: number;
+      totalCostValue: number;
+    }>;
+  }> {
+    return await apiFetch('/v1/inventory/fifo/valuation');
+  },
+
+  async getFifoLedger(productVariantId: string): Promise<any[]> {
+    return await apiFetch(`/v1/inventory/fifo/ledger/${encodeURIComponent(productVariantId)}`);
+  },
+
+  async getFifoDeductionStrategy(): Promise<{ strategy: 'FIFO' | 'FEFO' }> {
+    return await apiFetch('/v1/inventory/fifo/strategy');
+  },
+
+  async setFifoDeductionStrategy(strategy: 'FIFO' | 'FEFO'): Promise<{ strategy: string }> {
+    return await apiFetch('/v1/inventory/fifo/strategy', {
+      method: 'PUT',
+      body: JSON.stringify({ strategy }),
+    });
+  },
+
+  async getSaleBatchAllocations(saleId: string): Promise<SaleBatchAllocationRow[]> {
+    return await apiFetch(`/v1/sales/${encodeURIComponent(saleId)}/batch-allocations`);
+  },
+
+  async reconcileInventory(): Promise<Record<string, unknown>> {
+    return await apiFetch('/v1/inventory/reconcile', { method: 'POST' });
+  },
+
+  async postInventoryWriteOff(args: {
+    inventoryBatchId: string;
+    warehouseId?: string;
+    quantity: number;
+    reason: string;
+  }): Promise<void> {
+    const wh = args.warehouseId || 'wh-shelf';
+    const q = new URLSearchParams({
+      inventoryBatchId: args.inventoryBatchId,
+      warehouseId: wh,
+      quantity: String(args.quantity),
+      reason: args.reason,
+    });
+    await apiFetch(`/v1/inventory/fifo/write-off?${q.toString()}`, { method: 'POST' });
   },
 
   async getWarehouses(): Promise<Warehouse[]> {
-    await delay(100);
-    return [...mockDb.warehouses];
+    return await apiFetch<Warehouse[]>('/v1/inventory/warehouses');
   },
 
   async getStockMovements(): Promise<StockMovement[]> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/inventory/movements`, { headers: getHeaders() });
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          return json.data.map((m: any) => ({
-            id: m.id,
-            warehouseId: m.warehouse?.id || 'wh-shelf',
-            productVariantId: m.productVariant?.id || 'v-1',
-            quantity: m.quantity,
-            type: m.type,
-            timestamp: m.timestamp,
-            employeeId: m.employee?.id || 'e-1'
-          }));
-        }
-      } catch (err) {
-        console.error("Error fetching movements from backend", err);
-      }
-    }
-    await delay(250);
-    return [...mockDb.stockMovements];
+    const data = await apiFetch<any[]>('/v1/inventory/movements');
+    return data.map((m: any) => ({
+      id: m.id,
+      warehouseId: m.warehouseId || m.warehouse?.id || 'wh-shelf',
+      productVariantId: m.productVariantId || m.productVariant?.id || '',
+      quantity: m.quantity ?? m.quantityChange ?? 0,
+      type: m.type,
+      timestamp: m.timestamp || m.createdAt,
+      employeeId: m.employeeId || m.employee?.id || '',
+    }));
   },
 
-  async addProduct(product: Omit<Product, 'id'>, variant: Omit<ProductVariant, 'id' | 'productId' | 'stockQuantity'>): Promise<Product> {
-    await delay(300);
-    const newProdId = `p-${mockDb.products.length + 1}`;
-    const newVarId = `v-${mockDb.variants.length + 1}`;
-    
-    const newProduct: Product = { id: newProdId, ...product };
-    const newVariant: ProductVariant = { 
-      id: newVarId, 
-      productId: newProdId, 
-      name: variant.name, 
-      price: variant.price, 
-      cost: variant.cost, 
-      stockQuantity: 0 
+  async getLowStockAlerts(): Promise<Array<{
+    productVariantId: string;
+    sku: string;
+    productName: string;
+    variantName: string;
+    stockQuantity: number;
+    minStockLimit: number;
+    deficit: number;
+  }>> {
+    return await apiFetch('/v1/inventory/low-stock');
+  },
+
+  async applyPhysicalCount(args: {
+    variantId: string;
+    warehouseId: string;
+    countedQuantity: number;
+    reason?: string;
+  }): Promise<{ variant: ProductVariant; systemQuantity: number; countedQuantity: number; difference: number }> {
+    return await apiFetch('/v1/inventory/count', {
+      method: 'POST',
+      body: JSON.stringify(args),
+    });
+  },
+
+  async addProduct(
+    product: Omit<Product, 'id'> & { categoryName?: string; brandName?: string; supplierName?: string; initialStock?: number },
+    variant: Omit<ProductVariant, 'id' | 'productId' | 'stockQuantity'> & { initialStock?: number; barcode?: string; barcodeFormat?: string }
+  ): Promise<Product> {
+    const data = await apiFetch<any>('/v1/products', {
+      method: 'POST',
+      body: JSON.stringify({
+        product: {
+          sku: product.sku,
+          name: product.name,
+          categoryId: product.categoryId,
+          categoryName: product.categoryName,
+          brandName: product.brandName,
+          brandId: product.brandId,
+          supplierName: product.supplierName,
+          supplierId: product.supplierId,
+          unitId: product.unitId,
+          minStockLimit: product.minStockLimit,
+          reorderLevel: product.reorderLevel ?? 0,
+          initialStock: product.initialStock ?? variant.initialStock,
+        },
+        variant: {
+          name: variant.name,
+          price: variant.price,
+          cost: variant.cost,
+          wholesalePrice: variant.wholesalePrice,
+          initialStock: variant.initialStock ?? product.initialStock,
+          barcode: variant.barcode,
+          barcodeFormat: variant.barcodeFormat,
+        },
+      }),
+    });
+    return {
+      id: data.id,
+      sku: data.sku,
+      name: data.name,
+      categoryId: data.categoryId || product.categoryId || '',
+      brandId: data.brandId || product.brandId || '',
+      unitId: data.unitId || product.unitId || '',
+      minStockLimit: Number(data.minStockLimit ?? product.minStockLimit ?? 10),
     };
-
-    mockDb.products.push(newProduct);
-    mockDb.variants.push(newVariant);
-    return newProduct;
   },
 
-  async updateStock(variantId: string, diff: number, type: StockMovement['type'], employeeId: string): Promise<ProductVariant> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/inventory/adjust`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({ variantId, warehouseId: 'wh-shelf', diff, type, employeeId })
-        });
-        const json = await res.json();
-        if (json.success && json.data) {
-          return {
-            id: json.data.id,
-            productId: json.data.product?.id || 'p-1',
-            name: json.data.name,
-            price: json.data.price,
-            cost: json.data.cost,
-            stockQuantity: json.data.stockQuantity
-          };
-        }
-      } catch (err) {
-        console.error("Error executing backend stock adjustment", err);
-      }
-    }
-    await delay(200);
-    const variant = mockDb.variants.find(v => v.id === variantId);
-    if (!variant) throw new Error('Variant not found');
-    
-    variant.stockQuantity += diff;
-    
-    mockDb.stockMovements.push({
-      id: `mov-manual-${Date.now()}`,
-      warehouseId: 'w-2', // Front Shelf default
-      productVariantId: variantId,
-      quantity: diff,
-      type,
-      timestamp: new Date().toISOString(),
-      employeeId
+  async updateStock(
+    variantId: string,
+    diff: number,
+    type: StockMovement['type'],
+    employeeId: string,
+    warehouseId: string
+  ): Promise<ProductVariant> {
+    const data = await apiFetch<any>('/v1/inventory/adjust', {
+      method: 'POST',
+      body: JSON.stringify({ variantId, warehouseId, diff, type, employeeId }),
     });
-
-    return { ...variant };
+    return {
+      id: data.id,
+      productId: data.product?.id || data.productId || '',
+      name: data.name,
+      price: Number(data.price ?? 0),
+      cost: Number(data.cost ?? 0),
+      stockQuantity: Number(data.stockQuantity ?? 0),
+      barcode: data.barcode,
+      barcodeFormat: data.barcodeFormat,
+      barcodeGenerated: data.barcodeGenerated,
+      barcodeGeneratedAt: data.barcodeGeneratedAt,
+      barcodeSource: data.barcodeSource,
+      barcodeStatus: data.barcodeStatus,
+    };
   },
 
-  async transferStock(sourceWhId: string, targetWhId: string, variantId: string, quantity: number, employeeId: string): Promise<boolean> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/inventory/transfer`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({ variantId, sourceWarehouseId: sourceWhId, targetWarehouseId: targetWhId, quantity, employeeId })
-        });
-        const json = await res.json();
-        return json.success;
-      } catch (err) {
-        console.error("Error executing backend transfer", err);
-      }
+  async updateVariantPricing(
+    variantId: string,
+    pricing: { price?: number; cost?: number; wholesalePrice?: number }
+  ): Promise<ProductVariant> {
+    const data = await apiFetch<any>(`/v1/inventory/variants/${variantId}/pricing`, {
+      method: 'PUT',
+      body: JSON.stringify(pricing),
+    });
+    return {
+      id: data.id,
+      productId: data.product?.id || data.productId || '',
+      name: data.name,
+      price: Number(data.price ?? 0),
+      cost: Number(data.cost ?? 0),
+      wholesalePrice: data.wholesalePrice != null ? Number(data.wholesalePrice) : undefined,
+      stockQuantity: Number(data.stockQuantity ?? 0),
+      barcode: data.barcode,
+      barcodeFormat: data.barcodeFormat,
+      barcodeGenerated: data.barcodeGenerated,
+      barcodeGeneratedAt: data.barcodeGeneratedAt,
+      barcodeSource: data.barcodeSource,
+      barcodeStatus: data.barcodeStatus,
+    };
+  },
+
+  async deleteVariant(variantId: string): Promise<void> {
+    await apiFetch<void>(`/v1/products/variants/${variantId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async updateProduct(
+    variantId: string,
+    payload: {
+      product?: Partial<Product> & { categoryName?: string; brandName?: string; supplierName?: string };
+      variant?: Partial<ProductVariant>;
     }
-    await delay(300);
-    const variant = mockDb.variants.find(v => v.id === variantId);
-    if (!variant) throw new Error('Variant not found');
-
-    // Deduct source warehouse
-    mockDb.stockMovements.push({
-      id: `mov-trf-src-${Date.now()}`,
-      warehouseId: sourceWhId,
-      productVariantId: variantId,
-      quantity: -quantity,
-      type: 'TRANSFER',
-      timestamp: new Date().toISOString(),
-      employeeId
+  ): Promise<any> {
+    return apiFetch<any>(`/v1/products/variants/${variantId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
+  },
 
-    // Add target warehouse
-    mockDb.stockMovements.push({
-      id: `mov-trf-tgt-${Date.now()}`,
-      warehouseId: targetWhId,
-      productVariantId: variantId,
-      quantity: quantity,
-      type: 'TRANSFER',
-      timestamp: new Date().toISOString(),
-      employeeId
+  async deleteBatch(batchId: string): Promise<void> {
+    await apiFetch<void>(`/v1/inventory/batches/${batchId}`, {
+      method: 'DELETE',
     });
+  },
 
+  async transferStock(
+    sourceWhId: string,
+    targetWhId: string,
+    variantId: string,
+    quantity: number,
+    employeeId: string
+  ): Promise<boolean> {
+    await apiFetch<void>('/v1/inventory/transfer', {
+      method: 'POST',
+      body: JSON.stringify({ variantId, sourceWarehouseId: sourceWhId, targetWarehouseId: targetWhId, quantity, employeeId }),
+    });
     return true;
   },
 
-  // POS SESSIONS & SALES
+  // ── POS SESSIONS ─────────────────────────────────────────────────────────
+
   async getPOSSessions(): Promise<POSSession[]> {
-    await delay(150);
-    return [...mockDb.posSessions];
+    return await apiFetch<POSSession[]>('/v1/pos-sessions');
   },
 
   async openPOSSession(openedById: string, openingBalance: number): Promise<POSSession> {
-    await delay(250);
-    const newSession: POSSession = {
-      id: `sess-${Date.now()}`,
-      branchId: 'b-1',
-      openedById,
-      openedAt: new Date().toISOString(),
-      openingBalance,
-      status: 'OPEN'
-    };
-    mockDb.posSessions.push(newSession);
-    return newSession;
-  },
-
-  async closePOSSession(sessionId: string, closingBalance: number, expectedBalance: number, physicalBalance: number, closedById: string): Promise<POSSession> {
-    await delay(300);
-    const session = mockDb.posSessions.find(s => s.id === sessionId);
-    if (!session) throw new Error('Session not found');
-
-    session.closingBalance = closingBalance;
-    session.closedAt = new Date().toISOString();
-    session.status = 'CLOSED';
-
-    // Log Daily Closing Ledger
-    mockDb.dailyClosings.push({
-      id: `close-pos-${Date.now()}`,
-      branchId: 'b-1',
-      cashboxId: 'cb-1',
-      openingBalance: session.openingBalance,
-      closingBalance,
-      systemExpected: expectedBalance,
-      physicalActual: physicalBalance,
-      difference: physicalBalance - expectedBalance,
-      closedById,
-      date: new Date().toISOString().split('T')[0]
+    return await apiFetch<POSSession>('/v1/pos-sessions/open', {
+      method: 'POST',
+      body: JSON.stringify({ branchId: 'b-1', openedById, openingBalance }),
     });
-
-    return { ...session };
   },
 
-  async getSales(): Promise<Sale[]> {
-    await delay(200);
-    return [...mockDb.sales];
-  },
-
-  async createSale(sale: Omit<Sale, 'id' | 'saleNumber' | 'date'>): Promise<Sale> {
-    await delay(300);
-    const newSaleNum = `INV-${mockDb.sales.length + 1001}`;
-    const newSale: Sale = {
-      id: `sale-${Date.now()}`,
-      saleNumber: newSaleNum,
-      date: new Date().toISOString(),
-      ...sale
-    };
-
-    // Process Stock deductions
-    sale.items.forEach(item => {
-      if (item.type === 'PRODUCT') {
-        const variant = mockDb.variants.find(v => v.id === item.itemId);
-        if (variant) {
-          variant.stockQuantity -= item.quantity;
-          
-          mockDb.stockMovements.push({
-            id: `mov-sale-${Date.now()}-${item.itemId}`,
-            warehouseId: 'w-2', // Front Shelf POS
-            productVariantId: item.itemId,
-            quantity: -item.quantity,
-            type: 'SALE',
-            timestamp: new Date().toISOString(),
-            employeeId: sale.employeeId
-          });
-        }
-      } else if (item.type === 'SERVICE') {
-        // Log Appointment completion if service sold in POS directly
-        mockDb.appointments.push({
-          id: `apt-sale-${Date.now()}`,
-          petId: 'pet-1', // Default mock
-          serviceId: item.itemId,
-          employeeId: 'e-3', // Groomer Bob
-          dateTime: new Date().toISOString(),
-          status: 'COMPLETED',
-          notes: 'Walk-in client service checkout.'
-        });
-      }
+  async closePOSSession(
+    sessionId: string,
+    closingBalance: number,
+    expectedBalance: number,
+    physicalBalance: number,
+    closedById: string
+  ): Promise<POSSession> {
+    return await apiFetch<POSSession>(`/v1/pos-sessions/${sessionId}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ closingBalance, expectedBalance, physicalBalance, closedById }),
     });
-
-    mockDb.sales.push(newSale);
-    return newSale;
   },
 
-  // SERVICES & APPOINTMENTS
+  // ── SALES ─────────────────────────────────────────────────────────────────
+
+  async getSales(params: SalesQueryParams = {}): Promise<SalesPageResult> {
+    const q = new URLSearchParams();
+    if (params.page != null) q.set('page', String(params.page));
+    if (params.size != null) q.set('size', String(params.size));
+    if (params.sort) q.set('sort', params.sort);
+    if (params.search) q.set('search', params.search);
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params.dateTo) q.set('dateTo', params.dateTo);
+    if (params.customer) q.set('customer', params.customer);
+    if (params.employee) q.set('employee', params.employee);
+    if (params.status) q.set('status', params.status);
+    if (params.paymentMethod) q.set('paymentMethod', params.paymentMethod);
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    const data = await apiFetch<any>(`/v1/sales${suffix}`);
+    const content = (data.content || []).map((row: any) =>
+      normalizeSale({ ...row, items: row.items || [] })
+    );
+    return {
+      content,
+      totalElements: data.totalElements ?? content.length,
+      totalPages: data.totalPages ?? 1,
+      page: data.page ?? 0,
+      size: data.size ?? content.length,
+      sort: data.sort ?? 'date,desc',
+    };
+  },
+
+  async getSale(saleId: string): Promise<Sale> {
+    const row = await apiFetch<any>(`/v1/sales/${encodeURIComponent(saleId)}`);
+    return normalizeSale(row);
+  },
+
+  async createSale(
+    sale: Omit<Sale, 'id' | 'saleNumber' | 'date'> & { managerPassword?: string; managerUsername?: string }
+  ): Promise<Sale> {
+    const payload = {
+      posSessionId: sale.posSessionId,
+      totalAmount: sale.totalAmount,
+      tax: sale.tax,
+      discount: sale.discount,
+      paymentMethod: sale.paymentMethod,
+      customerId: sale.customerId,
+      ...(sale.managerPassword ? { managerPassword: sale.managerPassword } : {}),
+      ...(sale.managerUsername ? { managerUsername: sale.managerUsername } : {}),
+      items: (sale.items || []).map((item) => ({
+        type: item.type,
+        itemId: item.itemId,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        listPrice: item.listPrice ?? item.price,
+        cost: item.cost ?? 0,
+      })),
+    };
+    return await apiFetch<Sale>('/v1/sales', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async refundSale(
+    saleId: string,
+    employeeId: string,
+    opts?: {
+      managerPassword?: string;
+      managerUsername?: string;
+      lines?: Array<{ saleItemId: string; quantity: number }>;
+    }
+  ): Promise<SaleRefundResult> {
+    return await apiFetch<SaleRefundResult>(`/v1/sales/${saleId}/refund`, {
+      method: 'POST',
+      body: JSON.stringify({
+        employeeId,
+        ...(opts?.managerPassword ? { managerPassword: opts.managerPassword } : {}),
+        ...(opts?.managerUsername ? { managerUsername: opts.managerUsername } : {}),
+        ...(opts?.lines && opts.lines.length > 0 ? { lines: opts.lines } : {}),
+      }),
+    });
+  },
+
+  // ── SERVICES & APPOINTMENTS ───────────────────────────────────────────────
+
   async getServices(): Promise<Service[]> {
-    await delay(100);
-    return [...mockDb.services];
+    return await apiFetch<Service[]>('/v1/services');
+  },
+
+  async createService(service: {
+    name: string;
+    price: number;
+    durationMinutes: number;
+  }): Promise<Service> {
+    return await apiFetch<Service>('/v1/services', {
+      method: 'POST',
+      body: JSON.stringify(service),
+    });
+  },
+
+  async updateService(
+    id: string,
+    service: { name: string; price: number; durationMinutes: number }
+  ): Promise<Service> {
+    return await apiFetch<Service>(`/v1/services/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(service),
+    });
+  },
+
+  async deleteService(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/services/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async seedDefaultServices(): Promise<Service[]> {
+    return await apiFetch<Service[]>('/v1/services/seed-defaults', {
+      method: 'POST',
+    });
   },
 
   async getAppointments(): Promise<Appointment[]> {
-    await delay(200);
-    return [...mockDb.appointments];
+    return await apiFetch<Appointment[]>('/v1/appointments');
   },
 
   async createAppointment(appointment: Omit<Appointment, 'id' | 'status'>): Promise<Appointment> {
-    await delay(250);
-    const newApt: Appointment = {
-      id: `apt-${Date.now()}`,
-      status: 'SCHEDULED',
-      ...appointment
-    };
-    mockDb.appointments.push(newApt);
-    return newApt;
-  },
-
-  async updateAppointmentStatus(appointmentId: string, status: Appointment['status']): Promise<Appointment> {
-    await delay(200);
-    const apt = mockDb.appointments.find(a => a.id === appointmentId);
-    if (!apt) throw new Error('Appointment not found');
-    apt.status = status;
-    return { ...apt };
-  },
-
-  // CRM
-  async getCustomers(): Promise<Customer[]> {
-    await delay(150);
-    return [...mockDb.customers];
-  },
-
-  async getPets(): Promise<Pet[]> {
-    await delay(150);
-    return [...mockDb.pets];
-  },
-
-  async addCustomer(customer: Omit<Customer, 'id'>, pet?: Omit<Pet, 'id' | 'customerId'>): Promise<Customer> {
-    await delay(250);
-    const newCustId = `c-${mockDb.customers.length + 1}`;
-    const newCust: Customer = { id: newCustId, ...customer };
-    mockDb.customers.push(newCust);
-
-    if (pet) {
-      const newPetId = `pet-${mockDb.pets.length + 1}`;
-      mockDb.pets.push({ id: newPetId, customerId: newCustId, ...pet });
-    }
-
-    return newCust;
-  },
-
-  // FINANCE
-  async getExpenses(): Promise<Expense[]> {
-    await delay(200);
-    return [...mockDb.expenses];
-  },
-
-  async addExpense(expense: Omit<Expense, 'id' | 'date'>): Promise<Expense> {
-    await delay(250);
-    const newExp: Expense = {
-      id: `exp-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
-      ...expense
-    };
-    mockDb.expenses.push(newExp);
-    return newExp;
-  },
-
-  async getDailyClosings(): Promise<DailyClosing[]> {
-    await delay(200);
-    return [...mockDb.dailyClosings];
-  },
-
-  // ANALYTICS & AI ADVISOR
-  async getKPIMetrics(): Promise<KPIMetrics> {
-    await delay(200);
-    return mockDb.getKPIMetrics();
-  },
-
-  async getAIInsights(): Promise<AIAdvisorInsight> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/ai/insights?tenantId=t-1`, { headers: getHeaders() });
-        const json = await res.json();
-        if (json.success) {
-          return {
-            businessSummary: json.data,
-            criticalAlerts: [
-              { title: 'تنبيه نقص مخزون: Kitten Dry Cat Food', description: 'Kitten Dry Cat Food (كيس 2 كجم) تبقى منه 4 أكياس فقط (الحد الأدنى 15). يُوصى بإعادة الطلب فورًا.', severity: 'CRITICAL' },
-              { title: 'اقتراب تاريخ انتهاء صلاحية دفعة', description: 'دفعة من Bravecto الأقراص تنتهي صلاحيتها خلال أقل من 90 يومًا.', severity: 'WARNING' }
-            ],
-            topOpportunities: [
-              { title: 'حملة حجوزات الجروومينغ', description: 'استهدف عملاء الجروومينغ المتكررين بحملات خصم في منتصف الأسبوع للاستفادة من نسبة استغلال الموظفين 68٪.', priority: 'HIGH' },
-              { title: 'إعادة تخزين Kitten Dry Cat Food', description: 'إعادة طلب متغيرات Royal Canin لغذاء الكلاب.', priority: 'HIGH' }
-            ],
-            recommendations: [
-              { title: 'تعديل جداول الموظفين', action: 'تخصيص ورديات الحلاقين لساعات الطلب المرتفع يوم السبت.', impact: '+$320/أسبوع' },
-              { title: 'تفاوض مع الموردين', action: 'إعادة التفاوض على تكاليف توريد بيورينا.', impact: '+$180/شهر' }
-            ],
-            forecastText: 'من المتوقع نمو المبيعات بنسبة 5.4٪ الشهر القادم بسبب ارتفاع طلبات الجروومينغ.'
-          };
-        }
-      } catch (err) {
-        console.error("Error executing backend AI insights", err);
-      }
-    }
-    await delay(400);
-    return mockDb.getAIInsights();
-  },
-
-  async askAIAdvisor(query: string): Promise<string> {
-    if (localStorage.getItem('USE_REAL_BACKEND') === 'true') {
-      await ensureAuthenticated();
-      try {
-        const res = await fetch(`${getBackendUrl()}/ai/ask`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({ tenantId: 't-1', query })
-        });
-        const json = await res.json();
-        if (json.success) {
-          return json.data;
-        }
-      } catch (err) {
-        console.error("Error asking backend AI", err);
-      }
-    }
-    return new Promise(resolve => {
-      setTimeout(() => {
-        let reply = 'آسف، لم أفهم سؤالك. جرّب السؤال عن “أعلى خدمة هامشًا” أو “إعادة طلب غذاء القطط” أو “التوقعات”.';
-        const normalized = query.toLowerCase();
-        if (normalized.includes('هامش') || normalized.includes('أعلى') || normalized.includes('margin') || normalized.includes('highest')) {
-          reply = 'يُشير التحليل إلى أن أعلى خدمة هامشًا هي “Nail Trimming & Ear Cleaning” بهامش إجمالي 85٪ (السعر: $15.00، تكلفة العمالة التقديرية: $2.25). بينما تمثّل “Full Grooming & Bath” 68٪ من إجمالي حجم خدمات الجروومينغ وتولد أكبر قيمة نقدية صافية بمبلغ $60.00 لكل وحدة (70٪ هامش).';
-        } else if (normalized.includes('إعادة') || normalized.includes('قطط') || normalized.includes('restock') || normalized.includes('cat food')) {
-          reply = 'Kitten Dry Cat Food تبقى منه 4 أكياس فقط (الحد الأدنى 15). أوصي بطلب 30 كيسًا من موزع Purina (التكلفة الإجمالية: $360.00) لتجنب نفاد المخزون قبل يوم الأربعاء. سيحافظ هذا على $220.00 من مبيعات التجزئة المتوقعة.';
-        } else if (normalized.includes('توقع') || normalized.includes('نمو') || normalized.includes('forecast') || normalized.includes('grow')) {
-          reply = 'من المتوقع نمو المبيعات بنسبة 5.4٪ الشهر القادم بسبب الارتفاع الموسمي في طلبات الجروومينغ في يوليو. ومن المتوقع أن تظل المصاريف مستقرة عند $4,880.00، مما يدفع هوامش الربح الصافي إلى 14.8٪.';
-        } else if (normalized.includes('إيميل') || normalized.includes('مسودة') || normalized.includes('رسالة') || normalized.includes('email') || normalized.includes('draft')) {
-          reply = 'الموضوع: أمر شراء - Kitten Dry Cat Food\n\nحضرة فريق مبيعات Purina الكرام،\n\nيُرجى الاطلاع على أمر الشراء التالي لفرع أنيماسيز وسط المدينة:\n- الصنف: Kitten Dry Cat Food (كيس 2 كجم)\n- الكمية: 30 كيس\n- موعد التسليم المطلوب: قبل الخميس 9 يوليو.\n\nيُرجى تأكيد توفر المخزون وإرسال الفاتورة المبدئية إلى billing@animasys.com.\n\nمع خالص التحية،\nيحيى\nمدير المتجر';
-        }
-        resolve(reply);
-      }, 800);
+    return await apiFetch<Appointment>('/v1/appointments', {
+      method: 'POST',
+      body: JSON.stringify(appointment),
     });
   },
 
-  async refundSale(saleId: string, employeeId: string): Promise<void> {
-    await delay(300);
-    mockDb.refundSale(saleId, employeeId);
+  async updateAppointmentStatus(
+    appointmentId: string,
+    status: Appointment['status']
+  ): Promise<Appointment> {
+    return await apiFetch<Appointment>(`/v1/appointments/${appointmentId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
   },
 
+  // ── CRM ───────────────────────────────────────────────────────────────────
+
+  async getCustomers(): Promise<Customer[]> {
+    return await apiFetch<Customer[]>('/v1/customers');
+  },
+
+  async getPets(): Promise<Pet[]> {
+    return await apiFetch<Pet[]>('/v1/pets');
+  },
+
+  async addCustomer(
+    customer: Omit<Customer, 'id'>,
+    pet?: Omit<Pet, 'id' | 'customerId'>
+  ): Promise<Customer> {
+    return await apiFetch<Customer>('/v1/customers', {
+      method: 'POST',
+      body: JSON.stringify({ customer, pet }),
+    });
+  },
+
+  async updateCustomer(
+    id: string,
+    customer: Partial<Omit<Customer, 'id'>>
+  ): Promise<Customer> {
+    return await apiFetch<Customer>(`/v1/customers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(customer),
+    });
+  },
+
+  async deleteCustomer(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/customers/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getCustomerSales(id: string): Promise<Sale[]> {
+    return await apiFetch<Sale[]>(`/v1/customers/${id}/sales`);
+  },
+
+  // ── FINANCE ───────────────────────────────────────────────────────────────
+
+  async getExpenses(): Promise<Expense[]> {
+    return await apiFetch<Expense[]>('/v1/expenses');
+  },
+
+  async addExpense(expense: Omit<Expense, 'id' | 'date'>): Promise<Expense> {
+    return await apiFetch<Expense>('/v1/expenses', {
+      method: 'POST',
+      body: JSON.stringify(expense),
+    });
+  },
+
+  async deleteExpense(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/expenses/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getDailyClosings(): Promise<DailyClosing[]> {
+    return await apiFetch<DailyClosing[]>('/v1/daily-closings');
+  },
+
+  // ── ANALYTICS & AI ────────────────────────────────────────────────────────
+
+  async getKPIMetrics(): Promise<KPIMetrics> {
+    const data = await apiFetch<Record<string, any>>('/v1/analytics/kpis');
+    return {
+      grossRevenue: Number(data['إجمالي_الإيرادات'] ?? 0),
+      grossProfit: Number(data['إجمالي_الربح'] ?? 0),
+      netProfit: Number(data['صافي_الربح'] ?? 0),
+      profitMargin: parseFloat(String(data['نسبة_هامش_الربح_الإجمالي'] ?? '0')),
+      cogs: Number(data['تكلفة_البضاعة_المباعة'] ?? 0),
+      inventoryTurnover: parseFloat(String(data['معدل_دوران_المخزون'] ?? '0')),
+      inventoryValue: Number(data['قيمة_المخزون'] ?? 0),
+      averageBasket: Number(data['متوسط_السلة'] ?? 0),
+      clv: 0,
+      repeatCustomerRate: parseFloat(String(data['معدل_تكرار_العملاء'] ?? '0')),
+      deadStockCount: Number(data['عدد_المنتجات_الراكدة'] ?? 0),
+      fastMovingItems: [],
+      slowMovingItems: [],
+      cashFlow: 0,
+      burnRate: Number(data['إجمالي_المصاريف'] ?? 0),
+    };
+  },
+
+  async getDashboardMetrics(): Promise<DashboardMetrics> {
+    const data = await apiFetch<Record<string, any>>('/v1/analytics/dashboard');
+    const num = (v: unknown, fallback = 0) => Number(v ?? fallback);
+    const block = (raw: Record<string, unknown> | undefined): DashboardMetrics['todaySales'] => ({
+      revenue: num(raw?.revenue),
+      count: num(raw?.count),
+      previousRevenue: num(raw?.previousRevenue),
+      trendPct: num(raw?.trendPct),
+    });
+    const amount = (raw: Record<string, unknown> | undefined): DashboardMetrics['netProfit'] => ({
+      amount: num(raw?.amount),
+      previousAmount: num(raw?.previousAmount),
+      trendPct: num(raw?.trendPct),
+    });
+    const chart = Array.isArray(data.monthlyChart) ? data.monthlyChart : [];
+    const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+    const best = Array.isArray(data.bestSellingProducts) ? data.bestSellingProducts : [];
+    const customers = Array.isArray(data.topCustomers) ? data.topCustomers : [];
+    const suppliers = Array.isArray(data.topSuppliers) ? data.topSuppliers : [];
+
+    return {
+      todaySales: block(data.todaySales),
+      monthlySales: block(data.monthlySales),
+      netProfit: amount(data.netProfit),
+      expenses: amount(data.expenses),
+      purchases: amount(data.purchases),
+      inventoryValue: num(data.inventoryValue),
+      grossMargin: num(data.grossMargin),
+      cogs: num(data.cogs),
+      bestSellingProducts: best.map((row: Record<string, unknown>) => ({
+        name: String(row.name ?? '—'),
+        quantity: num(row.quantity),
+        revenue: num(row.revenue),
+      })),
+      topCustomers: customers.map((row: Record<string, unknown>) => ({
+        name: String(row.name ?? '—'),
+        orderCount: num(row.orderCount),
+        totalSpend: num(row.totalSpend),
+      })),
+      topSuppliers: suppliers.map((row: Record<string, unknown>) => ({
+        name: String(row.name ?? '—'),
+        invoiceCount: num(row.invoiceCount),
+        totalPurchases: num(row.totalPurchases),
+      })),
+      alerts: alerts.map((row: Record<string, unknown>) => ({
+        rule: String(row.rule ?? ''),
+        severity: String(row.severity ?? ''),
+        message: String(row.message ?? ''),
+      })),
+      monthlyChart: chart.map((row: Record<string, unknown>) => ({
+        month: String(row.month ?? ''),
+        sales: num(row.sales),
+        expenses: num(row.expenses),
+        purchases: num(row.purchases),
+        productRevenue: num(row.productRevenue),
+        serviceRevenue: num(row.serviceRevenue),
+      })),
+    };
+  },
+
+  async getAIInsights(): Promise<AIAdvisorInsight> {
+    const data = await apiFetch<string>('/v1/ai/insights');
+    return {
+      businessSummary: data,
+      criticalAlerts: [],
+      topOpportunities: [],
+      recommendations: [],
+      forecastText: '',
+    };
+  },
+
+  async askAIAdvisor(query: string, clientContext?: string): Promise<string> {
+    return await apiFetch<string>('/v1/ai/ask', {
+      method: 'POST',
+      body: JSON.stringify({
+        tenantId: 't-1',
+        query,
+        ...(clientContext ? { clientContext } : {}),
+      }),
+    });
+  },
+
+  // ── AUDIT LOGS ────────────────────────────────────────────────────────────
+
   async getAuditLogs(): Promise<any[]> {
-    await delay(150);
-    return [...mockDb.auditLogs];
-  }
+    return await apiFetch<any[]>('/v1/audit-logs');
+  },
+
+  // ── IMPORT ────────────────────────────────────────────────────────────────
+
+  async startImportSession(
+    fileName: string,
+    fileSize: number,
+    fileHash: string,
+    duplicateStrategy: string,
+    targetType: string,
+    uploadedBy: string
+  ): Promise<ImportSession> {
+    return await apiFetch<ImportSession>('/v1/import/session/start', {
+      method: 'POST',
+      body: JSON.stringify({ fileName, fileSize, fileHash, duplicateStrategy, targetType, uploadedBy }),
+    });
+  },
+
+  async uploadImportChunk(
+    sessionId: string,
+    items: any[],
+    chunkIndex: number,
+    dryRun: boolean,
+    employeeId: string
+  ): Promise<void> {
+    await apiFetch<void>(`/v1/import/session/${sessionId}/chunk`, {
+      method: 'POST',
+      body: JSON.stringify({ items, chunkIndex, dryRun, employeeId }),
+    });
+  },
+
+  async finalizeImportSession(sessionId: string): Promise<ImportSession> {
+    return await apiFetch<ImportSession>(`/v1/import/session/${sessionId}/finalize`, {
+      method: 'POST',
+    });
+  },
+
+  async undoImportSession(sessionId: string, employeeId: string): Promise<void> {
+    await apiFetch<void>(`/v1/import/session/${sessionId}/undo?employeeId=${encodeURIComponent(employeeId)}`, {
+      method: 'POST',
+    });
+  },
+
+  async deleteImportSession(sessionId: string, employeeId: string): Promise<void> {
+    await apiFetch<void>(`/v1/import/session/${sessionId}?employeeId=${encodeURIComponent(employeeId)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getImportHistory(): Promise<ImportSession[]> {
+    return await apiFetch<ImportSession[]>('/v1/import/history');
+  },
+
+  // ── AI INVOICE SCANNER ────────────────────────────────────────────────────
+
+  async analyzeInvoiceImage(imageBase64: string, mimeType: string, _hintCategory?: string): Promise<any> {
+    const raw = await apiFetch<string>('/v1/ai/analyze-invoice', {
+      method: 'POST',
+      body: JSON.stringify({ imageBase64, mimeType }),
+    });
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  },
+
+  // ── PURCHASE INVOICES ─────────────────────────────────────────────────────
+
+  async createPurchaseInvoice(invoice: any, employeeId: string): Promise<PurchaseInvoiceCreateResponse> {
+    const { data, warnings } = await apiFetchWithMeta<PurchaseInvoice>(
+      `/v1/purchase-invoices?employeeId=${encodeURIComponent(employeeId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(invoice),
+      }
+    );
+    return {
+      invoice: data,
+      warnings: warnings as PurchaseInvoiceCreateResponse['warnings'],
+    };
+  },
+
+  async getPurchaseInvoices(): Promise<PurchaseInvoice[]> {
+    return await apiFetch<PurchaseInvoice[]>('/v1/purchase-invoices');
+  },
+
+  async payPurchaseInvoice(id: string, amount: number): Promise<PurchaseInvoice> {
+    return await apiFetch<PurchaseInvoice>(`/v1/purchase-invoices/${id}/pay?amount=${amount}`, {
+      method: 'PUT',
+    });
+  },
+
+  // ── ACCOUNTS PAYABLE ──────────────────────────────────────────────────────
+
+  async getAccountsPayableDashboard(): Promise<AccountsPayableDashboard> {
+    return await apiFetch<AccountsPayableDashboard>('/v1/accounts-payable/dashboard');
+  },
+
+  async getInvoiceInstallments(invoiceId: string): Promise<PurchaseInvoiceInstallment[]> {
+    return await apiFetch<PurchaseInvoiceInstallment[]>(`/v1/accounts-payable/invoices/${invoiceId}/installments`);
+  },
+
+  async setInvoiceInstallments(
+    invoiceId: string,
+    paymentType: 'LUMP_SUM' | 'INSTALLMENTS',
+    installments: Array<{ installmentNumber: number; dueDate: string; amount: number; notes?: string }>
+  ): Promise<PurchaseInvoice> {
+    return await apiFetch<PurchaseInvoice>(`/v1/accounts-payable/invoices/${invoiceId}/installments`, {
+      method: 'PUT',
+      body: JSON.stringify({ paymentType, installments }),
+    });
+  },
+
+  async payInstallment(installmentId: string, amount: number, notes?: string): Promise<PurchaseInvoiceInstallment> {
+    return await apiFetch<PurchaseInvoiceInstallment>(`/v1/accounts-payable/installments/${installmentId}/pay`, {
+      method: 'PUT',
+      body: JSON.stringify({ amount, notes }),
+    });
+  },
+
+  async getAccountsPayableSettings(): Promise<{ tenantId: string; reminderDaysBeforeDue: number }> {
+    return await apiFetch('/v1/accounts-payable/settings');
+  },
+
+  async updateAccountsPayableSettings(reminderDaysBeforeDue: number): Promise<{ tenantId: string; reminderDaysBeforeDue: number }> {
+    return await apiFetch('/v1/accounts-payable/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ reminderDaysBeforeDue }),
+    });
+  },
+
+  // ── SUPPLIERS ─────────────────────────────────────────────────────────────
+
+  async getSuppliers(): Promise<any[]> {
+    return await apiFetch<any[]>('/v1/suppliers');
+  },
+
+  // ── BOARDING RESERVATIONS ─────────────────────────────────────────────────
+
+  async getBoardingReservations(): Promise<BoardingReservation[]> {
+    return await apiFetch<BoardingReservation[]>('/v1/boarding-reservations');
+  },
+
+  async addBoardingReservation(
+    reservation: Omit<BoardingReservation, 'id' | 'status'>
+  ): Promise<BoardingReservation> {
+    return await apiFetch<BoardingReservation>('/v1/boarding-reservations', {
+      method: 'POST',
+      body: JSON.stringify(reservation),
+    });
+  },
+
+  async updateBoardingStatus(id: string, status: string): Promise<BoardingReservation> {
+    return await apiFetch<BoardingReservation>(
+      `/v1/boarding-reservations/${id}/status?status=${encodeURIComponent(status)}`,
+      { method: 'PUT' }
+    );
+  },
+
+  async deleteBoardingReservation(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/boarding-reservations/${id}`, { method: 'DELETE' });
+  },
+
+  async getEmployees(): Promise<any[]> {
+    return await apiFetch<any[]>('/v1/employees');
+  },
+
+  async addEmployee(employee: any): Promise<any> {
+    return await apiFetch<any>('/v1/employees', {
+      method: 'POST',
+      body: JSON.stringify(employee),
+    });
+  },
+
+  async deleteEmployee(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/employees/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async changePassword(id: string, newPassword: string): Promise<void> {
+    await apiFetch<void>(`/v1/employees/${encodeURIComponent(id)}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ newPassword }),
+    });
+  },
+
+  // ── ROLES & PERMISSIONS ────────────────────────────────────────────────────
+
+  async getRoles(): Promise<any[]> {
+    return await apiFetch<any[]>('/v1/roles');
+  },
+
+  async getPermissionsCatalog(): Promise<any[]> {
+    return await apiFetch<any[]>('/v1/roles/permissions');
+  },
+
+  async getRole(id: string): Promise<any> {
+    return await apiFetch<any>(`/v1/roles/${encodeURIComponent(id)}`);
+  },
+
+  async createRole(role: { code: string; name: string; description?: string }): Promise<any> {
+    return await apiFetch<any>('/v1/roles', {
+      method: 'POST',
+      body: JSON.stringify(role),
+    });
+  },
+
+  async updateRolePermissions(roleId: string, permissionCodes: string[]): Promise<any> {
+    return await apiFetch<any>(`/v1/roles/${encodeURIComponent(roleId)}/permissions`, {
+      method: 'PUT',
+      body: JSON.stringify({ permissionCodes }),
+    });
+  },
+
+  async deleteRole(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/roles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async getMyPermissions(): Promise<string[]> {
+    return await apiFetch<string[]>('/v1/me/permissions');
+  },
+
+  async factoryReset(): Promise<any> {
+    return await apiFetch<any>('/v1/admin/factory-reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: 'RESET TO FIRST USE' }),
+    });
+  },
+
+  async generateBarcode(variantId: string, formatName: string): Promise<any> {
+    return apiFetch<any>(`/v1/inventory/variants/${variantId}/barcode/generate?format=${formatName}`, {
+      method: 'POST'
+    });
+  },
+
+  async clearBarcode(variantId: string): Promise<any> {
+    return apiFetch<any>(`/v1/inventory/variants/${variantId}/barcode`, {
+      method: 'DELETE'
+    });
+  },
+
+  async getBarcode(variantId: string): Promise<any> {
+    return apiFetch<any>(`/v1/inventory/variants/${variantId}/barcode`);
+  },
+
+  async getBarcodeSettings(): Promise<TenantBarcodeSettings> {
+    return apiFetch<TenantBarcodeSettings>('/v1/inventory/barcode-settings');
+  },
+
+  async updateBarcodeSettings(settings: TenantBarcodeSettings): Promise<TenantBarcodeSettings> {
+    return apiFetch<TenantBarcodeSettings>('/v1/inventory/barcode-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  async bulkPrintPdf(items: { variantId: string; quantity?: number; useStockQuantity?: boolean }[], style?: string): Promise<Blob> {
+    const styleParam = style ? `?style=${style}` : '';
+    const url = `${getBackendUrl()}/v1/inventory/variants/barcodes/pdf${styleParam}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(items)
+    });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) errMsg = errJson.message;
+      } catch (_) { /* ignore */ }
+      throw new Error(errMsg);
+    }
+    return res.blob();
+  },
+
+  async bulkPrintZpl(items: { variantId: string; quantity?: number; useStockQuantity?: boolean }[], style?: string): Promise<string> {
+    const styleParam = style ? `?style=${style}` : '';
+    const url = `${getBackendUrl()}/v1/inventory/variants/barcodes/zpl${styleParam}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(items)
+    });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) errMsg = errJson.message;
+      } catch (_) { /* ignore */ }
+      throw new Error(errMsg);
+    }
+    const text = await res.text();
+    if (!text || text.trim().length === 0) {
+      throw new Error('لم يتم إنشاء ملف ZPL — تأكد أن المنتجات المحددة لديها باركود صالح');
+    }
+    return text;
+  },
+
+  async getQrPreview(variantId: string): Promise<any> {
+    return apiFetch<any>(`/v1/inventory/qr-labels/variants/${variantId}/preview`);
+  },
+
+  async printQrLabelPdf(variantId: string, quantity: number, style?: string): Promise<Blob> {
+    const url = `${getBackendUrl()}/v1/inventory/qr-labels/pdf`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ variantId, quantity, style })
+    });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) errMsg = errJson.message;
+      } catch (_) { /* ignore */ }
+      throw new Error(errMsg);
+    }
+    return res.blob();
+  },
+
+  async printQrLabelZpl(variantId: string, quantity: number, style?: string): Promise<string> {
+    const url = `${getBackendUrl()}/v1/inventory/qr-labels/zpl`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ variantId, quantity, style })
+    });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) errMsg = errJson.message;
+      } catch (_) { /* ignore */ }
+      throw new Error(errMsg);
+    }
+    return res.text();
+  },
+
+  getBackendUrl(): string {
+    return getBackendUrl();
+  },
+
+  /** Returns all printer names visible to the server's OS (for USB/Network Zebra printers). */
+  async listPrinters(): Promise<string[]> {
+    const data = await apiFetch<string[]>('/v1/inventory/system/printers');
+    return data ?? [];
+  },
+
+  /**
+   * Sends ZPL directly to a named printer on the server OS — no file download needed.
+   * Works with USB-connected Zebra printers when the backend and printer are on the same machine.
+   */
+  async printDirect(printerName: string, items: { variantId: string; quantity?: number; useStockQuantity?: boolean }[], style?: string): Promise<void> {
+    await apiFetch<void>('/v1/inventory/variants/barcodes/print-direct', {
+      method: 'POST',
+      body: JSON.stringify({ printerName, items, style }),
+    });
+  },
 };
+

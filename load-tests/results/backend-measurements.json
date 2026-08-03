@@ -1,0 +1,45 @@
+{
+  "phase": "backend",
+  "timestamp": "2026-07-31T02:36:13.906Z",
+  "baseUrl": "http://localhost:8080",
+  "available": false,
+  "measurements": [],
+  "staticAnalysis": [
+    {
+      "area": "database_indexes",
+      "finding": "sales table lacks tenant_id index; queries join through employees",
+      "severity": "P0"
+    },
+    {
+      "area": "database_indexes",
+      "finding": "product_variants, products, customers (list) lack dedicated tenant+search indexes beyond FKs",
+      "severity": "P1"
+    },
+    {
+      "area": "api_design",
+      "finding": "GET /v1/sales returns full tenant history with EAGER sale items — no pagination",
+      "severity": "P0"
+    },
+    {
+      "area": "api_design",
+      "finding": "GET /v1/inventory/variants loads all variants + product join per tenant",
+      "severity": "P0"
+    },
+    {
+      "area": "api_design",
+      "finding": "DashboardService.buildDashboardMetrics loads ALL sales, expenses, purchases in memory",
+      "severity": "P0"
+    },
+    {
+      "area": "connection_pool",
+      "finding": "HikariCP maxPoolSize=20, minIdle=2 — may exhaust under concurrent POS + dashboard",
+      "severity": "P1"
+    },
+    {
+      "area": "jpa",
+      "finding": "Sale.items FetchType.EAGER amplifies payload and query cost for list endpoints",
+      "severity": "P0"
+    }
+  ],
+  "error": "Backend unavailable at http://localhost:8080: fetch failed"
+}

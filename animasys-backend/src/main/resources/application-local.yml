@@ -1,0 +1,12 @@
+# Activate with: --spring.profiles.active=local
+# Prefer MySQL: set SPRING_DATASOURCE_PASSWORD in your IDE / shell.
+# If MySQL is down, fallback uses ./.data/animasys_erp (persistent H2, not lost on restart).
+app:
+  allow-h2-fallback: true
+  seed-demo-data: true
+  security:
+    public-swagger: true
+  ai:
+    mock-enabled: ${AI_MOCK_ENABLED:true}
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173

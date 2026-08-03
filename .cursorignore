@@ -1,0 +1,7 @@
+# Prevent Cursor from indexing/locking Electron build output
+desktop/release/
+desktop/release/**
+desktop/packaged/
+desktop/packaged/**
+**/win-unpacked/
+**/app.asar

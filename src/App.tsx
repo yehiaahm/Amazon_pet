@@ -3,6 +3,7 @@ import { useUIStore } from './core/stores/uiStore';
 import ExecutiveLayout from './layouts/ExecutiveLayout';
 import POSLayout from './layouts/POSLayout';
 import CommandPalette from './components/ui/CommandPalette';
+import ToastContainer from './components/ui/ToastContainer';
 import Login from './components/ui/Login';
 
 // Workspace Modules
@@ -14,45 +15,85 @@ import Services from './modules/services/Services';
 import CRM from './modules/crm/CRM';
 import Pets from './modules/pets/Pets';
 import AIAdvisor from './modules/ai/AIAdvisor';
-import Settings from './modules/settings/Settings';
+import InvoiceReview from './modules/invoices/InvoiceReview';
+import Boarding from './modules/boarding/Boarding';
+import Reports from './modules/reports/Reports';
+import Employees from './modules/employees/Employees';
+import RolesPermissions from './modules/roles/RolesPermissions';
+import { usePermissions } from './core/permissions/usePermissions';
+import AccessDenied from './components/ui/AccessDenied';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
+
+function withModuleBoundary(name: string, node: React.ReactNode) {
+  return <ErrorBoundary moduleName={name}>{node}</ErrorBoundary>;
+}
 
 export const App: React.FC = () => {
   const activeModule = useUIStore(s => s.activeModule);
+  const setActiveModule = useUIStore(s => s.setActiveModule);
   const isAuthenticated = useUIStore(s => s.isAuthenticated);
+  const theme = useUIStore(s => s.theme);
+  const { canAccessModule, resolveDefaultModule } = usePermissions();
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!canAccessModule(activeModule)) {
+      const fallback = resolveDefaultModule();
+      if (fallback && fallback !== activeModule) {
+        setActiveModule(fallback);
+      }
+    }
+  }, [isAuthenticated, activeModule, setActiveModule, canAccessModule, resolveDefaultModule]);
 
   const renderActiveModule = () => {
+    if (!canAccessModule(activeModule)) {
+      return (
+        <AccessDenied
+          moduleName={activeModule}
+          onGoHome={() => {
+            const fallback = resolveDefaultModule();
+            if (fallback) setActiveModule(fallback);
+          }}
+        />
+      );
+    }
+
     switch (activeModule) {
-      // Dashboards
       case 'dashboard-executive':
       case 'dashboard-financial':
       case 'dashboard-inventory':
       case 'dashboard-operations':
-        return <Dashboard />;
-      
-      // Core Operatives
+        return withModuleBoundary('لوحة التحكم', <Dashboard />);
       case 'pos':
-        return <POS />;
+        return withModuleBoundary('نقطة البيع', <POS />);
       case 'inventory':
-        return <Inventory />;
+        return withModuleBoundary('المخزون', <Inventory />);
       case 'crm':
-        return <CRM />;
+        return withModuleBoundary('العملاء', <CRM />);
       case 'pets':
-        return <Pets />;
+        return withModuleBoundary('الحيوانات', <Pets />);
       case 'services':
-        return <Services />;
-      
-      // Finance & Ledger
+        return withModuleBoundary('الخدمات', <Services />);
+      case 'boarding':
+        return withModuleBoundary('الإيواء', <Boarding />);
+      case 'invoices':
+        return withModuleBoundary('مراجعة الفواتير', <InvoiceReview />);
       case 'finance':
-        return <Finance />;
-      
-      // AI advisor
+        return withModuleBoundary('المالية', <Finance />);
+      case 'reports':
+        return withModuleBoundary('التقارير', <Reports />);
       case 'ai':
-        return <AIAdvisor />;
-      
-      // System Settings
+        return withModuleBoundary('المستشار الذكي', <AIAdvisor />);
       case 'settings':
-        return <Settings />;
-        
+        return withModuleBoundary('الإعدادات', <Dashboard />);
+      case 'employees':
+        return withModuleBoundary('الموظفين', <Employees />);
+      case 'roles':
+        return withModuleBoundary('الصلاحيات', <RolesPermissions />);
       default:
         return (
           <div className="workspace">
@@ -63,12 +104,10 @@ export const App: React.FC = () => {
     }
   };
 
-  // If user is not authenticated, show the lock/login screen
   if (!isAuthenticated) {
     return <Login />;
   }
 
-  // Select Layout Shell
   const isPOS = activeModule === 'pos';
 
   return (
@@ -83,8 +122,8 @@ export const App: React.FC = () => {
         </ExecutiveLayout>
       )}
 
-      {/* Global Command palette listening to Ctrl+K */}
       <CommandPalette />
+      <ToastContainer />
     </>
   );
 };

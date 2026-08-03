@@ -1,0 +1,4 @@
+# Production profile — AI mock mode forbidden; API key required (validated at startup).
+app:
+  ai:
+    mock-enabled: false

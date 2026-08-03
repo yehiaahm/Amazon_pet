@@ -18,7 +18,7 @@ interface FilterConfig<T> {
 
 interface BulkAction<T> {
   label: string;
-  action: (rows: T[]) => void;
+  action: (rows: T[]) => void | Promise<void>;
   variant?: 'primary' | 'secondary' | 'danger' | 'success';
 }
 
@@ -27,6 +27,8 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   searchPlaceholder?: string;
   searchField?: keyof T;
+  /** When set, search matches any of these fields (overrides searchField). */
+  searchFields?: (keyof T)[];
   filters?: FilterConfig<T>[];
   bulkActions?: BulkAction<T>[];
   rowKey: keyof T;
@@ -271,8 +273,9 @@ export function DataTable<T extends Record<string, any>>({
                 size="sm"
                 onClick={() => {
                   const rows = filteredData.filter(r => selectedRows.has(r[rowKey]));
-                  action.action(rows);
-                  setSelectedRows(new Set());
+                  void Promise.resolve(action.action(rows)).finally(() => {
+                    setSelectedRows(new Set());
+                  });
                 }}
               >
                 {action.label}

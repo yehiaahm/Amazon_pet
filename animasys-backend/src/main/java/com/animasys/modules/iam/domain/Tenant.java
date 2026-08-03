@@ -29,4 +29,9 @@ public class Tenant {
     @Column(name = "created_at", updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
+
+    /** FIFO (purchase date) or FEFO (expiry date) for sale deductions */
+    @Column(name = "inventory_deduction_strategy", nullable = false)
+    @Builder.Default
+    private String inventoryDeductionStrategy = "FIFO";
 }

@@ -1,8 +1,10 @@
 import React from 'react';
 import { useUIStore } from '../core/stores/uiStore';
 import { useSessionStore } from '../core/stores/sessionStore';
-import { ArrowLeft, Landmark, User, Clock } from 'lucide-react';
+import { ArrowLeft, Landmark, User, Clock, Sun, Moon, Scissors, Calendar } from 'lucide-react';
 import Badge from '../components/ui/Badge';
+import { formatMoney } from '../core/utils/money';
+import { usePermissions } from '../core/permissions/usePermissions';
 
 interface POSLayoutProps {
   children: React.ReactNode;
@@ -11,7 +13,18 @@ interface POSLayoutProps {
 export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
   const setActiveModule = useUIStore(s => s.setActiveModule);
   const currentEmployee = useUIStore(s => s.currentEmployee);
+  const theme = useUIStore(s => s.theme);
+  const toggleTheme = useUIStore(s => s.toggleTheme);
   const activeSession = useSessionStore(s => s.activeSession);
+  const { canAccessModule } = usePermissions();
+
+  const cashierQuickNav = [
+    { id: 'services', label: 'مواعيد', icon: <Scissors size={14} /> },
+    { id: 'boarding', label: 'إقامة', icon: <Calendar size={14} /> },
+  ] as const;
+
+  const visibleQuickNav = cashierQuickNav.filter((item) => canAccessModule(item.id));
+  const canLeavePos = canAccessModule('dashboard-executive');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--color-bg)' }}>
@@ -28,7 +41,7 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
       }}>
         {/* Left: Exit and Navigation */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-          {currentEmployee?.role === 'OWNER' && (
+          {canLeavePos && (
             <>
               <button 
                 onClick={() => setActiveModule('dashboard-executive')}
@@ -43,6 +56,33 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
           <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>
             شاشة الكاشير ونقاط البيع (POS)
           </span>
+          {visibleQuickNav.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+              {visibleQuickNav.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveModule(item.id)}
+                  className="btn-secondary"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-md)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={item.label}
+                >
+                  {item.icon}
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Center: Shift & Session Status */}
@@ -54,7 +94,7 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Landmark size={14} />
-              <span>عهدة الدرج: <strong>${activeSession.openingBalance.toFixed(2)}</strong></span>
+              <span>عهدة الدرج: <strong>{formatMoney(activeSession.openingBalance)}</strong></span>
             </div>
             <Badge variant="success">الوردية مفتوحة</Badge>
           </div>
@@ -62,25 +102,38 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
           <Badge variant="danger">الوردية مغلقة</Badge>
         )}
 
-        {/* Right: Cashier Identity */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-          <div style={{
-            width: '24px',
-            height: '24px',
-            borderRadius: 'var(--radius-full)',
-            backgroundColor: 'var(--color-primary-light)',
-            color: 'var(--color-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '10px',
-            fontWeight: 'bold'
-          }}>
-            <User size={12} />
+        {/* Right: Cashier Identity & Theme Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+          <button 
+            onClick={toggleTheme} 
+            className="btn-ghost" 
+            style={{ padding: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            title={theme === 'light' ? 'تفعيل الوضع الداكن (Dark Mode)' : 'تفعيل الوضع المضيء (Light Mode)'}
+          >
+            {theme === 'light' ? <Moon size={16} style={{ color: 'var(--color-text-secondary)' }} /> : <Sun size={16} style={{ color: 'var(--color-warning)' }} />}
+          </button>
+          
+          <span style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+            <div style={{
+              width: '24px',
+              height: '24px',
+              borderRadius: 'var(--radius-full)',
+              backgroundColor: 'var(--color-primary-light)',
+              color: 'var(--color-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '10px',
+              fontWeight: 'bold'
+            }}>
+              <User size={12} />
+            </div>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)', color: 'var(--color-text-primary)' }}>
+              {currentEmployee?.fullName}
+            </span>
           </div>
-          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)', color: 'var(--color-text-primary)' }}>
-            {currentEmployee?.fullName}
-          </span>
         </div>
       </header>
 

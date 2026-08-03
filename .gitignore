@@ -1,0 +1,14 @@
+node_modules
+installer/
+desktop/packaged-build*/
+desktop/packaged-build*/
+desktop/packaged-build-1785354119584/
+desktop/packaged-build-1785354119584/win-unpacked/
+desktop/packaged/
+desktop/bin/
+dist/
+animasys-backend/target/
+coverage/
+*.jar
+*.exe
+*.pdb

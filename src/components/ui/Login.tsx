@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useUIStore } from '../../core/stores/uiStore';
+import { usePermissionStore } from '../../core/permissions/permissionStore';
+import { resolveFirstAccessibleModule, canAccessModuleWithPermissions } from '../../core/permissions/navigationUtils';
+import { getBackendUrl } from '../../core/api/backendUrl';
 import { Sparkles, AlertCircle, Delete, ArrowRight } from 'lucide-react';
 
 export const Login: React.FC = () => {
@@ -9,53 +12,86 @@ export const Login: React.FC = () => {
 
   const [pinCode, setPinCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const employeesList = [
-    { id: 'e-1', username: 'owner_yahia', fullName: 'يحيى (المالك - Owner)', email: 'owner@animasys.com', role: 'OWNER', code: '1234', branchId: 'b-1', active: true },
-    { id: 'e-2', username: 'cashier_alice', fullName: 'أليس (الكاشير - Cashier)', email: 'alice@animasys.com', role: 'CASHIER', code: '2222', branchId: 'b-1', active: true },
-    { id: 'e-3', username: 'groomer_bob', fullName: 'بوب (الحلاق - Groomer)', email: 'bob@animasys.com', role: 'GROOMER', code: '3333', branchId: 'b-1', active: true }
-  ];
+  const triggerLogin = async (code: string) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const backendUrl = getBackendUrl();
+      const response = await fetch(`${backendUrl}/auth/pin-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Id': crypto.randomUUID?.()?.substring(0, 12) ?? String(Date.now()),
+        },
+        body: JSON.stringify({ pin: code }),
+        signal: AbortSignal.timeout(30_000),
+      });
 
-  const triggerLogin = (code: string) => {
-    const targetEmp = employeesList.find(emp => emp.code === code);
-    if (targetEmp) {
-      // Authenticate successfully!
+      const resJson = await response.json();
+      if (!response.ok || !resJson.success) {
+        throw new Error(resJson.message || `HTTP ${response.status}`);
+      }
+
+      const authData = resJson.data;
+      localStorage.setItem('token', authData.token);
+
+      if (Array.isArray(authData.permissions)) {
+        usePermissionStore.getState().setPermissions(authData.permissions);
+      }
+
       setCurrentEmployee({
-        id: targetEmp.id,
-        username: targetEmp.username,
-        fullName: targetEmp.fullName.split(' ')[0], // clean Arabic name
-        email: targetEmp.email,
-        role: targetEmp.role as any,
-        branchId: targetEmp.branchId,
-        active: targetEmp.active
+        id: authData.employeeId,
+        username: authData.username,
+        fullName: String(authData.fullName || '').trim().split(' ')[0],
+        email: '',
+        role: authData.role as any,
+        branchId: authData.branchId,
+        active: true
       });
       setAuthenticated(true);
-      
-      // Direct user to appropriate module
-      if (targetEmp.role === 'OWNER') {
-        setActiveModule('dashboard-executive');
-      } else if (targetEmp.role === 'CASHIER') {
-        setActiveModule('pos');
-      } else if (targetEmp.role === 'GROOMER') {
-        setActiveModule('services');
+
+      const permissionCodes = Array.isArray(authData.permissions) ? authData.permissions : [];
+      const landing = resolveFirstAccessibleModule((moduleId) =>
+        canAccessModuleWithPermissions(permissionCodes, moduleId)
+      );
+      if (landing) {
+        setActiveModule(landing);
       }
-    } else {
-      setErrorMsg('رمز الدخول السري غير صحيح! يرجى المحاولة مرة أخرى.');
+    } catch (err: any) {
+      const raw = err?.message || '';
+      const msg =
+        raw === 'Failed to fetch'
+          ? 'تعذر الاتصال بالخادم. تأكد أن Amazon Pet يعمل وأن المنفذ 8080 متاح.'
+          : raw || 'خطأ في الاتصال بالخادم. تأكد من تشغيل الـ Backend.';
+      setErrorMsg(msg);
       setPinCode('');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  const autoLoginTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleKeyPress = (num: string) => {
+    if (isSubmitting) return;
     setErrorMsg('');
     if (pinCode.length < 4) {
       const newPin = pinCode + num;
       setPinCode(newPin);
       if (newPin.length === 4) {
-        // Automatically check password when 4 digits are reached
-        setTimeout(() => triggerLogin(newPin), 200);
+        if (autoLoginTimerRef.current) clearTimeout(autoLoginTimerRef.current);
+        autoLoginTimerRef.current = setTimeout(() => triggerLogin(newPin), 200);
       }
     }
   };
+
+  React.useEffect(() => {
+    return () => {
+      if (autoLoginTimerRef.current) clearTimeout(autoLoginTimerRef.current);
+    };
+  }, []);
 
   const handleBackspace = () => {
     setErrorMsg('');
@@ -159,7 +195,7 @@ export const Login: React.FC = () => {
             <Sparkles size={22} color="#fff" />
           </div>
           <h2 style={{ margin: '8px 0 2px 0', fontSize: 'var(--font-size-lg)', fontWeight: 'bold', color: 'var(--color-primary-light)' }}>
-            نظام أنيما سيس ERP المؤسسي
+            نظام Amazon Pet ERP المؤسسي
           </h2>
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
             ادخل رمز الموظف السري للدخول المباشر لوحة التحكم
@@ -312,19 +348,6 @@ export const Login: React.FC = () => {
             </button>
           </div>
 
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontSize: '9px',
-            color: 'var(--color-text-secondary)',
-            marginTop: '8px',
-            direction: 'rtl',
-            padding: '0 4px'
-          }}>
-            <span>رمز يحيى (المالك): 1234</span>
-            <span>أليس (الكاشير): 2222</span>
-            <span>بوب (الحلاق): 3333</span>
-          </div>
 
         </form>
 
@@ -338,7 +361,7 @@ export const Login: React.FC = () => {
         zIndex: 1,
         textAlign: 'center'
       }}>
-        نظام أنيما سيس للتحكم بالصلاحيات والمخازن • إصدار 1.0.0
+        نظام Amazon Pet للتحكم بالصلاحيات والمخازن • إصدار 1.0.0
       </div>
 
     </div>

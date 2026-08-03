@@ -1,10 +1,11 @@
 /**
- * AIEngine - محرك الذكاء الاصطناعي المحلي
- * يستخدم سياق النظام الكامل للإجابة على أسئلة المستخدم بذكاء حقيقي
- * يعمل بدون API key ويحلل البيانات الفعلية
+ * AIEngine — chat advisor with a human conversational tone.
+ * Prefers backend Gemini; falls back to local natural-language answers from live snapshot.
  */
 
+import { api } from '../api/endpoints';
 import { FullSystemSnapshot } from './SystemContextEngine';
+import { formatMoney } from '../utils/money';
 
 interface AIResponse {
   answer: string;
@@ -17,371 +18,235 @@ export class AIEngine {
   static async generateResponse(
     query: string,
     snapshot: FullSystemSnapshot,
-    _contextString: string
+    contextString: string
   ): Promise<string> {
-
     const q = query.toLowerCase().trim();
 
-    // محاولة استدعاء الـ Backend أولاً (Gemini API)
-    const backendUrl = localStorage.getItem('BACKEND_URL') || 'http://localhost:8080/api';
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const res = await fetch(`${backendUrl}/ai/ask`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ tenantId: 't-1', query })
-        });
-        const json = await res.json();
-        if (json.success && json.data) return json.data;
-      } catch (_) { /* fallback to local engine */ }
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const reply = await api.askAIAdvisor(query, contextString);
+        if (reply && reply.trim() && !reply.startsWith('{"error"') && !reply.includes('خطأ في الاتصال')) {
+          return reply;
+        }
+      }
+    } catch (_) {
+      /* local fallback */
     }
 
-    // ───── المحرك المحلي الذكي ──────────────────────────────
-    const response = this.analyzeAndRespond(q, snapshot);
-    return response.answer;
+    return this.analyzeAndRespond(q, snapshot).answer;
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // محرك التحليل والرد الذكي
-  // ═══════════════════════════════════════════════════════════
   private static analyzeAndRespond(query: string, s: FullSystemSnapshot): AIResponse {
-    const fmt = (n: number) => `$${n.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fmt = (n: number) => formatMoney(n);
 
-    // ─── تحليل ربحية المحل ────────────────────────────────
     if (this.matches(query, ['ربح', 'خسار', 'ربحي', 'أرباح', 'مالي', 'وضع المالي', 'profit', 'financial'])) {
       const profitable = s.finance.netProfit > 0;
-      return {
-        answer: `## 📊 التقرير المالي الشامل للمحل\n\n` +
-          `**الحالة العامة:** المحل ${profitable ? '✅ يعمل بربحية' : '🔴 يعمل بخسارة'}\n\n` +
-          `### المؤشرات الرئيسية\n` +
-          `| المؤشر | القيمة |\n|---|---|\n` +
-          `| إجمالي الإيرادات | ${fmt(s.finance.grossRevenue)} |\n` +
-          `| إجمالي الربح | ${fmt(s.finance.grossProfit)} |\n` +
-          `| صافي الربح | **${fmt(s.finance.netProfit)}** |\n` +
-          `| هامش الربح الإجمالي | ${s.finance.grossMargin.toFixed(1)}٪ |\n` +
-          `| هامش الربح الصافي | ${s.finance.netMargin.toFixed(1)}٪ |\n` +
-          `| إجمالي المصاريف | ${fmt(s.finance.totalExpenses)} |\n\n` +
-          `### توزيع المصاريف\n` +
-          s.finance.expensesByCategory.map(e =>
-            `- **${this.translateCategory(e.category)}:** ${fmt(e.amount)} (${e.percentage.toFixed(1)}٪)`
-          ).join('\n') + '\n\n' +
-          `### 💡 التوصية\n` +
-          (profitable
-            ? `الأداء المالي إيجابي. لزيادة الأرباح، يُنصح بالتركيز على خدمات الجروومينغ ذات الهامش المرتفع (${s.services.serviceMargins[0]?.estimatedMargin}٪) وتقليل تكلفة البضاعة المباعة البالغة ${fmt(s.finance.grossRevenue - s.finance.grossProfit)}.`
-            : `⚠️ المحل يعمل بخسارة. يجب مراجعة تكاليف المصاريف الثابتة البالغة ${fmt(s.finance.totalExpenses)} وزيادة الإيرادات بشكل عاجل.`),
-        confidence: 'HIGH',
-        dataUsed: ['finance', 'kpis']
-      };
+      const topExp = s.finance.expensesByCategory[0];
+      let answer = profitable
+        ? `بصراحة؟ المحل واقف على رجله. صافي عندك حوالي ${fmt(s.finance.netProfit)} من إيراد ${fmt(s.finance.grossRevenue)}، والهامش الإجمالي تقريبًا ${s.finance.grossMargin.toFixed(0)}٪.`
+        : `خليني أقولك على طول: الأرقام بتقول إنك في خسارة دلوقتي — الصافي حوالي ${fmt(s.finance.netProfit)} مع إيراد ${fmt(s.finance.grossRevenue)}.`;
+
+      answer += ` متوسط الفاتورة عندك ${fmt(s.sales.averageBasket)}.`;
+      if (topExp) {
+        answer += ` أكبر بند مصروف ظاهر هو «${this.translateCategory(topExp.category)}» بحوالي ${fmt(topExp.amount)}.`;
+      }
+      answer += profitable
+        ? ` لو عايز تزق الربح أكتر، أقرب حاجة عملية: ارفع متوسط السلة شوية من الكاشير، وراجع أصناف التكلفة العالية. تحب نمشي على المبيعات ولا المصاريف؟`
+        : ` أول خطوة منطقية: شوف المصاريف الثابتة (${fmt(s.finance.totalExpenses)}) وأصناف الهامش الضعيف، وزوّد الإيراد بسرعة من الخدمات أو العروض. تحب نبدأ بالمخزون ولا بالمصاريف؟`;
+
+      return { answer, confidence: 'HIGH', dataUsed: ['finance', 'sales'] };
     }
 
-    // ─── تحليل المخزون ────────────────────────────────────
-    if (this.matches(query, ['مخزون', 'بضاعة', 'inventory', 'stock', 'منتج', 'بضائع'])) {
-      const lowStockCount = s.inventory.lowStockItems.length;
-      const expiryCount = s.inventory.expiringBatches.length;
-      return {
-        answer: `## 📦 تقرير المخزون الشامل\n\n` +
-          `**قيمة المخزون الإجمالية:** ${fmt(s.inventory.totalStockValue)}\n` +
-          `**إجمالي المنتجات:** ${s.inventory.totalProducts} منتج | ${s.inventory.totalVariants} متغير\n` +
-          `**معدل الدوران:** ${s.kpis.inventoryTurnover.toFixed(2)}x\n\n` +
-          (lowStockCount > 0
-            ? `### ⚠️ تنبيهات المخزون المنخفض (${lowStockCount} منتج)\n` +
-              s.inventory.lowStockItems.map(item =>
-                `- **${item.name} (${item.variant}):** متبقي **${item.current}** من أصل الحد الأدنى **${item.minimum}** ← يحتاج إعادة طلب **${item.deficit}** وحدة`
-              ).join('\n') + '\n\n'
-            : `✅ **جميع مستويات المخزون طبيعية**\n\n`) +
-          (expiryCount > 0
-            ? `### 🚨 دفعات قاربت على الانتهاء (${expiryCount})\n` +
-              s.inventory.expiringBatches.map(b =>
-                `- **${b.product}** - الدفعة ${b.batch}: تنتهي في ${b.expiryDate} ← **باقي ${b.daysLeft} يوم** | الكمية: ${b.quantity}`
-              ).join('\n') + '\n\n'
-            : '') +
-          `### 🏆 أعلى المنتجات قيمةً في المخزون\n` +
-          s.inventory.topStockItems.map((item, i) =>
-            `${i + 1}. ${item.name}: ${item.quantity} وحدة | قيمة ${fmt(item.value)}`
-          ).join('\n'),
-        confidence: 'HIGH',
-        dataUsed: ['inventory']
-      };
+    if (this.matches(query, ['مخزون', 'بضاعة', 'inventory', 'stock', 'منتج', 'بضائع', 'إعادة طلب', 'طلب شراء', 'مورد', 'reorder', 'supplier', 'purchase', 'شراء'])) {
+      const low = s.inventory.lowStockItems;
+      let answer = `قيمة المخزون تقريبًا ${fmt(s.inventory.totalStockValue)} على ${s.inventory.totalVariants} صنف.`;
+
+      if (low.length === 0) {
+        answer += ` والأخبار الحلوة: مفيش أصناف تحت الحد الأدنى دلوقتي. خلّي عينك على السريع الحركة عشان متفاجئش.`;
+      } else {
+        const names = low.slice(0, 3).map(i => i.name).join('، ');
+        answer += ` لكن في ${low.length} أصناف محتاجين طلب فوري — أهمهم: ${names}.`;
+        const first = low[0];
+        const qty = Math.max(first.deficit * 2, first.minimum);
+        answer += ` لو هتعمل أمر شراء النهاردة، ابدأ بـ «${first.name}» واطلب حوالي ${qty} وحدة.`;
+      }
+      if (s.inventory.expiringBatches.length > 0) {
+        answer += ` وكمان في دفعات قربت على الانتهاء — يستاهلوا عرض تصفية قبل ما تبوّظ.`;
+      }
+      answer += ` تحب أرتّب لك قائمة الطلب بالأولوية؟`;
+      return { answer, confidence: 'HIGH', dataUsed: ['inventory'] };
     }
 
-    // ─── تحليل المبيعات ───────────────────────────────────
     if (this.matches(query, ['مبيعات', 'sales', 'فواتير', 'إيراد', 'بيع', 'أكثر مبيعاً', 'أعلى مبيعاً'])) {
-      return {
-        answer: `## 🛍️ تقرير المبيعات التحليلي\n\n` +
-          `| المؤشر | القيمة |\n|---|---|\n` +
-          `| إجمالي الفواتير | ${s.sales.totalSales} فاتورة |\n` +
-          `| إجمالي الإيرادات | ${fmt(s.sales.totalRevenue)} |\n` +
-          `| متوسط قيمة السلة | **${fmt(s.sales.averageBasket)}** |\n` +
-          `| إيرادات آخر 7 أيام | ${fmt(s.sales.last7DaysRevenue)} |\n` +
-          `| إيرادات آخر 30 يوم | ${fmt(s.sales.last30DaysRevenue)} |\n` +
-          `| المتوسط اليومي | ${fmt(s.sales.dailyAvgRevenue)} |\n` +
-          `| عدد المرتجعات | ${s.sales.totalRefunds} فاتورة |\n\n` +
-          `### 🏆 أكثر المنتجات مبيعاً\n` +
-          s.sales.topSellingItems.map((item, i) =>
-            `${i + 1}. **${item.name}** — الكمية: ${item.qty} | الإيراد: ${fmt(item.revenue)}`
-          ).join('\n') + '\n\n' +
-          `### 💳 توزيع طرق الدفع\n` +
-          `- 💵 نقدي: ${fmt(s.sales.paymentMethodBreakdown.cash)} (${((s.sales.paymentMethodBreakdown.cash / s.sales.totalRevenue) * 100).toFixed(1)}٪)\n` +
-          `- 💳 بطاقة: ${fmt(s.sales.paymentMethodBreakdown.card)} (${((s.sales.paymentMethodBreakdown.card / s.sales.totalRevenue) * 100).toFixed(1)}٪)\n` +
-          `- 📱 موبايل: ${fmt(s.sales.paymentMethodBreakdown.mobile)} (${((s.sales.paymentMethodBreakdown.mobile / s.sales.totalRevenue) * 100).toFixed(1)}٪)\n\n` +
-          `### 💡 توصية\n` +
-          `متوسط السلة ${fmt(s.sales.averageBasket)} جيد. يمكن رفعه بإضافة عروض البيع التكميلي (Upsell) خلال عمليات الجروومينغ لتصل إلى ${fmt(s.sales.averageBasket * 1.2)}.`,
-        confidence: 'HIGH',
-        dataUsed: ['sales']
-      };
+      const top = s.sales.topSellingItems[0];
+      let answer =
+        `من ناحية المبيعات: عندك ${s.sales.totalSales} فاتورة بإيراد حوالي ${fmt(s.sales.totalRevenue)}، ومتوسط السلة ${fmt(s.sales.averageBasket)}. ` +
+        `آخر 7 أيام جابوا ${fmt(s.sales.last7DaysRevenue)}، وآخر 30 يوم ${fmt(s.sales.last30DaysRevenue)}.`;
+
+      if (top) {
+        answer += ` أكتر حاجة شغّالة عندك حاليًا: «${top.name}» — جابت حوالي ${fmt(top.revenue)}.`;
+      } else {
+        answer += ` لسه مفيش تفصيل بنود كفاية أرتّب منه الأكثر مبيعًا.`;
+      }
+      if (s.sales.totalRefunds > 0) {
+        answer += ` وخد بالك إن في ${s.sales.totalRefunds} مرتجع — لو النسبة كبرت لازم نراجع السبب.`;
+      }
+      answer += ` أقرب فرصة سهلة: upsell بسيط عند الكاشير يرفع متوسط السلة نحو ${fmt(s.sales.averageBasket * 1.15)}. توافق نشتغل على دي؟`;
+      return { answer, confidence: 'HIGH', dataUsed: ['sales'] };
     }
 
-    // ─── تحليل الخدمات والمواعيد ──────────────────────────
     if (this.matches(query, ['خدمة', 'خدمات', 'موعد', 'مواعيد', 'جروومينغ', 'grooming', 'service', 'appointment', 'حجز', 'حجوزات'])) {
-      return {
-        answer: `## ✂️ تقرير الخدمات والمواعيد\n\n` +
-          `**إجمالي المواعيد المسجلة:** ${s.services.totalAppointments}\n` +
-          `**معدل الإتمام:** ${s.services.completionRate.toFixed(1)}٪\n` +
-          `**أكثر خدمة محجوزة:** ${s.services.mostBookedService}\n` +
-          `**إيرادات الخدمات الإجمالية:** ${fmt(s.services.totalServiceRevenue)}\n\n` +
-          `### 📅 تفاصيل الحجوزات\n` +
-          `- ✅ مكتملة: ${s.services.completedAppointments}\n` +
-          `- 🔲 قادمة: ${s.services.upcomingAppointments}\n` +
-          `- ❌ ملغاة: ${s.services.cancelledAppointments}\n\n` +
-          `### 💰 هوامش ربح الخدمات\n` +
-          s.services.serviceMargins.map(sv =>
-            `- **${sv.name}:** السعر ${fmt(sv.price)} | الهامش المقدر **${sv.estimatedMargin}٪**`
-          ).join('\n') + '\n\n' +
-          `### 💡 التوصية\n` +
-          `خدمات الجروومينغ تحقق أعلى هوامش في المحل. يُنصح بـ:\n` +
-          `- زيادة الطاقة الاستيعابية في أيام الذروة\n` +
-          `- إطلاق حملة SMS للعملاء غير النشطين (${Math.round(s.crm.totalCustomers * 0.35)} عميل) لحجز مواعيد جديدة\n` +
-          `- تطبيق خصم 10٪ أيام الثلاثاء لتعبئة الجداول الفارغة`,
-        confidence: 'HIGH',
-        dataUsed: ['services', 'crm']
-      };
+      let answer =
+        `الخدمات عندك: ${s.services.totalAppointments} موعد إجمالي — مكتمل ${s.services.completedAppointments}، قادم ${s.services.upcomingAppointments}، ملغي ${s.services.cancelledAppointments}.`;
+
+      if (s.services.totalAppointments > 0) {
+        answer += ` معدل الإتمام حوالي ${s.services.completionRate.toFixed(0)}٪` +
+          (s.services.mostBookedService && s.services.mostBookedService !== '—'
+            ? `، والأكتر حجزًا «${s.services.mostBookedService}».`
+            : `.`);
+      } else {
+        answer += ` بصراحة لسه الحجوزات ضعيفة — وده باب ربح كبير لو فعّلناه.`;
+      }
+      answer += ` إيراد الخدمات من المبيعات حوالي ${fmt(s.services.totalServiceRevenue)}. اقتراحي: عبّي الأيام الهادئة بعرض بسيط وابعث تذكير للعملاء القدام. تحب نركّز على الحجوزات؟`;
+      return { answer, confidence: 'HIGH', dataUsed: ['services'] };
     }
 
-    // ─── تحليل العملاء ────────────────────────────────────
     if (this.matches(query, ['عميل', 'عملاء', 'customer', 'crm', 'ولاء', 'قاعدة عملاء'])) {
-      return {
-        answer: `## 👥 تقرير قاعدة العملاء والـ CRM\n\n` +
-          `**إجمالي العملاء المسجلين:** ${s.crm.totalCustomers}\n` +
-          `**إجمالي الحيوانات الأليفة:** ${s.crm.totalPets}\n` +
-          `**معدل العملاء المتكررين:** ${s.crm.repeatCustomerRate}٪\n` +
-          `**القيمة العمرية للعميل (CLV):** ${fmt(s.crm.customerLifetimeValue)}\n\n` +
-          `### 🐾 أنواع الحيوانات الأليفة\n` +
-          s.crm.petsBySpecies.map(p => `- ${this.translateSpecies(p.species)}: ${p.count} حيوان`).join('\n') + '\n\n' +
-          `### 🏆 أفضل العملاء إنفاقاً\n` +
-          s.crm.topCustomers.map((c, i) =>
-            `${i + 1}. **${c.name}:** ${fmt(c.totalSpend)}`
-          ).join('\n') + '\n\n' +
-          `### 💡 توصيات تطوير قاعدة العملاء\n` +
-          `- تفعيل برنامج نقاط الولاء لتحسين معدل التكرار من ${s.crm.repeatCustomerRate}٪ إلى 75٪+\n` +
-          `- إرسال تذكيرات مواعيد الجروومينغ للعملاء كل 4-6 أسابيع\n` +
-          `- استهداف أصحاب الكلاب (${s.crm.petsBySpecies.find(p => p.species === 'DOG')?.count || 0} عميل) بعروض التغذية المتخصصة`,
-        confidence: 'HIGH',
-        dataUsed: ['crm']
-      };
+      const top = s.crm.topCustomers[0];
+      let answer =
+        `قاعدة العملاء: ${s.crm.totalCustomers} عميل مسجّل. معدل اللي بيرجعوا يشتري حوالي ${s.crm.repeatCustomerRate.toFixed(0)}٪، ومتوسط ما يصرفه العميل ${fmt(s.crm.customerLifetimeValue)}.`;
+
+      if (top) {
+        answer += ` أكبر منفق ظاهر دلوقتي «${top.name}» بـ ${fmt(top.totalSpend)}.`;
+      }
+      answer +=
+        s.crm.repeatCustomerRate < 40
+          ? ` الرقم ده لسه ضعيف شوية — أحسن حركة: رسالة استرجاع لمن مجاش خلال شهر. تحب نشتغل على دي؟`
+          : ` التكرار مش وحش، نقدر نحسّنه أكتر ببرنامج ولاء خفيف. تحب نناقش الفكرة؟`;
+      return { answer, confidence: 'HIGH', dataUsed: ['crm'] };
     }
 
-    // ─── تنبيهات وتحذيرات ─────────────────────────────────
     if (this.matches(query, ['تنبيه', 'تحذير', 'مشكلة', 'خطر', 'alert', 'warning', 'urgent', 'عاجل'])) {
       const criticals = s.alerts.filter(a => a.type === 'CRITICAL');
       const warnings = s.alerts.filter(a => a.type === 'WARNING');
-      return {
-        answer: `## 🚨 لوحة التنبيهات النشطة\n\n` +
-          (criticals.length > 0
-            ? `### 🔴 تنبيهات حرجة (${criticals.length})\n` +
-              criticals.map(a => `- **[${a.category}]** ${a.message}`).join('\n') + '\n\n'
-            : `✅ لا توجد تنبيهات حرجة\n\n`) +
-          (warnings.length > 0
-            ? `### 🟡 تحذيرات (${warnings.length})\n` +
-              warnings.map(a => `- **[${a.category}]** ${a.message}`).join('\n') + '\n\n'
-            : `✅ لا توجد تحذيرات\n\n`) +
-          `### 📋 خطة العمل الموصى بها\n` +
-          (s.inventory.lowStockItems.length > 0
-            ? `1. **فوري:** طلب إعادة تخزين ${s.inventory.lowStockItems.map(i => i.name).join(' و ')}\n`
-            : '') +
-          (s.inventory.expiringBatches.length > 0
-            ? `2. **هذا الأسبوع:** تخفيض أسعار المنتجات منتهية الصلاحية قريباً بنسبة 20٪ للتصفية\n`
-            : '') +
-          `3. **مستمر:** مراقبة هوامش الربح يومياً والحفاظ عليها فوق 10٪`,
-        confidence: 'HIGH',
-        dataUsed: ['alerts', 'inventory']
-      };
-    }
-
-    // ─── مقارنة الخدمات ───────────────────────────────────
-    if (this.matches(query, ['هامش', 'أعلى خدمة', 'أفضل خدمة', 'أعلى ربح', 'margin'])) {
-      const sorted = [...s.services.serviceMargins].sort((a, b) => b.estimatedMargin - a.estimatedMargin);
-      return {
-        answer: `## 💰 تحليل هوامش ربح الخدمات\n\n` +
-          `### ترتيب الخدمات حسب الهامش\n` +
-          sorted.map((sv, i) =>
-            `${i + 1}. **${sv.name}**\n` +
-            `   - السعر: ${fmt(sv.price)} | الهامش: **${sv.estimatedMargin}٪**\n` +
-            `   - الربح الصافي المقدر لكل وحدة: ${fmt(sv.price * (sv.estimatedMargin / 100))}`
-          ).join('\n\n') + '\n\n' +
-          `### 💡 التوصية الاستراتيجية\n` +
-          `الخدمة الأعلى ربحية هي **${sorted[0]?.name}** بهامش **${sorted[0]?.estimatedMargin}٪**.\n` +
-          `يُنصح بالتسويق لها بشكل مكثف وتدريب الموظفين على اقتراحها خلال كل زيارة.\n` +
-          `زيادة حجم مبيعاتها بنسبة 20٪ سيضيف تقريباً ${fmt((s.services.totalServiceRevenue * 0.2 * sorted[0]?.estimatedMargin) / 100)} شهرياً للأرباح الصافية.`,
-        confidence: 'HIGH',
-        dataUsed: ['services']
-      };
-    }
-
-    // ─── إعادة الطلب / موردين ──────────────────────────────
-    if (this.matches(query, ['إعادة طلب', 'طلب شراء', 'مورد', 'موردين', 'reorder', 'supplier', 'purchase', 'شراء'])) {
-      const lowItems = s.inventory.lowStockItems;
-      if (lowItems.length === 0) {
-        return {
-          answer: `## ✅ لا توجد منتجات تحتاج إعادة طلب الآن\n\n` +
-            `جميع مستويات المخزون أعلى من الحد الأدنى.\n\n` +
-            `قيمة المخزون الحالية: ${fmt(s.inventory.totalStockValue)}`,
-          confidence: 'HIGH',
-          dataUsed: ['inventory']
-        };
+      let answer = '';
+      if (criticals.length === 0 && warnings.length === 0) {
+        answer = `من ناحية المخاطر: الوضع هادي حاليًا، مفيش تنبيه حرج واقف قدامي. برضه راقب المخزون السريع والصافي أسبوعيًا. في حاجة معيّنة مقلقاك؟`;
+      } else {
+        answer = `خليني أكون صريح معاك: `;
+        if (criticals.length) {
+          answer += `في ${criticals.length} حاجة محتاجة تدخّل سريع — أهمها: ${criticals[0].message}`;
+        }
+        if (warnings.length) {
+          answer += (criticals.length ? ' ' : '') +
+            `وكمان ${warnings.length} تحذير${warnings.length > 1 ? 'ات' : ''}، زي: ${warnings[0].message}`;
+        }
+        answer += ` لو حابب نرتّب أولوية المعالجة، قولي نبدأ بمين: المخزون ولا الربحية؟`;
       }
-      return {
-        answer: `## 🛒 قائمة المشتريات المطلوبة\n\n` +
-          `يوجد **${lowItems.length} منتجات** تحتاج إعادة طلب فوري:\n\n` +
-          lowItems.map((item, i) => {
-            const recommendedQty = item.deficit * 3; // 3x buffer
-            return `### ${i + 1}. ${item.name} (${item.variant})\n` +
-              `- المخزون الحالي: **${item.current}** وحدة\n` +
-              `- الحد الأدنى: ${item.minimum} وحدة\n` +
-              `- العجز الحالي: **${item.deficit}** وحدة\n` +
-              `- الكمية الموصى بطلبها: **${recommendedQty}** وحدة (3x الحد الأدنى)`;
-          }).join('\n\n') + '\n\n' +
-          `### 📧 مسودة أمر الشراء\n` +
-          `الموضوع: أمر شراء عاجل - ${new Date().toLocaleDateString('ar-EG')}\n\n` +
-          `حضرة المورد الكريم،\n\n` +
-          `نرجو توريد المنتجات التالية لفرع أنيماسيز:\n` +
-          lowItems.map(item =>
-            `- ${item.name} (${item.variant}): ${item.deficit * 3} وحدة`
-          ).join('\n') + '\n\n' +
-          `يُرجى التأكيد والإرسال على: billing@animasys.com`,
-        confidence: 'HIGH',
-        dataUsed: ['inventory']
-      };
+      return { answer, confidence: 'HIGH', dataUsed: ['alerts'] };
     }
 
-    // ─── توقعات النمو ─────────────────────────────────────
     if (this.matches(query, ['توقع', 'نمو', 'مستقبل', 'forecast', 'grow', 'الشهر القادم', 'السنة'])) {
-      const projectedGrowth = s.sales.last7DaysRevenue / 7 * 30;
-      const currentMonthly = s.sales.last30DaysRevenue;
-      const growthRate = currentMonthly > 0 ? ((projectedGrowth - currentMonthly) / currentMonthly) * 100 : 0;
-      return {
-        answer: `## 📈 تحليل التوقعات والنمو\n\n` +
-          `### البيانات الفعلية\n` +
-          `- إيرادات آخر 7 أيام: ${fmt(s.sales.last7DaysRevenue)}\n` +
-          `- إيرادات آخر 30 يوم: ${fmt(s.sales.last30DaysRevenue)}\n` +
-          `- متوسط يومي: ${fmt(s.sales.dailyAvgRevenue)}\n\n` +
-          `### توقعات الشهر القادم\n` +
-          `- الإيرادات المتوقعة: **${fmt(projectedGrowth)}**\n` +
-          `- معدل النمو المتوقع: **${growthRate > 0 ? '+' : ''}${growthRate.toFixed(1)}٪**\n` +
-          `- الربح الصافي المتوقع: **${fmt(projectedGrowth * (s.finance.netMargin / 100))}**\n` +
-          `- المصاريف المتوقعة (ثابتة): ${fmt(s.finance.burnRate)}\n\n` +
-          `### سيناريوهات النمو\n` +
-          `| السيناريو | الإيرادات | الربح الصافي |\n|---|---|---|\n` +
-          `| متحفظ (-5٪) | ${fmt(projectedGrowth * 0.95)} | ${fmt(projectedGrowth * 0.95 * s.finance.netMargin / 100)} |\n` +
-          `| متوقع | ${fmt(projectedGrowth)} | ${fmt(projectedGrowth * s.finance.netMargin / 100)} |\n` +
-          `| متفائل (+10٪) | ${fmt(projectedGrowth * 1.1)} | ${fmt(projectedGrowth * 1.1 * s.finance.netMargin / 100)} |\n\n` +
-          `### 💡 لتحقيق السيناريو المتفائل\n` +
-          `- زيادة مواعيد الجروومينغ بـ ${Math.ceil(s.services.totalAppointments * 0.1)} موعد شهرياً\n` +
-          `- تفعيل عروض البيع التكميلي لرفع متوسط السلة من ${fmt(s.sales.averageBasket)} إلى ${fmt(s.sales.averageBasket * 1.15)}`,
-        confidence: 'HIGH',
-        dataUsed: ['sales', 'finance']
-      };
+      const projected = (s.sales.last7DaysRevenue / 7) * 30;
+      const growth =
+        s.sales.last30DaysRevenue > 0
+          ? ((projected - s.sales.last30DaysRevenue) / s.sales.last30DaysRevenue) * 100
+          : 0;
+      const answer =
+        `لو كمّلنا بنفس إيقاع آخر أسبوع، الشهر الجاي ممكن يقرب من ${fmt(projected)} إيراد` +
+        (s.sales.last30DaysRevenue > 0
+          ? ` — ده فرق تقريبًا ${growth >= 0 ? '+' : ''}${growth.toFixed(0)}٪ عن آخر 30 يوم.`
+          : `.`) +
+        ` وبهامش صافي حوالي ${s.finance.netMargin.toFixed(0)}٪، الصافي التقديري يبقى نحو ${fmt(projected * (s.finance.netMargin / 100))}.` +
+        ` طبعاً ده تقدير من الإيقاع الحالي مش ضمان. عايز سيناريو متحفظ ولا متفائل؟`;
+      return { answer, confidence: 'MEDIUM', dataUsed: ['sales', 'finance'] };
     }
 
-    // ─── تقرير شامل / ما هو وضع المحل ────────────────────
-    if (this.matches(query, ['تقرير', 'وضع', 'كيف', 'ملخص', 'overview', 'summary', 'report', 'شامل', 'كل شيء', 'كل حاجة'])) {
-      const alerts = s.alerts;
+    if (this.matches(query, ['اطور', 'تطوير', 'نمو', 'توسع', 'أطور', 'تطور', 'تنمية', 'طريقة تطوير', 'تطوير المحل'])) {
+      let answer =
+        `لتطوير المحل وزيادة الأرباح، عندك 3 محاور سريعة العمل بناءً على أرقامك الحالية:\n` +
+        `1. **رفع متوسط السلة من الكاشير**: متوسط الفاتورة حالياً ${fmt(s.sales.averageBasket)} — اقتراح منتج مكافآت أو إكسسوار عند الدفع يرفع الإيراد بسرعة.\n` +
+        `2. **تأمين المخزون الأكثر مبيعاً**: عندك ${s.inventory.lowStockItems.length} أصناف منخفضة، إعادة طلب الأصناف السريعة تمنع ضياع المبيعات.\n` +
+        `3. **الربط بين الخدمات والمنتجات**: عمل باقة سريعة تجذب عملاء جديد وتزود نسبة تكرار الزيارة (${s.crm.repeatCustomerRate.toFixed(0)}٪).`;
+      return { answer, confidence: 'HIGH', dataUsed: ['finance', 'sales', 'inventory', 'crm'] };
+    }
+
+    if (this.matches(query, ['تقرير', 'وضع', 'كيف', 'ملخص', 'overview', 'summary', 'report', 'شامل', 'كل شيء', 'كل حاجة', 'اخبارك', 'عامل ايه', 'ازيك'])) {
+      const health = this.calcHealthScore(s);
       const profitable = s.finance.netProfit > 0;
-      const healthScore = this.calcHealthScore(s);
+      let answer =
+        `باختصار كده: المحل ${this.getHealthLabel(health)} — تقييم تقريبي ${health} من 100. ` +
+        `${profitable ? `بتربح صافي حوالي ${fmt(s.finance.netProfit)}` : `الصافي ضعيف/سالب حوالي ${fmt(s.finance.netProfit)}`} ` +
+        `من إيراد ${fmt(s.finance.grossRevenue)}، ومتوسط الفاتورة ${fmt(s.sales.averageBasket)}. `;
+
+      if (s.inventory.lowStockItems.length > 0) {
+        answer += `في ${s.inventory.lowStockItems.length} أصناف مخزون واطي، وأهمهم «${s.inventory.lowStockItems[0].name}». `;
+      } else {
+        answer += `المخزون تحت السيطرة حاليًا. `;
+      }
+      answer +=
+        `الخطوة اللي أنصحك بيها النهاردة: ` +
+        (s.inventory.lowStockItems[0]
+          ? `اعمل أمر شراء لـ «${s.inventory.lowStockItems[0].name}»،`
+          : `ركّز على رفع متوسط السلة،`) +
+        ` وبعدين نراجع الهامش. تحب نفصّل في حتة معينة؟`;
+      return { answer, confidence: 'HIGH', dataUsed: ['finance', 'sales', 'inventory', 'crm', 'alerts'] };
+    }
+
+    // Greeting / thanks
+    if (this.matches(query, ['مرحبا', 'اهلا', 'أهلا', 'السلام', 'hello', 'hi', 'صباح', 'مساء', 'شكرا', 'merci', 'thanks'])) {
       return {
-        answer: `## 🏪 التقرير التنفيذي الشامل لمحل AnimaSys\n\n` +
-          `**🎯 نقاط الصحة التشغيلية:** ${healthScore}/100 — ${this.getHealthLabel(healthScore)}\n\n` +
-          `---\n\n` +
-          `### 💰 الوضع المالي\n` +
-          `- الحالة: ${profitable ? '✅ مربح' : '🔴 خسارة'} | صافي الربح: **${fmt(s.finance.netProfit)}**\n` +
-          `- الإيرادات الإجمالية: ${fmt(s.finance.grossRevenue)} | الهامش الإجمالي: ${s.finance.grossMargin.toFixed(1)}٪\n\n` +
-          `### 🛍️ المبيعات\n` +
-          `- ${s.sales.totalSales} فاتورة | متوسط السلة: ${fmt(s.sales.averageBasket)}\n` +
-          `- أعلى منتج: ${s.sales.topSellingItems[0]?.name || 'لا توجد بيانات'}\n\n` +
-          `### 📦 المخزون\n` +
-          `- قيمة المخزون: ${fmt(s.inventory.totalStockValue)} | ${s.inventory.lowStockItems.length > 0 ? `⚠️ ${s.inventory.lowStockItems.length} منتج بمخزون منخفض` : '✅ مستويات سليمة'}\n\n` +
-          `### ✂️ الخدمات\n` +
-          `- ${s.services.totalAppointments} موعد | معدل الإتمام: ${s.services.completionRate.toFixed(0)}٪ | إيرادات: ${fmt(s.services.totalServiceRevenue)}\n\n` +
-          `### 👥 العملاء\n` +
-          `- ${s.crm.totalCustomers} عميل | ${s.crm.totalPets} حيوان أليف | معدل التكرار: ${s.crm.repeatCustomerRate}٪\n\n` +
-          (alerts.length > 0
-            ? `### 🚨 التنبيهات النشطة (${alerts.length})\n` +
-              alerts.slice(0, 3).map(a => `- ${a.type === 'CRITICAL' ? '🔴' : '🟡'} ${a.message}`).join('\n') + '\n\n'
-            : `### ✅ لا توجد تنبيهات نشطة\n\n`) +
-          `### 🎯 أولويات العمل هذا الأسبوع\n` +
-          `1. ${s.inventory.lowStockItems.length > 0 ? `إعادة طلب: ${s.inventory.lowStockItems[0]?.name}` : 'الحفاظ على مستويات المخزون الحالية'}\n` +
-          `2. ${s.inventory.expiringBatches.length > 0 ? `تصفية: ${s.inventory.expiringBatches[0]?.product} بخصم 20٪` : 'لا توجد دفعات تحتاج تصفية'}\n` +
-          `3. تفعيل حملة SMS لاستعادة العملاء غير النشطين لزيادة المواعيد`,
+        answer:
+          `أهلًا بيك! أنا معاك على بيانات المحل الفعلية. قولي عايز نبص على إيه: الفلوس، المبيعات، المخزون، العملاء، ولا تاخد مني صورة سريعة عن الوضع؟`,
         confidence: 'HIGH',
-        dataUsed: ['finance', 'sales', 'inventory', 'services', 'crm', 'alerts']
+        dataUsed: [],
       };
     }
 
-    // ─── الرد الافتراضي الذكي ─────────────────────────────
     return {
-      answer: `## 🤖 تحليل سؤالك\n\n` +
-        `لم أتعرف على موضوع محدد في سؤالك، لكن إليك ملخصاً سريعاً للوضع الراهن:\n\n` +
-        `**📊 المحل:** ${s.finance.netProfit > 0 ? '✅ يعمل بربحية' : '🔴 يعمل بخسارة'} | الربح الصافي: **${fmt(s.finance.netProfit)}**\n` +
-        `**📦 المخزون:** ${s.inventory.lowStockItems.length} منتج بمخزون منخفض\n` +
-        `**🚨 التنبيهات:** ${s.alerts.filter(a => a.type === 'CRITICAL').length} حرجة، ${s.alerts.filter(a => a.type === 'WARNING').length} تحذيرية\n\n` +
-        `يمكنك سؤالي عن:\n` +
-        `- 💰 **الوضع المالي والأرباح**\n` +
-        `- 📦 **المخزون والمنتجات**\n` +
-        `- 🛍️ **المبيعات والإيرادات**\n` +
-        `- ✂️ **الخدمات والمواعيد**\n` +
-        `- 👥 **العملاء والـ CRM**\n` +
-        `- 📈 **التوقعات والنمو**\n` +
-        `- 🚨 **التنبيهات والمشاكل**\n` +
-        `- 🛒 **طلبات الشراء والموردين**`,
+      answer:
+        `فهمت سؤالك، بس خليني أتأكد إني جاوبك صح. من الأرقام اللي قدامي: الصافي حوالي ${fmt(s.finance.netProfit)}، وفي ${s.inventory.lowStockItems.length} أصناف مخزون واطي.` +
+        ` تقدر تسألني بصيغة أوضح عن الوضع المالي، المبيعات، المخزون، العملاء، التنبيهات، أو تقولي «تقرير شامل».`,
       confidence: 'LOW',
-      dataUsed: []
+      dataUsed: [],
     };
   }
 
-  // ─── دوال مساعدة ──────────────────────────────────────────
   private static matches(query: string, keywords: string[]): boolean {
-    return keywords.some(kw => query.includes(kw));
+    const normQ = query.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ـ/g, '').toLowerCase();
+    return keywords.some(kw => {
+      const normKw = kw.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ـ/g, '').toLowerCase();
+      return normQ.includes(normKw);
+    });
   }
 
   private static translateCategory(cat: string): string {
     const map: Record<string, string> = {
-      RENT: 'إيجار', SALARY: 'رواتب', UTILITIES: 'مرافق', SUPPLIES: 'مستلزمات', OTHER: 'أخرى'
+      RENT: 'الإيجار',
+      SALARY: 'الرواتب',
+      UTILITIES: 'المرافق',
+      SUPPLIES: 'المستلزمات',
+      OTHER: 'مصاريف أخرى',
     };
     return map[cat] || cat;
-  }
-
-  private static translateSpecies(species: string): string {
-    const map: Record<string, string> = {
-      DOG: '🐕 كلاب', CAT: '🐈 قطط', BIRD: '🐦 طيور', OTHER: '🐾 أخرى'
-    };
-    return map[species] || species;
   }
 
   private static calcHealthScore(s: FullSystemSnapshot): number {
     let score = 100;
     if (s.finance.netProfit < 0) score -= 30;
     if (s.finance.netMargin < 5) score -= 15;
-    score -= s.inventory.lowStockItems.length * 10;
-    score -= s.inventory.expiringBatches.filter(b => b.daysLeft < 30).length * 15;
-    if (s.services.completionRate < 80) score -= 10;
-    if (s.crm.repeatCustomerRate < 50) score -= 10;
+    score -= Math.min(20, s.inventory.lowStockItems.length * 10);
+    score -= s.inventory.expiringBatches.filter(b => b.daysLeft < 30).length * 10;
+    if (s.services.completionRate < 80 && s.services.totalAppointments > 0) score -= 10;
+    if (s.crm.repeatCustomerRate < 50 && s.crm.totalCustomers > 5) score -= 10;
     return Math.max(0, Math.min(100, score));
   }
 
   private static getHealthLabel(score: number): string {
-    if (score >= 80) return '✅ ممتاز';
-    if (score >= 60) return '🟡 جيد';
-    if (score >= 40) return '🟠 يحتاج تحسين';
-    return '🔴 يحتاج تدخل عاجل';
+    if (score >= 80) return 'ماشي كويس جدًا';
+    if (score >= 60) return 'وضع مقبول وفيه فرص';
+    if (score >= 40) return 'محتاج شغل شوية';
+    return 'محتاج تدخل سريع';
   }
 }

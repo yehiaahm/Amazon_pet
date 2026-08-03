@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useExpenses, useDailyClosings, useAddExpense, useAuditLogs, useSales } from '../../core/hooks/useERPData';
-import { PlusCircle, Landmark, BookOpen, FileSpreadsheet, ShieldAlert } from 'lucide-react';
+import { useExpenses, useDailyClosings, useAddExpense, useDeleteExpense } from '../../core/hooks/useERPData';
+import { PlusCircle, Landmark, FileSpreadsheet, Trash2, HandCoins } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -8,18 +8,22 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
 import DataTable from '../../components/ui/DataTable';
+import { formatMoney } from '../../core/utils/money';
+import AccountsPayablePanel from './AccountsPayablePanel';
+import Can from '../../components/ui/Can';
+import { PERMISSIONS } from '../../core/permissions/permissions';
+import QueryErrorFallback from '../../components/ui/QueryErrorFallback';
 
 export const Finance: React.FC = () => {
-  const { data: expenses, isLoading: loadingExpenses } = useExpenses();
-  const { data: closings, isLoading: loadingClosings } = useDailyClosings();
-  const { data: auditLogs } = useAuditLogs();
-  const { data: sales } = useSales();
+  const { data: expenses, isLoading: loadingExpenses, isError: expensesError, refetch: refetchExpenses } = useExpenses();
+  const { data: closings, isLoading: loadingClosings, isError: closingsError, refetch: refetchClosings } = useDailyClosings();
   const { mutate: logExpense, isPending: logging } = useAddExpense();
+  const { mutate: deleteExpense } = useDeleteExpense();
 
-  // Local state
-  const [activeSubTab, setActiveSubTab] = useState<'EXPENSES' | 'CLOSINGS' | 'JOURNAL' | 'AUDIT'>('EXPENSES');
+  const [activeSubTab, setActiveSubTab] = useState<'EXPENSES' | 'CLOSINGS' | 'PAYABLE'>('EXPENSES');
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [expCategory, setExpCategory] = useState<'RENT' | 'SALARY' | 'UTILITIES' | 'SUPPLIES' | 'OTHER'>('SUPPLIES');
+  const [expCategory, setExpCategory] = useState<string>('SUPPLIES');
+  const [customCategory, setCustomCategory] = useState('');
   const [expDescription, setExpDescription] = useState('');
   const [expAmount, setExpAmount] = useState('');
   const [expSource, setExpSource] = useState<'CASH' | 'BANK'>('BANK');
@@ -28,13 +32,28 @@ export const Finance: React.FC = () => {
     return <div className="workspace"><div className="skeleton" style={{ height: '40px' }} /></div>;
   }
 
+  if (expensesError || closingsError) {
+    return (
+      <QueryErrorFallback
+        title="تعذر تحميل بيانات المالية"
+        onRetry={() => {
+          void refetchExpenses();
+          void refetchClosings();
+        }}
+      />
+    );
+  }
+
   const handleRecordExpense = () => {
     const amount = parseFloat(expAmount) || 0;
     if (amount <= 0) return;
 
+    const finalCategory = expCategory === 'CUSTOM' ? customCategory.trim() : expCategory;
+    if (!finalCategory) return;
+
     logExpense({
       branchId: 'b-1',
-      category: expCategory,
+      category: finalCategory,
       description: expDescription,
       amount,
       paidFrom: expSource
@@ -43,11 +62,12 @@ export const Finance: React.FC = () => {
         setShowExpenseModal(false);
         setExpDescription('');
         setExpAmount('');
+        setCustomCategory('');
+        setExpCategory('SUPPLIES');
       }
     });
   };
 
-  // Columns Definitions
   const expensesColumns = [
     { header: 'التاريخ', accessor: 'date' as const, key: 'date', sortable: true },
     { 
@@ -57,7 +77,8 @@ export const Finance: React.FC = () => {
         if (row.category === 'SALARY') return 'رواتب الموظفين';
         if (row.category === 'UTILITIES') return 'مرافق (كهرباء/إنترنت)';
         if (row.category === 'SUPPLIES') return 'مستلزمات وبضائع للمحل';
-        return 'أخرى / تشغيلي عام';
+        if (row.category === 'OTHER') return 'أخرى / تشغيلي عام';
+        return row.category;
       },
       key: 'category', 
       sortable: true 
@@ -65,7 +86,7 @@ export const Finance: React.FC = () => {
     { header: 'البيان / الوصف', accessor: 'description' as const, key: 'description' },
     { 
       header: 'القيمة', 
-      accessor: (row: any) => `$${row.amount.toFixed(2)}`, 
+      accessor: (row: any) => formatMoney(row.amount), 
       key: 'amount', 
       sortable: true 
     },
@@ -73,28 +94,48 @@ export const Finance: React.FC = () => {
       header: 'الدفع من حـ/', 
       accessor: (row: any) => row.paidFrom === 'BANK' ? 'الحساب البنكي' : 'النقدية بالدرج', 
       key: 'paidFrom' 
+    },
+    {
+      header: 'إجراءات',
+      accessor: (row: any) => (
+        <Can permission={PERMISSIONS.FINANCE_DELETE_EXPENSE}>
+          <Button 
+            onClick={() => {
+              if (confirm('هل أنت متأكد من رغبتك في حذف هذا المصروف؟')) {
+                deleteExpense(row.id);
+              }
+            }} 
+            variant="danger" 
+            size="sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px' }}
+          >
+            <Trash2 size={12} /> حذف
+          </Button>
+        </Can>
+      ),
+      key: 'actions'
     }
   ];
 
   const closingsColumns = [
     { header: 'تاريخ الوردية', accessor: 'date' as const, key: 'date', sortable: true },
     { 
-      header: 'الرصيد الدفتري المتوقع ($)', 
-      accessor: (row: any) => `$${row.systemExpected.toFixed(2)}`, 
+      header: 'الرصيد الدفتري المتوقع (ج.م)', 
+      accessor: (row: any) => formatMoney(row.systemExpected), 
       key: 'systemExpected' 
     },
     { 
-      header: 'العد النقدي الفعلي ($)', 
-      accessor: (row: any) => `$${row.physicalActual.toFixed(2)}`, 
+      header: 'العد النقدي الفعلي (ج.م)', 
+      accessor: (row: any) => formatMoney(row.physicalActual), 
       key: 'physicalActual' 
     },
     {
-      header: 'الفارق النقدي ($)',
+      header: 'الفارق النقدي (ج.م)',
       accessor: (row: any) => {
         const isDiff = row.difference !== 0;
         return (
           <span style={{ color: isDiff ? 'var(--color-danger)' : 'var(--color-success)', fontWeight: 'bold' }}>
-            {row.difference === 0 ? '$0.00' : `${row.difference > 0 ? '+' : ''}$${row.difference.toFixed(2)}`}
+            {row.difference === 0 ? formatMoney(0) : formatMoney(row.difference, { signed: true })}
           </span>
         );
       },
@@ -111,83 +152,20 @@ export const Finance: React.FC = () => {
     }
   ];
 
-  // Dynamic double-entry generation based on recent sales & refunds
-  const dynamicJournals = [...(sales || [])].reverse().slice(0, 15).flatMap((s) => {
-    const dateStr = s.date.split('T')[0];
-    const isRefunded = s.status === 'REFUNDED';
-    
-    const entries = [
-      {
-        id: `j-sale-${s.id}`,
-        date: dateStr,
-        desc: `مبيعات عملاء - فاتورة ${s.saleNumber}`,
-        debit: s.paymentMethod === 'CASH' ? 'أصل (صندوق النقدية بالدرج)' : 'أصل (حساب البنك Operating)',
-        credit: 'إيراد (مبيعات منتجات POS)',
-        val: s.totalAmount
-      }
-    ];
-
-    if (isRefunded) {
-      entries.unshift({
-        id: `j-ref-${s.id}`,
-        date: dateStr,
-        desc: `عكس قيد مبيعات - إرجاع فاتورة ${s.saleNumber} بالكامل`,
-        debit: 'إيراد (مبيعات منتجات POS)',
-        credit: s.paymentMethod === 'CASH' ? 'أصل (صندوق النقدية بالدرج)' : 'أصل (حساب البنك Operating)',
-        val: s.totalAmount
-      });
-    }
-
-    return entries;
-  });
-
-  const allJournalEntries = [
-    ...dynamicJournals,
-    { id: 'j-init-3', date: '2026-07-05', desc: 'إيداع نقدي من الدرج لحساب البنك Corporate', debit: 'أصل (حساب البنك Operating)', credit: 'أصل (صندوق النقدية بالدرج)', val: 120.00 },
-    { id: 'j-init-4', date: '2026-07-01', desc: 'سداد إيجار مقر المحل الشهري للفرع', debit: 'مصروف (حساب الإيجارات)', credit: 'أصل (حساب البنك Operating)', val: 1500.00 }
-  ];
-
-  const journalColumns = [
-    { header: 'تاريخ الترحيل', accessor: 'date' as const, key: 'date' },
-    { header: 'البيان / الوصف', accessor: 'desc' as const, key: 'desc' },
-    { header: 'الجانب المدين (حـ/)', accessor: 'debit' as const, key: 'debit' },
-    { header: 'الجانب الدائن (حـ/)', accessor: 'credit' as const, key: 'credit' },
-    { 
-      header: 'القيمة المالية ($)', 
-      accessor: (row: any) => `$${row.val.toFixed(2)}`, 
-      key: 'val' 
-    }
-  ];
-
-  const auditColumns = [
-    { header: 'التاريخ والوقت', accessor: 'timestamp' as const, key: 'timestamp', sortable: true },
-    { header: 'الموظف المسؤول', accessor: 'employeeName' as const, key: 'employeeName', sortable: true },
-    { 
-      header: 'نوع العملية', 
-      accessor: (row: any) => (
-        <Badge variant={row.action === 'REFUND' ? 'danger' : row.action === 'LOGIN' ? 'info' : 'warning'}>
-          {row.action === 'REFUND' ? 'إلغاء ومرتجع' : row.action === 'LOGIN' ? 'تسجيل دخول' : 'تعديل جرد'}
-        </Badge>
-      ), 
-      key: 'action', 
-      sortable: true 
-    },
-    { header: 'تفاصيل الإجراء والمراقبة الأمنية', accessor: 'message' as const, key: 'message' }
-  ];
-
   return (
     <div className="workspace">
       <PageHeader 
         title="الدفتر المالي والعمليات المحاسبية" 
-        subtitle="مراقبة قيود اليومية المزدوجة، إغلاق ورديات الكاشير، وتسجيل المصاريف"
+        subtitle="إغلاق ورديات الكاشير، وتسجيل المصاريف التشغيلية"
         actions={
-          <Button onClick={() => setShowExpenseModal(true)} variant="primary" size="sm">
-            <PlusCircle size={14} /> تسجيل مصروف تشغيلي جديد
-          </Button>
+          <Can permission={PERMISSIONS.FINANCE_ADD_EXPENSE}>
+            <Button onClick={() => setShowExpenseModal(true)} variant="primary" size="sm">
+              <PlusCircle size={14} /> تسجيل مصروف تشغيلي جديد
+            </Button>
+          </Can>
         }
       />
 
-      {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', gap: 'var(--spacing-2)', paddingBottom: '4px' }}>
         <button
           onClick={() => setActiveSubTab('EXPENSES')}
@@ -218,36 +196,21 @@ export const Finance: React.FC = () => {
           <FileSpreadsheet size={16} /> إغلاقات درج الكاشير اليومية
         </button>
         <button
-          onClick={() => setActiveSubTab('JOURNAL')}
+          onClick={() => setActiveSubTab('PAYABLE')}
           className="btn-ghost"
           style={{
             fontSize: 'var(--font-size-sm)',
             padding: '6px 16px',
-            borderBottom: activeSubTab === 'JOURNAL' ? '2px solid var(--color-primary)' : 'none',
-            color: activeSubTab === 'JOURNAL' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            fontWeight: activeSubTab === 'JOURNAL' ? 'bold' : 'normal',
+            borderBottom: activeSubTab === 'PAYABLE' ? '2px solid var(--color-primary)' : 'none',
+            color: activeSubTab === 'PAYABLE' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            fontWeight: activeSubTab === 'PAYABLE' ? 'bold' : 'normal',
             display: 'flex', alignItems: 'center', gap: '6px'
           }}
         >
-          <BookOpen size={16} /> قيود اليومية المزدوجة
-        </button>
-        <button
-          onClick={() => setActiveSubTab('AUDIT')}
-          className="btn-ghost"
-          style={{
-            fontSize: 'var(--font-size-sm)',
-            padding: '6px 16px',
-            borderBottom: activeSubTab === 'AUDIT' ? '2px solid var(--color-primary)' : 'none',
-            color: activeSubTab === 'AUDIT' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            fontWeight: activeSubTab === 'AUDIT' ? 'bold' : 'normal',
-            display: 'flex', alignItems: 'center', gap: '6px'
-          }}
-        >
-          <ShieldAlert size={16} /> سجل رقابة وتدقيق العمليات أمنياً
+          <HandCoins size={16} /> حسابات الموردين (أجل)
         </button>
       </div>
 
-      {/* Content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {activeSubTab === 'EXPENSES' && (
           <DataTable
@@ -267,28 +230,9 @@ export const Finance: React.FC = () => {
           />
         )}
 
-        {activeSubTab === 'JOURNAL' && (
-          <DataTable
-            data={allJournalEntries}
-            columns={journalColumns}
-            rowKey="id"
-            searchField="desc"
-            searchPlaceholder="ابحث بالبيان المحاسبي للقيود..."
-          />
-        )}
-
-        {activeSubTab === 'AUDIT' && (
-          <DataTable
-            data={auditLogs || []}
-            columns={auditColumns}
-            rowKey="id"
-            searchField="message"
-            searchPlaceholder="ابحث في سجل تدقيق العمليات..."
-          />
-        )}
+        {activeSubTab === 'PAYABLE' && <AccountsPayablePanel />}
       </div>
 
-      {/* RECORD EXPENSE MODAL */}
       <Modal
         isOpen={showExpenseModal}
         onClose={() => setShowExpenseModal(false)}
@@ -304,18 +248,28 @@ export const Finance: React.FC = () => {
           <Select
             label="تصنيف المصروف"
             value={expCategory}
-            onChange={(e) => setExpCategory(e.target.value as any)}
+            onChange={(e) => setExpCategory(e.target.value)}
             options={[
               { value: 'SUPPLIES', label: 'مستلزمات وبضائع للمحل والحيوانات' },
               { value: 'RENT', label: 'إيجار مقر الفرع' },
               { value: 'SALARY', label: 'رواتب وأجور الموظفين' },
               { value: 'UTILITIES', label: 'فواتير ومرافق (كهرباء/إنترنت/مياه)' },
-              { value: 'OTHER', label: 'نفقات تشغيلية أخرى عامة' }
+              { value: 'OTHER', label: 'نفقات تشغيلية أخرى عامة' },
+              { value: 'CUSTOM', label: 'تصنيف مخصص... (أدخل اسماً مخصصاً)' }
             ]}
           />
 
+          {expCategory === 'CUSTOM' && (
+            <Input
+              label="اسم التصنيف المخصص"
+              value={customCategory}
+              onChange={(e) => setCustomCategory(e.target.value)}
+              placeholder="مثال: مصاريف شخصية مروان، نظافة، ضيافة..."
+            />
+          )}
+
           <Input
-            label="قيمة المصروف ($)"
+            label="قيمة المصروف (ج.م)"
             value={expAmount}
             onChange={(e) => setExpAmount(e.target.value)}
             placeholder="0.00"

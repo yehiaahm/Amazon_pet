@@ -1,0 +1,556 @@
+{
+  "phase": "frontend",
+  "timestamp": "2026-07-31T02:35:48.792Z",
+  "measurements": [
+    {
+      "category": "dataset_generation",
+      "entity": "products+variants",
+      "count": 10000,
+      "generationMs": {
+        "name": "generate-products-10000",
+        "iterations": 5,
+        "min": 4.53,
+        "p50": 8.66,
+        "p95": 11.24,
+        "p99": 11.24,
+        "max": 11.24,
+        "mean": 7.65
+      },
+      "estimatedApiPayloadMB": 2.52
+    },
+    {
+      "category": "dataset_generation",
+      "entity": "products+variants",
+      "count": 50000,
+      "generationMs": {
+        "name": "generate-products-50000",
+        "iterations": 5,
+        "min": 13.81,
+        "p50": 48.53,
+        "p95": 69.04,
+        "p99": 69.04,
+        "max": 69.04,
+        "mean": 41.77
+      },
+      "estimatedApiPayloadMB": 12.75
+    },
+    {
+      "category": "dataset_generation",
+      "entity": "products+variants",
+      "count": 100000,
+      "generationMs": {
+        "name": "generate-products-100000",
+        "iterations": 5,
+        "min": 62.48,
+        "p50": 100.96,
+        "p95": 119.01,
+        "p99": 119.01,
+        "max": 119.01,
+        "mean": 90.32
+      },
+      "estimatedApiPayloadMB": 25.55
+    },
+    {
+      "category": "dataset_storage_estimate",
+      "entity": "customers",
+      "count": 20000,
+      "bytesEach": 280,
+      "estimatedTotalMB": 5.3
+    },
+    {
+      "category": "dataset_storage_estimate",
+      "entity": "pets",
+      "count": 40000,
+      "bytesEach": 220,
+      "estimatedTotalMB": 8.4
+    },
+    {
+      "category": "dataset_storage_estimate",
+      "entity": "employees",
+      "count": 500,
+      "bytesEach": 350,
+      "estimatedTotalMB": 0.2
+    },
+    {
+      "category": "dataset_storage_estimate",
+      "entity": "suppliers",
+      "count": 5000,
+      "bytesEach": 300,
+      "estimatedTotalMB": 1.4
+    },
+    {
+      "category": "dataset_storage_estimate",
+      "entity": "sales",
+      "count": 250000,
+      "bytesEach": 650,
+      "estimatedTotalMB": 155
+    },
+    {
+      "category": "dataset_storage_estimate",
+      "entity": "purchase_invoices",
+      "count": 150000,
+      "bytesEach": 800,
+      "estimatedTotalMB": 114.4
+    },
+    {
+      "category": "pos_stress",
+      "catalogSize": 10000,
+      "buildCatalog": {
+        "name": "catalog-build-10000",
+        "iterations": 20,
+        "min": 3,
+        "p50": 6.73,
+        "p95": 11.88,
+        "p99": 84.14,
+        "max": 84.14,
+        "mean": 11.05
+      },
+      "search": {
+        "name": "catalog-search-10000",
+        "iterations": 30,
+        "min": 2.09,
+        "p50": 2.38,
+        "p95": 7.9,
+        "p99": 15.5,
+        "max": 15.5,
+        "mean": 3.11
+      },
+      "barcodeLookup": {
+        "name": "barcode-lookup-10000",
+        "iterations": 100,
+        "min": 0.05,
+        "p50": 0.08,
+        "p95": 0.3,
+        "p99": 0.56,
+        "max": 1.3,
+        "mean": 0.12
+      },
+      "emptySearch": {
+        "name": "catalog-empty-search-10000",
+        "iterations": 20,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0.1,
+        "max": 0.1,
+        "mean": 0.01
+      },
+      "addToCart": {
+        "name": "add-to-cart-10000",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0.01,
+        "p99": 0.03,
+        "max": 0.2,
+        "mean": 0
+      },
+      "removeFromCart": {
+        "name": "remove-from-cart",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0.01,
+        "max": 0.12,
+        "mean": 0
+      },
+      "checkoutTotal": {
+        "name": "checkout-total",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0.08,
+        "mean": 0
+      },
+      "domNodesVirtualized": 30,
+      "domNodesWithoutVirtualization": 10000
+    },
+    {
+      "category": "pos_stress",
+      "catalogSize": 50000,
+      "buildCatalog": {
+        "name": "catalog-build-50000",
+        "iterations": 20,
+        "min": 27.7,
+        "p50": 32.29,
+        "p95": 92.08,
+        "p99": 104.61,
+        "max": 104.61,
+        "mean": 42.44
+      },
+      "search": {
+        "name": "catalog-search-50000",
+        "iterations": 30,
+        "min": 8.61,
+        "p50": 15.05,
+        "p95": 55.06,
+        "p99": 84.37,
+        "max": 84.37,
+        "mean": 19.3
+      },
+      "barcodeLookup": {
+        "name": "barcode-lookup-50000",
+        "iterations": 100,
+        "min": 0.48,
+        "p50": 0.64,
+        "p95": 0.93,
+        "p99": 1.25,
+        "max": 1.68,
+        "mean": 0.69
+      },
+      "emptySearch": {
+        "name": "catalog-empty-search-50000",
+        "iterations": 20,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "addToCart": {
+        "name": "add-to-cart-50000",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0.01,
+        "p99": 0.01,
+        "max": 0.05,
+        "mean": 0
+      },
+      "removeFromCart": {
+        "name": "remove-from-cart",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0.02,
+        "mean": 0
+      },
+      "checkoutTotal": {
+        "name": "checkout-total",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0.01,
+        "mean": 0
+      },
+      "domNodesVirtualized": 30,
+      "domNodesWithoutVirtualization": 50000
+    },
+    {
+      "category": "pos_stress",
+      "catalogSize": 100000,
+      "buildCatalog": {
+        "name": "catalog-build-100000",
+        "iterations": 20,
+        "min": 40.64,
+        "p50": 58.98,
+        "p95": 112.17,
+        "p99": 196.48,
+        "max": 196.48,
+        "mean": 75.35
+      },
+      "search": {
+        "name": "catalog-search-100000",
+        "iterations": 30,
+        "min": 18.95,
+        "p50": 20.04,
+        "p95": 53.14,
+        "p99": 81.44,
+        "max": 81.44,
+        "mean": 23.31
+      },
+      "barcodeLookup": {
+        "name": "barcode-lookup-100000",
+        "iterations": 100,
+        "min": 1.17,
+        "p50": 1.6,
+        "p95": 2.49,
+        "p99": 2.78,
+        "max": 2.86,
+        "mean": 1.7
+      },
+      "emptySearch": {
+        "name": "catalog-empty-search-100000",
+        "iterations": 20,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "addToCart": {
+        "name": "add-to-cart-100000",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0.05,
+        "mean": 0
+      },
+      "removeFromCart": {
+        "name": "remove-from-cart",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0.01,
+        "mean": 0
+      },
+      "checkoutTotal": {
+        "name": "checkout-total",
+        "iterations": 200,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0.01,
+        "mean": 0
+      },
+      "domNodesVirtualized": 30,
+      "domNodesWithoutVirtualization": 100000
+    },
+    {
+      "category": "pos_invoices",
+      "salesCount": 250000,
+      "filter": {
+        "name": "invoice-filter-250k",
+        "iterations": 10,
+        "min": 46.37,
+        "p50": 47.98,
+        "p95": 80.46,
+        "p99": 80.46,
+        "max": 80.46,
+        "mean": 55.82
+      },
+      "jsonParse": {
+        "name": "json-parse-250k-sales",
+        "iterations": 5,
+        "min": 1353.68,
+        "p50": 1424.15,
+        "p95": 1649.54,
+        "p99": 1649.54,
+        "max": 1649.54,
+        "mean": 1464.19
+      },
+      "heapSalesArrayMB": 112.1
+    },
+    {
+      "category": "inventory_client",
+      "productCount": 10000,
+      "filterByCategory": {
+        "name": "inv-filter-category-10000",
+        "iterations": 30,
+        "min": 0.14,
+        "p50": 0.2,
+        "p95": 0.7,
+        "p99": 0.8,
+        "max": 0.8,
+        "mean": 0.29
+      },
+      "filterByName": {
+        "name": "inv-filter-brand-10000",
+        "iterations": 30,
+        "min": 1.06,
+        "p50": 1.28,
+        "p95": 2.08,
+        "p99": 4.13,
+        "max": 4.13,
+        "mean": 1.42
+      },
+      "searchBySku": {
+        "name": "inv-search-sku-10000",
+        "iterations": 30,
+        "min": 0.32,
+        "p50": 0.35,
+        "p95": 0.92,
+        "p99": 1.23,
+        "max": 1.23,
+        "mean": 0.46
+      }
+    },
+    {
+      "category": "inventory_client",
+      "productCount": 50000,
+      "filterByCategory": {
+        "name": "inv-filter-category-50000",
+        "iterations": 30,
+        "min": 1.25,
+        "p50": 1.46,
+        "p95": 2.24,
+        "p99": 2.57,
+        "max": 2.57,
+        "mean": 1.57
+      },
+      "filterByName": {
+        "name": "inv-filter-brand-50000",
+        "iterations": 30,
+        "min": 7.54,
+        "p50": 9.12,
+        "p95": 16.08,
+        "p99": 21.61,
+        "max": 21.61,
+        "mean": 10.09
+      },
+      "searchBySku": {
+        "name": "inv-search-sku-50000",
+        "iterations": 30,
+        "min": 2.57,
+        "p50": 3.15,
+        "p95": 4.81,
+        "p99": 5.44,
+        "max": 5.44,
+        "mean": 3.34
+      }
+    },
+    {
+      "category": "inventory_client",
+      "productCount": 100000,
+      "filterByCategory": {
+        "name": "inv-filter-category-100000",
+        "iterations": 30,
+        "min": 2.9,
+        "p50": 3.3,
+        "p95": 4.21,
+        "p99": 4.53,
+        "max": 4.53,
+        "mean": 3.36
+      },
+      "filterByName": {
+        "name": "inv-filter-brand-100000",
+        "iterations": 30,
+        "min": 13.14,
+        "p50": 15.01,
+        "p95": 31.63,
+        "p99": 40.19,
+        "max": 40.19,
+        "mean": 16.79
+      },
+      "searchBySku": {
+        "name": "inv-search-sku-100000",
+        "iterations": 30,
+        "min": 3.87,
+        "p50": 4.31,
+        "p95": 5.07,
+        "p99": 5.4,
+        "max": 5.4,
+        "mean": 4.45
+      }
+    },
+    {
+      "category": "dashboard_client",
+      "salesCount": 250000,
+      "aggregation": {
+        "name": "dashboard-aggregate-250k",
+        "iterations": 10,
+        "min": 179.7,
+        "p50": 210.43,
+        "p95": 275.55,
+        "p99": 275.55,
+        "max": 275.55,
+        "mean": 220.63
+      }
+    },
+    {
+      "category": "memory_node_simulation",
+      "samples": [
+        {
+          "label": "baseline",
+          "heapUsedMB": 469.7,
+          "heapTotalMB": 642.7,
+          "rssMB": 1371.1,
+          "heldObjects": 0
+        },
+        {
+          "label": "100k-variants",
+          "heapUsedMB": 488.8,
+          "heapTotalMB": 619.5,
+          "rssMB": 1361,
+          "heldObjects": 100000
+        },
+        {
+          "label": "100k-catalog",
+          "heapUsedMB": 525.7,
+          "heapTotalMB": 631.4,
+          "rssMB": 1365.6,
+          "heldObjects": 100000
+        },
+        {
+          "label": "250k-sales",
+          "heapUsedMB": 699.1,
+          "heapTotalMB": 803.2,
+          "rssMB": 1366,
+          "heldObjects": 250000
+        }
+      ]
+    },
+    {
+      "category": "long_running_simulation",
+      "note": "2000 sale iterations retained (12h proxy); full 12h requires live Electron",
+      "iterations": 2000,
+      "samples": [
+        {
+          "iteration": 0,
+          "heapUsedMB": 699.1,
+          "salesRetained": 1
+        },
+        {
+          "iteration": 200,
+          "heapUsedMB": 699.3,
+          "salesRetained": 201
+        },
+        {
+          "iteration": 400,
+          "heapUsedMB": 699.4,
+          "salesRetained": 401
+        },
+        {
+          "iteration": 600,
+          "heapUsedMB": 699.6,
+          "salesRetained": 601
+        },
+        {
+          "iteration": 800,
+          "heapUsedMB": 699.8,
+          "salesRetained": 801
+        },
+        {
+          "iteration": 1000,
+          "heapUsedMB": 699.9,
+          "salesRetained": 1001
+        },
+        {
+          "iteration": 1200,
+          "heapUsedMB": 700.1,
+          "salesRetained": 1201
+        },
+        {
+          "iteration": 1400,
+          "heapUsedMB": 700.2,
+          "salesRetained": 1401
+        },
+        {
+          "iteration": 1600,
+          "heapUsedMB": 700.4,
+          "salesRetained": 1601
+        },
+        {
+          "iteration": 1800,
+          "heapUsedMB": 700.6,
+          "salesRetained": 1801
+        }
+      ],
+      "heapGrowthMB": 1.5
+    }
+  ]
+}

@@ -96,6 +96,7 @@ CREATE TABLE customers (
     name VARCHAR(100) NOT NULL,
     phone VARCHAR(30),
     email VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
