@@ -186,7 +186,7 @@ public class PurchaseInvoiceService {
 
             String sku = item.getSku() != null ? item.getSku().trim() : "";
             if (sku.isBlank()) {
-                sku = "SKU-" + Math.abs((item.getProductName() + "_" + lineIndex).hashCode());
+                sku = String.format("AP-%06d", 100000 + lineIndex + 1);
                 item.setSku(sku);
             }
 
@@ -215,10 +215,14 @@ public class PurchaseInvoiceService {
                     ? item.getLotNumber().trim() 
                     : ("B-" + invoice.getInvoiceNumber().replaceAll("\\s+", "") + "-" + String.format("%03d", lineIndex));
 
+            String warehouseId = (invoice.getTargetWarehouseId() != null && !invoice.getTargetWarehouseId().isBlank())
+                    ? invoice.getTargetWarehouseId()
+                    : StockService.DEFAULT_SALES_WAREHOUSE;
+
             try {
                 fifoCostingService.createPurchaseBatch(
                         tenantId,
-                        StockService.DEFAULT_SALES_WAREHOUSE,
+                        warehouseId,
                         variant.getId(),
                         supplierId,
                         invoice.getId(),
@@ -307,43 +311,4 @@ public class PurchaseInvoiceService {
                 .orElseThrow(() -> new ResourceNotFoundException("فاتورة الشراء غير موجودة"));
     }
 
-    public PurchaseInvoice payInvoice(String tenantId, String id, BigDecimal amount) {
-        PurchaseInvoice invoice = invoiceRepository.findByIdAndUploadedByTenantId(id, tenantId)
-                .orElseThrow(() -> new ResourceNotFoundException("فاتورة الشراء غير موجودة"));
-
-        BigDecimal newPaid = (invoice.getPaidAmount() != null ? invoice.getPaidAmount() : BigDecimal.ZERO).add(amount);
-        if (newPaid.compareTo(invoice.getGrandTotal()) > 0) {
-            throw new BusinessRuleException("المبلغ المدفوع يتجاوز إجمالي الفاتورة");
-        }
-        invoice.setPaidAmount(newPaid);
-
-        if (newPaid.compareTo(invoice.getGrandTotal()) >= 0) {
-            invoice.setPaymentStatus("PAID");
-        } else if (newPaid.compareTo(BigDecimal.ZERO) > 0) {
-            invoice.setPaymentStatus("PARTIALLY_PAID");
-        } else {
-            invoice.setPaymentStatus("UNPAID");
-        }
-
-        // Apply payment to earliest open installment
-        if (invoice.getInstallments() != null && !invoice.getInstallments().isEmpty()) {
-            BigDecimal remaining = amount;
-            for (PurchaseInvoiceInstallment inst : invoice.getInstallments()) {
-                if ("PAID".equals(inst.getStatus()) || remaining.compareTo(BigDecimal.ZERO) <= 0) continue;
-                BigDecimal instPaid = inst.getPaidAmount() != null ? inst.getPaidAmount() : BigDecimal.ZERO;
-                BigDecimal instRemaining = inst.getAmount().subtract(instPaid);
-                BigDecimal apply = remaining.min(instRemaining);
-                inst.setPaidAmount(instPaid.add(apply));
-                if (inst.getPaidAmount().compareTo(inst.getAmount()) >= 0) {
-                    inst.setStatus("PAID");
-                    inst.setPaidAt(Instant.now());
-                } else if (inst.getPaidAmount().compareTo(BigDecimal.ZERO) > 0) {
-                    inst.setStatus("PARTIALLY_PAID");
-                }
-                remaining = remaining.subtract(apply);
-            }
-        }
-
-        return invoiceRepository.save(invoice);
-    }
 }

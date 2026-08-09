@@ -7,8 +7,6 @@ import com.animasys.modules.ai.config.AiProperties;
 import com.animasys.modules.ai.config.AiStartupValidator;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
-import com.animasys.modules.inventory.dto.ChunkImportRequest;
-import com.animasys.modules.inventory.service.ImportService;
 import com.animasys.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,7 +18,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -33,7 +30,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class SprintRegressionTest extends IntegrationTestBase {
 
     @Autowired private AuthorizationChecker authorizationChecker;
-    @Autowired private ImportService importService;
 
     @Test
     @DisplayName("Sprint 2A RBAC: authz denies endpoint permission when PERM_ authority missing")
@@ -58,19 +54,6 @@ class SprintRegressionTest extends IntegrationTestBase {
 
         assertFalse(authorizationChecker.has("sales.create_sale"));
         assertTrue(authorizationChecker.has("inventory.view"));
-    }
-
-    @Test
-    @DisplayName("Sprint 3B permissions: ImportService.processChunk requires SecurityContext tenant")
-    void sprint3B_importServiceRequiresSecurityContext() {
-        SecurityContextHolder.clearContext();
-
-        ChunkImportRequest chunk = new ChunkImportRequest();
-        chunk.setEmployeeId("any-employee");
-        chunk.setItems(Collections.emptyList());
-
-        assertThrows(AccessDeniedException.class,
-                () -> importService.processChunk("missing-session", chunk));
     }
 
     @Test

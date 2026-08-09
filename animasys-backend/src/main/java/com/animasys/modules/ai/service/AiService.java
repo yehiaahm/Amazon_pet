@@ -17,6 +17,7 @@ public class AiService {
     public static final String ENDPOINT_INSIGHTS = "GET /v1/ai/insights";
     public static final String ENDPOINT_ASK = "POST /v1/ai/ask";
     public static final String ENDPOINT_OCR = "POST /v1/ai/analyze-invoice";
+    public static final String ENDPOINT_IMPORT_MAPPING = "POST /v1/inventory/import/sessions";
 
     private final AIProvider aiProvider;
     private final AiAuditService auditService;
@@ -30,6 +31,11 @@ public class AiService {
 
     public String askAdvisor(String prompt) {
         return executeText(ENDPOINT_ASK, prompt);
+    }
+
+    /** Resolves spreadsheet columns the deterministic import mapper could not recognize. */
+    public String mapImportColumns(String prompt) {
+        return executeText(ENDPOINT_IMPORT_MAPPING, prompt);
     }
 
     public String analyzeInvoice(String prompt, String imageBase64, String mimeType) {

@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/endpoints';
 import { useUIStore } from '../stores/uiStore';
+import { usePermissionStore } from '../permissions/permissionStore';
 import type { SalesQueryParams } from '../../types/erp';
 import type { CatalogQueryParams } from '../api/endpoints';
 import { formatMoney } from '../utils/money';
 
-const DEFAULT_CATALOG_PARAMS: CatalogQueryParams = { page: 0, size: 50, sort: 'name,asc' };
+const DEFAULT_CATALOG_PARAMS: CatalogQueryParams = { page: 0, size: 5000, sort: 'name,asc' };
 
 // QUERY KEYS
 export const keys = {
@@ -25,7 +26,6 @@ export const keys = {
   dashboard: ['dashboard'] as const,
   aiInsights: ['aiInsights'] as const,
   auditLogs: ['auditLogs'] as const,
-  importHistory: ['importHistory'] as const,
   boardingReservations: ['boardingReservations'] as const,
   purchaseInvoices: ['purchaseInvoices'] as const,
   accountsPayable: ['accountsPayable'] as const,
@@ -66,13 +66,6 @@ export function useWarehouses() {
   return useQuery({
     queryKey: keys.warehouses,
     queryFn: () => api.getWarehouses(),
-  });
-}
-
-export function useStockMovements() {
-  return useQuery({
-    queryKey: keys.stockMovements,
-    queryFn: () => api.getStockMovements(),
   });
 }
 
@@ -510,81 +503,6 @@ export function useRefundSale() {
   });
 }
 
-export function useImportHistory() {
-  return useQuery({
-    queryKey: keys.importHistory,
-    queryFn: () => api.getImportHistory(),
-  });
-}
-
-export function useStartImportSession() {
-  return useMutation({
-    mutationFn: (args: { fileName: string; fileSize: number; fileHash: string; duplicateStrategy: string; targetType: string; uploadedBy: string }) =>
-      api.startImportSession(args.fileName, args.fileSize, args.fileHash, args.duplicateStrategy, args.targetType, args.uploadedBy),
-  });
-}
-
-export function useUploadImportChunk() {
-  return useMutation({
-    mutationFn: (args: { sessionId: string; items: any[]; chunkIndex: number; dryRun: boolean; employeeId: string }) =>
-      api.uploadImportChunk(args.sessionId, args.items, args.chunkIndex, args.dryRun, args.employeeId),
-  });
-}
-
-export function useFinalizeImportSession() {
-  const queryClient = useQueryClient();
-  const addNotification = useUIStore(s => s.addNotification);
-
-  return useMutation({
-    mutationFn: (sessionId: string) => api.finalizeImportSession(sessionId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.importHistory });
-      queryClient.invalidateQueries({ queryKey: keys.products });
-      queryClient.invalidateQueries({ queryKey: keys.variants });
-      queryClient.invalidateQueries({ queryKey: keys.stockMovements });
-      queryClient.invalidateQueries({ queryKey: keys.kpis });
-      queryClient.invalidateQueries({ queryKey: keys.aiInsights });
-      addNotification('INVENTORY', 'تم الانتهاء من استيراد البضائع', 'تمت معالجة ملف الجرد وتحديث أرصدة المنتجات بنجاح.');
-    }
-  });
-}
-
-export function useUndoImportSession() {
-  const queryClient = useQueryClient();
-  const addNotification = useUIStore(s => s.addNotification);
-
-  return useMutation({
-    mutationFn: (args: { sessionId: string; employeeId: string }) => api.undoImportSession(args.sessionId, args.employeeId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.importHistory });
-      queryClient.invalidateQueries({ queryKey: keys.products });
-      queryClient.invalidateQueries({ queryKey: keys.variants });
-      queryClient.invalidateQueries({ queryKey: keys.stockMovements });
-      queryClient.invalidateQueries({ queryKey: keys.kpis });
-      queryClient.invalidateQueries({ queryKey: keys.aiInsights });
-      addNotification('INVENTORY', 'تم التراجع عن الاستيراد', 'تم التراجع عن إدخال المنتجات وعكس حركات المخزون للعملية المحددة.');
-    }
-  });
-}
-
-export function useDeleteImportSession() {
-  const queryClient = useQueryClient();
-  const addNotification = useUIStore(s => s.addNotification);
-
-  return useMutation({
-    mutationFn: (args: { sessionId: string; employeeId: string }) => api.deleteImportSession(args.sessionId, args.employeeId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.importHistory });
-      queryClient.invalidateQueries({ queryKey: keys.products });
-      queryClient.invalidateQueries({ queryKey: keys.variants });
-      queryClient.invalidateQueries({ queryKey: keys.stockMovements });
-      queryClient.invalidateQueries({ queryKey: keys.kpis });
-      queryClient.invalidateQueries({ queryKey: keys.aiInsights });
-      addNotification('INVENTORY', 'تم حذف عملية الاستيراد', 'تم حذف ملف الجرد نهائياً وإزالة جميع المنتجات المدرجة فيه من النظام.');
-    }
-  });
-}
-
 export function useSuppliers() {
   return useQuery({
     queryKey: ['suppliers'],
@@ -774,6 +692,20 @@ export function useAddEmployee() {
   });
 }
 
+export function useUpdateEmployee() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+  return useMutation({
+    mutationFn: (args: { id: string; fullName?: string; email?: string; role?: string; active?: boolean }) =>
+      api.updateEmployee(args.id, args),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ['my-permissions'] });
+      addNotification('TASKS', 'تم تحديث الموظف', 'تم تحديث بيانات وصلاحيات الموظف بنجاح.');
+    },
+  });
+}
+
 export function useDeleteEmployee() {
   const queryClient = useQueryClient();
   const addNotification = useUIStore(s => s.addNotification);
@@ -793,6 +725,22 @@ export function useChangePassword() {
     onSuccess: () => {
       addNotification('TASKS', 'تم تغيير كلمة المرور', 'تم تحديث كلمة مرور الموظف بنجاح.');
     }
+  });
+}
+
+export function useMyPermissions() {
+  const setPermissions = usePermissionStore(s => s.setPermissions);
+  return useQuery({
+    queryKey: ['my-permissions'],
+    queryFn: async () => {
+      const perms = await api.getMyPermissions();
+      if (Array.isArray(perms)) {
+        setPermissions(perms);
+      }
+      return perms;
+    },
+    enabled: !!localStorage.getItem('token'),
+    staleTime: 1000 * 30,
   });
 }
 
@@ -836,6 +784,7 @@ export function useUpdateRolePermissions() {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['roles'] });
       queryClient.invalidateQueries({ queryKey: ['roles', vars.roleId] });
+      queryClient.invalidateQueries({ queryKey: ['my-permissions'] });
     },
   });
 }
@@ -876,7 +825,8 @@ export function useGenerateBarcode() {
   const addNotification = useUIStore(s => s.addNotification);
 
   return useMutation({
-    mutationFn: (args: { variantId: string; format: string }) => api.generateBarcode(args.variantId, args.format),
+    mutationFn: (args: { variantId: string; format: string; force?: boolean }) => 
+      api.generateBarcode(args.variantId, args.format, args.force ?? false),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: keys.variants });
       queryClient.invalidateQueries({ queryKey: keys.products });
@@ -884,6 +834,24 @@ export function useGenerateBarcode() {
     },
     onError: (err: any) => {
       addNotification('WARNINGS', 'فشل توليد الباركود', err?.message || 'تعذر إنشاء الباركود.');
+    }
+  });
+}
+
+export function useUpdateCustomBarcode() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (args: { variantId: string; customBarcode: string; format?: string }) => 
+      api.updateCustomBarcode(args.variantId, args.customBarcode, args.format),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: keys.variants });
+      queryClient.invalidateQueries({ queryKey: keys.products });
+      addNotification('TASKS', 'تم تحديث الباركود المخصص', `تم حفظ الباركود الجديد بنجاح: ${res.barcode}`);
+    },
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل تحديث الباركود', err?.message || 'تعذر حفظ الباركود المخصص.');
     }
   });
 }
@@ -901,6 +869,76 @@ export function useClearBarcode() {
     },
     onError: (err: any) => {
       addNotification('WARNINGS', 'فشل حذف الباركود', err?.message || 'تعذر حذف باركود المنتج.');
+    }
+  });
+}
+
+// ── SMART EXCEL IMPORT ────────────────────────────────────────────────────
+
+export function useUploadImportSession() {
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (file: File) => api.uploadImportSession(file),
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل رفع الملف', err?.message || 'تعذر قراءة الملف.');
+    }
+  });
+}
+
+export function useConfirmImportMapping() {
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (args: { sessionId: string; mapping: Record<string, string>; autoCreateSupplier: boolean; priceBelowCostIsWarningOnly: boolean }) =>
+      api.confirmImportMapping(args.sessionId, args.mapping, {
+        autoCreateSupplier: args.autoCreateSupplier,
+        priceBelowCostIsWarningOnly: args.priceBelowCostIsWarningOnly,
+      }),
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل ربط الأعمدة', err?.message || 'تعذر التحقق من صحة الملف.');
+    }
+  });
+}
+
+export function useImportPreview(sessionId: string | null, params: { status?: string; search?: string } = {}) {
+  return useQuery({
+    queryKey: ['importPreview', sessionId, params],
+    queryFn: () => api.getImportPreview(sessionId as string, params),
+    enabled: !!sessionId,
+  });
+}
+
+export function useResolveImportDuplicates() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (args: { sessionId: string; itemIds: string[]; resolution: string }) =>
+      api.resolveImportDuplicates(args.sessionId, args.itemIds, args.resolution),
+    onSuccess: (_, args) => {
+      queryClient.invalidateQueries({ queryKey: ['importPreview', args.sessionId] });
+    },
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل تحديث إجراء التكرارات', err?.message || 'تعذر حفظ الاختيار.');
+    }
+  });
+}
+
+export function useCommitImport() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (sessionId: string) => api.commitImport(sessionId),
+    onSuccess: (summary) => {
+      queryClient.invalidateQueries({ queryKey: keys.products });
+      queryClient.invalidateQueries({ queryKey: keys.variants });
+      addNotification('INVENTORY', 'اكتمل الاستيراد',
+        `تم استيراد ${summary.imported}، تحديث ${summary.updated}، تخطي ${summary.skipped}، فشل ${summary.failed}.`);
+    },
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل تنفيذ الاستيراد', err?.message || 'تعذر إتمام عملية الاستيراد.');
     }
   });
 }

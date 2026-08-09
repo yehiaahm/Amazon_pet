@@ -1,5 +1,6 @@
 package com.animasys.modules.inventory.service;
 
+import com.animasys.core.exception.ResourceNotFoundException;
 import com.animasys.core.security.UserPrincipal;
 import com.animasys.modules.iam.repository.TenantRepository;
 import com.animasys.modules.inventory.domain.*;
@@ -33,7 +34,6 @@ public class ProductVariantDuplicateMergeService {
     private final StockMovementRepository stockMovementRepository;
     private final InventoryAdjustmentItemRepository adjustmentItemRepository;
     private final SaleItemRepository saleItemRepository;
-    private final ImportSessionItemRepository importSessionItemRepository;
     private final SkuCatalogService skuCatalogService;
     private final InventoryStockSyncService stockSyncService;
     private final EntityManager entityManager;
@@ -51,6 +51,40 @@ public class ProductVariantDuplicateMergeService {
         assertAuthenticatedTenantScope(tenantId);
         SkuDuplicateMergeReport report = new SkuDuplicateMergeReport();
         mergeTenant(tenantId, report);
+        finalizeReport(report, tenantId);
+        return report;
+    }
+
+    /**
+     * Merges two variants that the automatic SKU-based grouping can't pair — e.g. the same
+     * physical product entered twice under two different SKUs. Moves batches, ledger entries,
+     * stock, and sale history from {@code sourceVariantId} onto {@code targetVariantId}, then
+     * deletes the source (and its now-empty parent product, if this was its only variant).
+     * {@code targetVariantId} keeps its own SKU/barcode — pick the one with active stock/printed
+     * labels as the target so nothing on the shelf goes stale.
+     */
+    @Transactional
+    public SkuDuplicateMergeReport mergeSpecificVariants(String tenantId, String targetVariantId, String sourceVariantId) {
+        assertAuthenticatedTenantScope(tenantId);
+        if (targetVariantId.equals(sourceVariantId)) {
+            throw new IllegalArgumentException("Target and source variant must differ");
+        }
+        ProductVariant target = variantRepository.findById(targetVariantId)
+                .filter(v -> tenantId.equals(v.getTenantId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Target variant not found: " + targetVariantId));
+        ProductVariant source = variantRepository.findById(sourceVariantId)
+                .filter(v -> tenantId.equals(v.getTenantId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Source variant not found: " + sourceVariantId));
+
+        Product sourceProduct = source.getProduct();
+        SkuDuplicateMergeReport report = new SkuDuplicateMergeReport();
+        mergeVariantInto(target, source, tenantId, target.getSku(), report,
+                sourceProduct != null ? sourceProduct.getId() : null);
+
+        if (sourceProduct != null && variantRepository.findByProductId(sourceProduct.getId()).isEmpty()) {
+            productRepository.delete(sourceProduct);
+        }
+
         finalizeReport(report, tenantId);
         return report;
     }
@@ -206,11 +240,6 @@ public class ProductVariantDuplicateMergeService {
             saleItem.setItemId(targetId);
             saleItemRepository.save(saleItem);
             report.getAffectedSaleItemIds().add(saleItem.getId());
-        }
-
-        for (ImportSessionItem sessionItem : importSessionItemRepository.findByAffectedEntityId(sourceId)) {
-            sessionItem.setAffectedEntityId(targetId);
-            importSessionItemRepository.save(sessionItem);
         }
 
         entityManager.flush();

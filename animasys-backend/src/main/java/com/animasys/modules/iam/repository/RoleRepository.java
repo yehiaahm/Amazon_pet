@@ -12,7 +12,8 @@ public interface RoleRepository extends JpaRepository<Role, String> {
 
     List<Role> findByTenantIdOrderByNameAsc(String tenantId);
 
-    Optional<Role> findByTenantIdAndCode(String tenantId, String code);
+    @Query("SELECT DISTINCT r FROM Role r LEFT JOIN FETCH r.permissions WHERE r.tenant.id = :tenantId AND UPPER(r.code) = UPPER(:code)")
+    Optional<Role> findByTenantIdAndCode(@Param("tenantId") String tenantId, @Param("code") String code);
 
     @Query("SELECT DISTINCT r FROM Role r LEFT JOIN FETCH r.permissions WHERE r.tenant.id = :tenantId AND r.id = :roleId")
     Optional<Role> findByIdWithPermissions(@Param("tenantId") String tenantId, @Param("roleId") String roleId);

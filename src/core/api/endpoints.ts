@@ -1,7 +1,7 @@
 import { 
   Product, ProductVariant, Warehouse, StockMovement, 
   Customer, Pet, Service, Appointment, Expense, 
-  DailyClosing, POSSession, Sale, KPIMetrics, DashboardMetrics, AIAdvisorInsight, ImportSession,
+  DailyClosing, POSSession, Sale, KPIMetrics, DashboardMetrics, AIAdvisorInsight,
   PurchaseInvoice, BoardingReservation, TenantBarcodeSettings,
   PurchaseInvoiceCreateResponse, SaleRefundResult, SaleBatchAllocationRow,
   AccountsPayableDashboard, PurchaseInvoiceInstallment,
@@ -10,6 +10,9 @@ import {
 import { useUIStore } from '../stores/uiStore';
 import { usePermissionStore } from '../permissions/permissionStore';
 import { getBackendUrl } from './backendUrl';
+import {
+  ImportUploadResponse, ImportMappingResponse, ImportPreviewPage, ImportSummary,
+} from '../../modules/inventory/import/importTypes';
 
 export interface CatalogQueryParams {
   page?: number;
@@ -137,6 +140,40 @@ const getHeaders = (): Record<string, string> => {
   };
 };
 
+/** Multipart upload: no Content-Type here — the browser sets the boundary itself. */
+async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const token = localStorage.getItem('token');
+  const res = await fetchWithTimeout(`${getBackendUrl()}${path}`, {
+    method: 'POST',
+    headers: {
+      'X-Request-Id': generateRequestId(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      useUIStore.getState().setAuthenticated(false);
+      useUIStore.getState().setCurrentEmployee(null);
+      usePermissionStore.getState().clearPermissions();
+    }
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const errorJson = await res.json();
+      if (errorJson?.message) errMsg = errorJson.message;
+    } catch (_) { /* ignore */ }
+    throw new Error(errMsg);
+  }
+
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.message || 'Request failed');
+  }
+  return json.data as T;
+}
+
 /** Like apiFetch but also returns optional API warnings (e.g. purchase receipt lines). */
 async function apiFetchWithMeta<T>(
   path: string,
@@ -152,7 +189,7 @@ async function apiFetchWithMeta<T>(
   });
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       localStorage.removeItem('token');
       useUIStore.getState().setAuthenticated(false);
       useUIStore.getState().setCurrentEmployee(null);
@@ -227,15 +264,15 @@ export const api = {
     return data;
   },
 
-  /** @deprecated Use getCatalog — returns first page mapped to legacy Product shape. */
+  /** @deprecated Use getCatalog — returns catalog mapped to legacy Product shape. */
   async getProducts(params?: CatalogQueryParams): Promise<Product[]> {
-    const page = await api.getCatalog({ page: 0, size: 100, sort: 'name,asc', ...params });
+    const page = await api.getCatalog({ page: 0, size: 5000, sort: 'name,asc', ...params });
     return mapCatalogToProducts(page.content);
   },
 
-  /** @deprecated Use getCatalog — returns first page mapped to legacy ProductVariant shape. */
+  /** @deprecated Use getCatalog — returns catalog mapped to legacy ProductVariant shape. */
   async getVariants(params?: CatalogQueryParams): Promise<ProductVariant[]> {
-    const page = await api.getCatalog({ page: 0, size: 100, sort: 'name,asc', ...params });
+    const page = await api.getCatalog({ page: 0, size: 5000, sort: 'name,asc', ...params });
     return mapCatalogToVariants(page.content);
   },
 
@@ -310,19 +347,6 @@ export const api = {
 
   async getWarehouses(): Promise<Warehouse[]> {
     return await apiFetch<Warehouse[]>('/v1/inventory/warehouses');
-  },
-
-  async getStockMovements(): Promise<StockMovement[]> {
-    const data = await apiFetch<any[]>('/v1/inventory/movements');
-    return data.map((m: any) => ({
-      id: m.id,
-      warehouseId: m.warehouseId || m.warehouse?.id || 'wh-shelf',
-      productVariantId: m.productVariantId || m.productVariant?.id || '',
-      quantity: m.quantity ?? m.quantityChange ?? 0,
-      type: m.type,
-      timestamp: m.timestamp || m.createdAt,
-      employeeId: m.employeeId || m.employee?.id || '',
-    }));
   },
 
   async getLowStockAlerts(): Promise<Array<{
@@ -503,9 +527,18 @@ export const api = {
     physicalBalance: number,
     closedById: string
   ): Promise<POSSession> {
+    const safeClosing = isNaN(Number(closingBalance)) ? 0 : Number(closingBalance);
+    const safeExpected = isNaN(Number(expectedBalance)) ? safeClosing : Number(expectedBalance);
+    const safePhysical = isNaN(Number(physicalBalance)) ? safeClosing : Number(physicalBalance);
+
     return await apiFetch<POSSession>(`/v1/pos-sessions/${sessionId}/close`, {
       method: 'POST',
-      body: JSON.stringify({ closingBalance, expectedBalance, physicalBalance, closedById }),
+      body: JSON.stringify({
+        closingBalance: safeClosing,
+        expectedBalance: safeExpected,
+        physicalBalance: safePhysical,
+        closedById
+      }),
     });
   },
 
@@ -544,7 +577,7 @@ export const api = {
   },
 
   async createSale(
-    sale: Omit<Sale, 'id' | 'saleNumber' | 'date'> & { managerPassword?: string; managerUsername?: string }
+    sale: Omit<Sale, 'id' | 'saleNumber' | 'date'> & { managerPassword?: string; managerUsername?: string; idempotencyKey?: string }
   ): Promise<Sale> {
     const payload = {
       posSessionId: sale.posSessionId,
@@ -565,8 +598,15 @@ export const api = {
         cost: item.cost ?? 0,
       })),
     };
+    
+    const headers: Record<string, string> = {};
+    if (sale.idempotencyKey) {
+      headers['Idempotency-Key'] = sale.idempotencyKey;
+    }
+
     return await apiFetch<Sale>('/v1/sales', {
       method: 'POST',
+      headers,
       body: JSON.stringify(payload),
     });
   },
@@ -825,57 +865,6 @@ export const api = {
     return await apiFetch<any[]>('/v1/audit-logs');
   },
 
-  // ── IMPORT ────────────────────────────────────────────────────────────────
-
-  async startImportSession(
-    fileName: string,
-    fileSize: number,
-    fileHash: string,
-    duplicateStrategy: string,
-    targetType: string,
-    uploadedBy: string
-  ): Promise<ImportSession> {
-    return await apiFetch<ImportSession>('/v1/import/session/start', {
-      method: 'POST',
-      body: JSON.stringify({ fileName, fileSize, fileHash, duplicateStrategy, targetType, uploadedBy }),
-    });
-  },
-
-  async uploadImportChunk(
-    sessionId: string,
-    items: any[],
-    chunkIndex: number,
-    dryRun: boolean,
-    employeeId: string
-  ): Promise<void> {
-    await apiFetch<void>(`/v1/import/session/${sessionId}/chunk`, {
-      method: 'POST',
-      body: JSON.stringify({ items, chunkIndex, dryRun, employeeId }),
-    });
-  },
-
-  async finalizeImportSession(sessionId: string): Promise<ImportSession> {
-    return await apiFetch<ImportSession>(`/v1/import/session/${sessionId}/finalize`, {
-      method: 'POST',
-    });
-  },
-
-  async undoImportSession(sessionId: string, employeeId: string): Promise<void> {
-    await apiFetch<void>(`/v1/import/session/${sessionId}/undo?employeeId=${encodeURIComponent(employeeId)}`, {
-      method: 'POST',
-    });
-  },
-
-  async deleteImportSession(sessionId: string, employeeId: string): Promise<void> {
-    await apiFetch<void>(`/v1/import/session/${sessionId}?employeeId=${encodeURIComponent(employeeId)}`, {
-      method: 'DELETE',
-    });
-  },
-
-  async getImportHistory(): Promise<ImportSession[]> {
-    return await apiFetch<ImportSession[]>('/v1/import/history');
-  },
-
   // ── AI INVOICE SCANNER ────────────────────────────────────────────────────
 
   async analyzeInvoiceImage(imageBase64: string, mimeType: string, _hintCategory?: string): Promise<any> {
@@ -994,6 +983,13 @@ export const api = {
     });
   },
 
+  async updateEmployee(id: string, data: { fullName?: string; email?: string; role?: string; active?: boolean }): Promise<any> {
+    return await apiFetch<any>(`/v1/employees/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
   async deleteEmployee(id: string): Promise<void> {
     await apiFetch<void>(`/v1/employees/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -1005,6 +1001,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ newPassword }),
     });
+  },
+
+  async getMyPermissions(): Promise<string[]> {
+    return await apiFetch<string[]>('/v1/me/permissions');
   },
 
   // ── ROLES & PERMISSIONS ────────────────────────────────────────────────────
@@ -1039,10 +1039,6 @@ export const api = {
     await apiFetch<void>(`/v1/roles/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
-  async getMyPermissions(): Promise<string[]> {
-    return await apiFetch<string[]>('/v1/me/permissions');
-  },
-
   async factoryReset(): Promise<any> {
     return await apiFetch<any>('/v1/admin/factory-reset', {
       method: 'POST',
@@ -1050,9 +1046,16 @@ export const api = {
     });
   },
 
-  async generateBarcode(variantId: string, formatName: string): Promise<any> {
-    return apiFetch<any>(`/v1/inventory/variants/${variantId}/barcode/generate?format=${formatName}`, {
+  async generateBarcode(variantId: string, formatName: string, force: boolean = false): Promise<any> {
+    return apiFetch<any>(`/v1/inventory/variants/${variantId}/barcode/generate?format=${formatName}&force=${force}`, {
       method: 'POST'
+    });
+  },
+
+  async updateCustomBarcode(variantId: string, customBarcode: string, formatName: string = 'CODE_128'): Promise<any> {
+    return apiFetch<any>(`/v1/inventory/variants/${variantId}/barcode/custom`, {
+      method: 'PUT',
+      body: JSON.stringify({ barcode: customBarcode, format: formatName })
     });
   },
 
@@ -1178,6 +1181,64 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ printerName, items, style }),
     });
+  },
+
+  // ── SMART EXCEL IMPORT ────────────────────────────────────────────────────
+
+  async uploadImportSession(file: File): Promise<ImportUploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return await apiUpload<ImportUploadResponse>('/v1/inventory/import/sessions', formData);
+  },
+
+  async confirmImportMapping(
+    sessionId: string,
+    mapping: Record<string, string>,
+    options: { autoCreateSupplier: boolean; priceBelowCostIsWarningOnly: boolean }
+  ): Promise<ImportMappingResponse> {
+    return await apiFetch<ImportMappingResponse>(`/v1/inventory/import/sessions/${sessionId}/mapping`, {
+      method: 'PUT',
+      body: JSON.stringify({ mapping, ...options }),
+    });
+  },
+
+  async getImportPreview(
+    sessionId: string,
+    params: { status?: string; search?: string; page?: number; size?: number } = {}
+  ): Promise<ImportPreviewPage> {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.search) query.set('search', params.search);
+    query.set('page', String(params.page ?? 0));
+    query.set('size', String(params.size ?? 500));
+    return await apiFetch<ImportPreviewPage>(`/v1/inventory/import/sessions/${sessionId}/preview?${query.toString()}`);
+  },
+
+  async resolveImportDuplicates(sessionId: string, itemIds: string[], resolution: string): Promise<void> {
+    await apiFetch<void>(`/v1/inventory/import/sessions/${sessionId}/duplicates`, {
+      method: 'PATCH',
+      body: JSON.stringify({ itemIds, resolution }),
+    });
+  },
+
+  async commitImport(sessionId: string): Promise<ImportSummary> {
+    return await apiFetch<ImportSummary>(`/v1/inventory/import/sessions/${sessionId}/commit`, {
+      method: 'POST',
+    });
+  },
+
+  async downloadImportErrorReport(sessionId: string): Promise<Blob> {
+    const url = `${getBackendUrl()}/v1/inventory/import/sessions/${sessionId}/error-report`;
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.message) errMsg = errJson.message;
+      } catch (_) { /* ignore */ }
+      throw new Error(errMsg);
+    }
+    return res.blob();
   },
 };
 

@@ -49,19 +49,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String username = tokenProvider.getUsernameFromJwt(jwt);
 
                 UserDetails userDetails = userPrincipalService.loadUserByUsername(username);
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                if (!userDetails.isEnabled() || !userDetails.isAccountNonLocked()) {
+                    // Re-checked on every request (not just at login) so deactivating an
+                    // employee takes effect immediately instead of waiting for their
+                    // already-issued JWT to expire naturally.
+                    log.warn("JWT rejected for deactivated account [{}]: {}",
+                            MDC.get(RequestCorrelationFilter.MDC_REQUEST_ID), username);
+                } else {
+                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                            userDetails, null, userDetails.getAuthorities());
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-                if (userDetails instanceof UserPrincipal principal && principal.getEmployee() != null) {
-                    Employee employee = principal.getEmployee();
-                    if (employee.getTenant() != null && employee.getTenant().getId() != null) {
-                        MDC.put("tenantId", employee.getTenant().getId());
-                    }
-                    if (employee.getId() != null) {
-                        MDC.put("employeeId", employee.getId());
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                    if (userDetails instanceof UserPrincipal principal && principal.getEmployee() != null) {
+                        Employee employee = principal.getEmployee();
+                        if (employee.getTenant() != null && employee.getTenant().getId() != null) {
+                            MDC.put("tenantId", employee.getTenant().getId());
+                        }
+                        if (employee.getId() != null) {
+                            MDC.put("employeeId", employee.getId());
+                        }
                     }
                 }
             }

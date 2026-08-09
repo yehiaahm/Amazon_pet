@@ -75,7 +75,7 @@ export const CRM: React.FC = () => {
   const { mutate: createCustomer, isPending: adding } = useAddCustomer();
   const { mutate: updateCustomer, mutateAsync: updateCustomerAsync, isPending: updating } = useUpdateCustomer();
   const { mutateAsync: deleteCustomerAsync } = useDeleteCustomer();
-  const { data: salesPage } = useSales({ page: 0, size: 100, sort: 'date,desc' });
+  const { data: salesPage } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
   const sales = salesPage?.content;
   const { data: pets } = usePets();
   const { data: appointments } = useAppointments();

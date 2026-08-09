@@ -184,4 +184,38 @@ class SaleQueryServiceIntegrationTest extends IntegrationTestBase {
         assertThat(page.getTotalElements()).isEqualTo(1);
         assertThat(page.getContent().get(0).getSaleNumber()).isEqualTo("INV-UNIQUE-" + uniqueSuffix);
     }
+
+    @Test
+    void honorsRequestedPageSizeBeyondTheOldHundredRowCap() {
+        // Reports/Dashboard/CRM/AIAdvisor/Finance all request size=5000 to analyze full
+        // sales history. SaleSearchCriteria.MAX_SIZE previously capped every request at
+        // 100 regardless of what was requested, silently truncating their analytics.
+        int rowCount = 120;
+        for (int i = 0; i < rowCount; i++) {
+            Sale sale = Sale.builder()
+                    .id(UUID.randomUUID().toString())
+                    .saleNumber("INV-CAP-" + UUID.randomUUID())
+                    .posSession(posSession)
+                    .totalAmount(BigDecimal.TEN)
+                    .tax(BigDecimal.ONE)
+                    .discount(BigDecimal.ZERO)
+                    .paymentMethod("CASH")
+                    .employee(owner)
+                    .date(Instant.now().minus(i, ChronoUnit.HOURS))
+                    .status("COMPLETED")
+                    .items(new ArrayList<>())
+                    .build();
+            saleRepository.save(sale);
+        }
+
+        SalePageResponse page = saleQueryService.search(
+                tenant.getId(),
+                owner,
+                SaleSearchCriteria.builder().page(0).size(5000).sort("date,desc").build()
+        );
+
+        assertThat(page.getTotalElements()).isEqualTo(rowCount);
+        assertThat(page.getContent()).hasSize(rowCount);
+        assertThat(page.getSize()).isEqualTo(5000);
+    }
 }

@@ -93,4 +93,7 @@ public class PurchaseInvoice {
 
     @OneToMany(mappedBy = "purchaseInvoice", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<com.animasys.modules.finance.domain.PurchaseInvoiceInstallment> installments;
+
+    @Transient
+    private String targetWarehouseId;
 }

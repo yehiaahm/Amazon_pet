@@ -6,16 +6,13 @@ import {
   useCreatePurchaseInvoice,
 } from '../../core/hooks/useERPData';
 import { useUIStore } from '../../core/stores/uiStore';
-import { api } from '../../core/api/endpoints';
 import type { PurchaseLineReceiptWarning } from '../../types/erp';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Badge from '../../components/ui/Badge';
 import DataTable from '../../components/ui/DataTable';
 import { formatMoney } from '../../core/utils/money';
-import { resolveOcrPurchaseLine } from '../../core/utils/purchaseInvoiceOcr';
-import PurchaseInvoiceReviewModal, { type ReviewLineItem } from './PurchaseInvoiceReviewModal';
-import { Upload, Plus, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 export type DraftPurchaseLine = {
   key: string;
@@ -42,8 +39,8 @@ const emptyLine = (): DraftPurchaseLine => ({
 const PurchaseInvoicePanel: React.FC = () => {
   const currentEmployee = useUIStore((s) => s.currentEmployee)!;
   const addNotification = useUIStore((s) => s.addNotification);
-  const { data: products = [], refetch: refetchProducts } = useProducts();
-  const { data: variants = [], refetch: refetchVariants } = useVariants();
+  const { data: products = [] } = useProducts();
+  const { data: variants = [] } = useVariants();
   const { data: pastInvoices = [], refetch: refetchInvoices } = usePurchaseInvoices();
   const { mutateAsync: submitInvoice, isPending: submitting } = useCreatePurchaseInvoice();
 
@@ -57,13 +54,6 @@ const PurchaseInvoicePanel: React.FC = () => {
   const [lines, setLines] = useState<DraftPurchaseLine[]>([emptyLine()]);
   const [receiptWarnings, setReceiptWarnings] = useState<PurchaseLineReceiptWarning[]>([]);
   const [lastSavedInvoiceId, setLastSavedInvoiceId] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
-
-  // Review Modal State
-  const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | undefined>();
-  const [uploadedMimeType, setUploadedMimeType] = useState<string | undefined>();
-  const [reviewItems, setReviewItems] = useState<ReviewLineItem[]>([]);
 
   const skuOptions = useMemo(() => {
     if (!products || !variants) return [];
@@ -107,74 +97,6 @@ const PurchaseInvoicePanel: React.FC = () => {
       cost: String(match.cost),
       price: String(match.price),
     });
-  };
-
-  const handleImageUpload = async (file: File) => {
-    setScanning(true);
-    setReceiptWarnings([]);
-    try {
-      const buf = await file.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const imageBase64 = btoa(binary);
-      const mimeType = file.type || 'image/jpeg';
-      const fileDataUrl = `data:${mimeType};base64,${imageBase64}`;
-
-      setUploadedDocumentUrl(fileDataUrl);
-      setUploadedMimeType(mimeType);
-
-      const parsed = await api.analyzeInvoiceImage(imageBase64, mimeType);
-      if (parsed?.supplierName) setSupplierName(parsed.supplierName);
-      if (parsed?.invoiceNumber) setInvoiceNumber(parsed.invoiceNumber);
-      if (parsed?.invoiceDate) setInvoiceDate(String(parsed.invoiceDate).slice(0, 10));
-      if (parsed?.vat != null) setVat(String(parsed.vat));
-      if (parsed?.discount != null) setDiscount(String(parsed.discount));
-      if (parsed?.shipping != null) setShipping(String(parsed.shipping));
-      if (parsed?.currency) setCurrency(parsed.currency);
-
-      const parsedItems = parsed?.items || parsed?.lineItems || [];
-      if (Array.isArray(parsedItems) && parsedItems.length > 0) {
-        const mappedReviewItems: ReviewLineItem[] = parsedItems.map((item: Record<string, any>, idx: number) => {
-          const { unitCost, quantity } = resolveOcrPurchaseLine(item);
-          const conf = item.confidence || {};
-          return {
-            key: `ocr-${idx}-${Date.now()}`,
-            productName: String(item.productName ?? item.name ?? ''),
-            barcode: item.barcode ? String(item.barcode) : undefined,
-            sku: String(item.sku ?? ''),
-            unitCost: unitCost,
-            price: typeof item.price === 'number' ? item.price : parseFloat(item.price) || 0,
-            quantity: quantity,
-            unitName: String(item.unitName || 'قطعة'),
-            conversionFactor: parseInt(item.conversionFactor, 10) || 1,
-            lineTotal: typeof item.lineTotal === 'number' ? item.lineTotal : unitCost * quantity,
-            lotNumber: String(item.lotNumber || ''),
-            expiryDate: item.expiryDate ? String(item.expiryDate).slice(0, 10) : '',
-            confidenceName: conf.productName ?? 0.9,
-            confidenceQty: conf.quantity ?? 0.95,
-            confidenceCost: conf.unitCost ?? 0.9,
-            confidencePrice: conf.price ?? 0.8,
-            matchStatus: 'UNMATCHED',
-            isNewProduct: true,
-          };
-        });
-
-        setReviewItems(mappedReviewItems);
-        setIsReviewOpen(true);
-        addNotification('INVENTORY', 'تم قراءة الفاتورة الذكية (OCR)', 'تم فتح شاشة المراجعة للتدقيق والمطابقة قبل دخول المخزون.');
-      } else {
-        addNotification('WARNINGS', 'لم يتم استخراج بنود', 'تعذر استخراج بنود من الفاتورة. يمكنك إدخال البيانات يدوياً.');
-      }
-    } catch (e: unknown) {
-      addNotification(
-        'WARNINGS',
-        'فشل تحليل الفاتورة',
-        e instanceof Error ? e.message : 'تعذر قراءة ملف الفاتورة'
-      );
-    } finally {
-      setScanning(false);
-    }
   };
 
   const handleSubmit = async () => {
@@ -257,76 +179,6 @@ const PurchaseInvoicePanel: React.FC = () => {
     }
   };
 
-  const handleReviewConfirm = async (confirmedData: {
-    supplierName: string;
-    invoiceNumber: string;
-    invoiceDate: string;
-    currency: string;
-    vat: number;
-    discount: number;
-    shipping: number;
-    netTotal: number;
-    grandTotal: number;
-    items: ReviewLineItem[];
-  }) => {
-    setReceiptWarnings([]);
-
-    const payload = {
-      invoiceNumber: confirmedData.invoiceNumber,
-      invoiceDate: confirmedData.invoiceDate,
-      supplierName: confirmedData.supplierName,
-      currency: confirmedData.currency,
-      vat: confirmedData.vat,
-      discount: confirmedData.discount,
-      shipping: confirmedData.shipping,
-      netTotal: confirmedData.netTotal,
-      grandTotal: confirmedData.grandTotal,
-      items: confirmedData.items.map((item) => ({
-        productName: item.productName || item.sku,
-        barcode: item.barcode,
-        sku: item.sku.trim(),
-        cost: item.unitCost,
-        price: item.price,
-        quantity: item.quantity,
-        unitName: item.unitName,
-        conversionFactor: item.conversionFactor,
-        lotNumber: item.lotNumber,
-        expiryDate: item.expiryDate ? item.expiryDate : null,
-      })),
-    };
-
-    try {
-      const result = await submitInvoice({
-        invoice: payload,
-        employeeId: currentEmployee.id,
-      });
-      setLastSavedInvoiceId(result.invoice.id);
-      setReceiptWarnings(result.warnings || []);
-      refetchInvoices();
-      refetchProducts();
-      refetchVariants();
-
-      if (result.warnings?.length) {
-        addNotification(
-          'WARNINGS',
-          'تم حفظ الفاتورة مع تحذيرات',
-          `${result.warnings.length} سطر لم يدخل المخزون — راجع التفاصيل أدناه.`
-        );
-      } else {
-        addNotification('INVENTORY', 'تم اعتماد فاتورة الشراء وزيادة المخزون', 'تم إنشاء جميع الدفعات بنجاح في نظام FIFO!');
-        setIsReviewOpen(false);
-        setLines([emptyLine()]);
-        setInvoiceNumber(`PI-${Date.now()}`);
-      }
-    } catch (e: unknown) {
-      addNotification(
-        'WARNINGS',
-        'فشل اعتماد الفاتورة',
-        e instanceof Error ? e.message : 'خطأ غير معروف'
-      );
-    }
-  };
-
   const historyColumns = [
     { header: 'رقم الفاتورة', accessor: 'invoiceNumber' as const, key: 'invoiceNumber' },
     { header: 'التاريخ', accessor: 'invoiceDate' as const, key: 'invoiceDate' },
@@ -341,58 +193,11 @@ const PurchaseInvoicePanel: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)', direction: 'rtl' }}>
-      {/* Enterprise OCR Review Modal */}
-      <PurchaseInvoiceReviewModal
-        isOpen={isReviewOpen}
-        onClose={() => setIsReviewOpen(false)}
-        documentFileUrl={uploadedDocumentUrl}
-        mimeType={uploadedMimeType}
-        supplierName={supplierName}
-        invoiceNumber={invoiceNumber}
-        invoiceDate={invoiceDate}
-        currency={currency}
-        vat={parseFloat(vat) || 0}
-        discount={parseFloat(discount) || 0}
-        shipping={parseFloat(shipping) || 0}
-        items={reviewItems}
-        products={products}
-        variants={variants}
-        pastInvoices={pastInvoices}
-        onConfirm={handleReviewConfirm}
-        isSubmitting={submitting}
-      />
-
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '12px',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div>
-          <h3 style={{ margin: 0 }}>فاتورة شراء — استلام مخزون ودفعات (FIFO/FEFO)</h3>
-          <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-            استيراد فاتورة المورد عبر الذكاء الاصطناعي (OCR) مع شاشة مراجعة حية قبل الاعتماد وإنشاء الدفعات.
-          </p>
-        </div>
-        <label style={{ cursor: scanning ? 'wait' : 'pointer' }}>
-          <input
-            type="file"
-            accept="image/*,application/pdf,.pdf"
-            style={{ display: 'none' }}
-            disabled={scanning}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleImageUpload(f);
-              e.target.value = '';
-            }}
-          />
-          <span className="btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}>
-            <Upload size={14} /> {scanning ? 'جاري القراءة والتحليل...' : 'رفع فاتورة (صورة أو PDF)'}
-          </span>
-        </label>
+      <div>
+        <h3 style={{ margin: 0 }}>فاتورة شراء — استلام مخزون ودفعات (FIFO/FEFO)</h3>
+        <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+          إدخال بيانات فاتورة المورد يدويًا لإنشاء دفعات المخزون.
+        </p>
       </div>
 
       {receiptWarnings.length > 0 && (

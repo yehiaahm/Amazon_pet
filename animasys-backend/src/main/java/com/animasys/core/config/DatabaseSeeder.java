@@ -21,8 +21,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Ensures the desktop install always has a usable login identity.
@@ -43,9 +46,12 @@ public class DatabaseSeeder implements CommandLineRunner {
     public static final String DEFAULT_OWNER_FULL_NAME = "Marwan";
     public static final String DEFAULT_CASHIER_FULL_NAME = "Amir";
     public static final String DEFAULT_GROOMER_FULL_NAME = "Bob";
+    /** Legacy fixed PIN, kept only as the repair target for already-shipped installs (see syncKnownAccountPins). */
     public static final String DEFAULT_OWNER_PIN = "2026";
     public static final String DEFAULT_CASHIER_PIN = "2026";
     public static final String DEFAULT_GROOMER_PIN = "2026";
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final TenantRepository tenantRepository;
     private final BranchRepository branchRepository;
@@ -92,11 +98,19 @@ public class DatabaseSeeder implements CommandLineRunner {
     }
 
     private Tenant ensureTenant() {
-        return tenantRepository.findById("t-1").orElseGet(() ->
+        return tenantRepository.findById("t-1").map(existing -> {
+            if (!"main".equals(existing.getSubdomain())) {
+                existing.setSubdomain("main");
+                existing.setName("Amazon Pet Main Center");
+                existing.setActive(true);
+                return tenantRepository.save(existing);
+            }
+            return existing;
+        }).orElseGet(() ->
                 tenantRepository.save(Tenant.builder()
                         .id("t-1")
                         .name("Amazon Pet Main Center")
-                        .subdomain("demo")
+                        .subdomain("main")
                         .active(true)
                         .build()));
     }
@@ -143,12 +157,20 @@ public class DatabaseSeeder implements CommandLineRunner {
     }
 
     private void createDefaultEmployees(Tenant tenant, Branch branch) {
+        // Fresh install: never ship a known/fixed PIN. Generate distinct random
+        // 4-digit PINs per account and surface them once via the log so whoever
+        // is standing up this install can hand them to the client.
+        Set<String> usedPins = new LinkedHashSet<>();
+        String ownerPin = generateUnusedPin(usedPins);
+        String cashierPin = generateUnusedPin(usedPins);
+        String groomerPin = generateUnusedPin(usedPins);
+
         employeeRepository.save(Employee.builder()
                 .id("e-1")
                 .tenant(tenant)
                 .branch(branch)
                 .username(DEFAULT_OWNER_USERNAME)
-                .passwordHash(passwordEncoder.encode(DEFAULT_OWNER_PIN))
+                .passwordHash(passwordEncoder.encode(ownerPin))
                 .fullName(DEFAULT_OWNER_FULL_NAME)
                 .email("marwan@amazonpet.com")
                 .role("OWNER")
@@ -160,7 +182,7 @@ public class DatabaseSeeder implements CommandLineRunner {
                 .tenant(tenant)
                 .branch(branch)
                 .username(DEFAULT_CASHIER_USERNAME)
-                .passwordHash(passwordEncoder.encode(DEFAULT_CASHIER_PIN))
+                .passwordHash(passwordEncoder.encode(cashierPin))
                 .fullName(DEFAULT_CASHIER_FULL_NAME)
                 .email("amir@amazonpet.com")
                 .role("CASHIER")
@@ -172,15 +194,24 @@ public class DatabaseSeeder implements CommandLineRunner {
                 .tenant(tenant)
                 .branch(branch)
                 .username(DEFAULT_GROOMER_USERNAME)
-                .passwordHash(passwordEncoder.encode(DEFAULT_GROOMER_PIN))
+                .passwordHash(passwordEncoder.encode(groomerPin))
                 .fullName(DEFAULT_GROOMER_FULL_NAME)
                 .email("bob@amazonpet.com")
                 .role("GROOMER")
                 .active(true)
                 .build());
 
-        log.info("Default accounts ready — owner PIN {}, cashier PIN {}, groomer PIN {}",
-                DEFAULT_OWNER_PIN, DEFAULT_CASHIER_PIN, DEFAULT_GROOMER_PIN);
+        log.warn("First-run setup generated new login PINs — record these now, they will not be logged again: " +
+                        "owner({})={}, cashier({})={}, groomer({})={}",
+                DEFAULT_OWNER_USERNAME, ownerPin, DEFAULT_CASHIER_USERNAME, cashierPin, DEFAULT_GROOMER_USERNAME, groomerPin);
+    }
+
+    private String generateUnusedPin(Set<String> usedPins) {
+        String pin;
+        do {
+            pin = String.format("%04d", RANDOM.nextInt(10000));
+        } while (!usedPins.add(pin));
+        return pin;
     }
 
     /** Idempotent: ensure groomer e-3 exists on already-seeded databases. */
@@ -188,17 +219,19 @@ public class DatabaseSeeder implements CommandLineRunner {
         if (employeeRepository.existsById("e-3")) {
             return;
         }
+        String groomerPin = generateUnusedPin(new LinkedHashSet<>());
         employeeRepository.save(Employee.builder()
                 .id("e-3")
                 .tenant(tenant)
                 .branch(branch)
                 .username(DEFAULT_GROOMER_USERNAME)
-                .passwordHash(passwordEncoder.encode(DEFAULT_GROOMER_PIN))
+                .passwordHash(passwordEncoder.encode(groomerPin))
                 .fullName(DEFAULT_GROOMER_FULL_NAME)
                 .email("bob@amazonpet.com")
                 .role("GROOMER")
                 .active(true)
                 .build());
+        log.warn("Backfilled missing groomer account '{}' with a new PIN: {}", DEFAULT_GROOMER_USERNAME, groomerPin);
     }
 
     /**
@@ -223,13 +256,14 @@ public class DatabaseSeeder implements CommandLineRunner {
                 continue;
             }
             Employee employee = employeeOpt.get();
-            if (passwordEncoder.matches(entry.getValue(), employee.getPasswordHash())) {
+            if (employee.getPasswordHash() != null && !employee.getPasswordHash().isBlank()) {
+                // Do NOT overwrite employee passwords on startup — user password changes must be preserved permanently!
                 continue;
             }
             employee.setPasswordHash(passwordEncoder.encode(entry.getValue()));
             employeeRepository.save(employee);
             repaired++;
-            log.warn("Repaired login PIN hash for default account '{}'", entry.getKey());
+            log.info("Initialized missing PIN hash for default account '{}'", entry.getKey());
         }
         if (repaired > 0) {
             log.info("Synchronized {} default account PIN hash(es) with the login UI", repaired);

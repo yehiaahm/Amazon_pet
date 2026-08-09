@@ -30,6 +30,7 @@ const AccountsPayablePanel: React.FC = () => {
 
   const [payingItem, setPayingItem] = useState<PurchaseInvoiceInstallment | null>(null);
   const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState<'CASH' | 'BANK' | 'INSTAPAY' | 'VODAFONE_CASH'>('CASH');
   const [payNotes, setPayNotes] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [reminderDays, setReminderDays] = useState('7');
@@ -48,6 +49,7 @@ const AccountsPayablePanel: React.FC = () => {
   const openPayModal = (item: PurchaseInvoiceInstallment) => {
     setPayingItem(item);
     setPayAmount(String(item.remainingAmount ?? (item.amount - item.paidAmount)));
+    setPayMethod('CASH');
     setPayNotes('');
   };
 
@@ -55,8 +57,16 @@ const AccountsPayablePanel: React.FC = () => {
     if (!payingItem) return;
     const amount = parseFloat(payAmount);
     if (!amount || amount <= 0) return;
+
+    let methodLabel = 'نقدي';
+    if (payMethod === 'BANK') methodLabel = 'تحويل بنكي';
+    if (payMethod === 'INSTAPAY') methodLabel = 'إنستاباي (Instapay)';
+    if (payMethod === 'VODAFONE_CASH') methodLabel = 'فودافون كاش';
+
+    const finalNotes = payNotes ? `[${methodLabel}] ${payNotes}` : `[${methodLabel}]`;
+
     payInstallment(
-      { installmentId: payingItem.id, amount, notes: payNotes || undefined },
+      { installmentId: payingItem.id, amount, notes: finalNotes },
       { onSuccess: () => setPayingItem(null) }
     );
   };
@@ -314,11 +324,22 @@ const AccountsPayablePanel: React.FC = () => {
               onChange={(e) => setPayAmount(e.target.value)}
               placeholder="0.00"
             />
+            <Select
+              label="طريقة الدفع"
+              value={payMethod}
+              onChange={(e) => setPayMethod(e.target.value as any)}
+              options={[
+                { value: 'CASH', label: 'نقدي (من الخزنة)' },
+                { value: 'BANK', label: 'تحويل بنكي' },
+                { value: 'INSTAPAY', label: 'إنستاباي (Instapay)' },
+                { value: 'VODAFONE_CASH', label: 'فودافون كاش' },
+              ]}
+            />
             <Input
               label="ملاحظات (اختياري)"
               value={payNotes}
               onChange={(e) => setPayNotes(e.target.value)}
-              placeholder="رقم إيصال، طريقة الدفع..."
+              placeholder="رقم التحويل، رقم الهاتف المحول منه..."
             />
           </div>
         )}

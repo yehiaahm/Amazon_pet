@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   PRODUCTS_EDIT: 'products.edit',
   PRODUCTS_DELETE: 'products.delete',
   PRODUCTS_CHANGE_PRICES: 'products.change_prices',
+  PRODUCTS_IMPORT: 'products.import',
   PRODUCTS_PRINT_BARCODE: 'products.print_barcode',
   PRODUCTS_MANAGE_CATEGORIES: 'products.manage_categories',
   PRODUCTS_MANAGE_BRANDS: 'products.manage_brands',
@@ -103,7 +104,7 @@ export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
 /** Maps sidebar module IDs to required view permission(s). */
 export const MODULE_PERMISSIONS: Record<string, PermissionCode | PermissionCode[]> = {
-  'dashboard-executive': PERMISSIONS.DASHBOARD_VIEW,
+  'dashboard-executive': [PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.DASHBOARD_FINANCIAL_KPIS],
   'dashboard-financial': PERMISSIONS.DASHBOARD_FINANCIAL_KPIS,
   'dashboard-inventory': PERMISSIONS.INVENTORY_VIEW,
   'dashboard-operations': PERMISSIONS.DASHBOARD_CHARTS,

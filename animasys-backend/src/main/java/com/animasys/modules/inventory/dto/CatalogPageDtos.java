@@ -25,8 +25,8 @@ public final class CatalogPageDtos {
         String sku;
         Boolean lowStock;
 
-        public static final int DEFAULT_SIZE = 50;
-        public static final int MAX_SIZE = 100;
+        public static final int DEFAULT_SIZE = 1000;
+        public static final int MAX_SIZE = 5000;
     }
 
     @Value

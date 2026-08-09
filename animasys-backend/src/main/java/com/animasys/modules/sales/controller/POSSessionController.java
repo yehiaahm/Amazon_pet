@@ -57,14 +57,21 @@ public class POSSessionController {
     @PreAuthorize("@authz.has('sales.close_shift')")
     public ResponseEntity<ApiResponseWrapper<POSSession>> closeSession(
             @PathVariable String id,
-            @Valid @RequestBody ClosePosSessionRequest request) {
+            @RequestBody(required = false) ClosePosSessionRequest request) {
         String closedById = SecurityUtils.requireEmployeeId();
+
+        BigDecimal closingBalance = (request != null && request.getClosingBalance() != null)
+                ? request.getClosingBalance() : BigDecimal.ZERO;
+        BigDecimal expectedBalance = (request != null && request.getExpectedBalance() != null)
+                ? request.getExpectedBalance() : closingBalance;
+        BigDecimal physicalBalance = (request != null && request.getPhysicalBalance() != null)
+                ? request.getPhysicalBalance() : closingBalance;
 
         POSSession session = sessionService.closeSession(
                 id,
-                request.getClosingBalance(),
-                request.getExpectedBalance(),
-                request.getPhysicalBalance(),
+                closingBalance,
+                expectedBalance,
+                physicalBalance,
                 closedById);
         return ResponseEntity.ok(ApiResponseWrapper.success(session, "تم إغلاق الوردية بنجاح"));
     }

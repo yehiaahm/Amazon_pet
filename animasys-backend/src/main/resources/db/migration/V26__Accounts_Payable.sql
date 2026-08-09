@@ -25,10 +25,13 @@ CREATE TABLE accounts_payable_settings (
     CONSTRAINT fk_ap_settings_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
 
--- Backfill: create single installment for existing unpaid/partial invoices
+-- Backfill: create single installment for existing unpaid/partial invoices.
+-- Derives the id from the invoice id (not UUID(), which H2 doesn't have —
+-- CONCAT/SUBSTRING/REPLACE below are ANSI-portable) so this backfill runs
+-- identically on MySQL and the H2 fallback profile.
 INSERT INTO purchase_invoice_installments (id, purchase_invoice_id, installment_number, due_date, amount, paid_amount, status)
 SELECT
-    CONCAT('inst-', SUBSTRING(REPLACE(UUID(), '-', ''), 1, 8)),
+    CONCAT('inst-', pi.id),
     pi.id,
     1,
     COALESCE(pi.due_date, pi.invoice_date),

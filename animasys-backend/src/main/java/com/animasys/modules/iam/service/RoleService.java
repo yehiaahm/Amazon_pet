@@ -105,8 +105,14 @@ public class RoleService {
                     .orElseThrow(() -> new BusinessRuleException("Unknown permission: " + code));
             permissions.add(permission);
         }
-        role.setPermissions(permissions);
-        return toDetail(roleRepository.save(role), tenantId);
+        if (role.getPermissions() == null) {
+            role.setPermissions(new HashSet<>());
+        } else {
+            role.getPermissions().clear();
+        }
+        role.getPermissions().addAll(permissions);
+        Role saved = roleRepository.saveAndFlush(role);
+        return toDetail(saved, tenantId);
     }
 
     @Transactional

@@ -7,9 +7,6 @@ import com.animasys.modules.iam.repository.BranchRepository;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.iam.repository.TenantRepository;
 import com.animasys.modules.inventory.domain.*;
-import com.animasys.modules.inventory.dto.BulkImportItem;
-import com.animasys.modules.inventory.dto.ChunkImportRequest;
-import com.animasys.modules.inventory.dto.StartImportRequest;
 import com.animasys.modules.inventory.repository.*;
 import com.animasys.modules.sales.domain.POSSession;
 import com.animasys.modules.sales.domain.Sale;
@@ -41,7 +38,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 class FifoPracticalScenarioE2ETest extends IntegrationTestBase {
 
-    @Autowired private ImportService importService;
     @Autowired private FifoCostingService fifoCostingService;
     @Autowired private SaleService saleService;
     @Autowired private InventoryIntegrityService inventoryIntegrityService;
@@ -116,37 +112,7 @@ class FifoPracticalScenarioE2ETest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("1) Import same SKU 5× different prices → one variant, five batches")
-    void importSameSkuFiveTimes_oneVariantFiveBatches() {
-        String sku = "FIFO-IMP-" + System.currentTimeMillis();
-        BigDecimal[] costs = {
-                new BigDecimal("10"), new BigDecimal("20"), new BigDecimal("30"),
-                new BigDecimal("40"), new BigDecimal("50")
-        };
-        BigDecimal[] prices = {
-                new BigDecimal("100"), new BigDecimal("110"), new BigDecimal("120"),
-                new BigDecimal("130"), new BigDecimal("140")
-        };
-
-        for (int i = 0; i < 5; i++) {
-            runImportRow(sku, "FIFO Practical Product", prices[i], costs[i], 1);
-        }
-
-        Product product = productRepository.findBySkuIgnoreCaseAndTenantId(sku, tenant.getId()).orElseThrow();
-        List<ProductVariant> variants = variantRepository.findByProductId(product.getId());
-        assertEquals(1, variants.size(), "must keep exactly one ProductVariant per SKU");
-
-        String variantId = variants.get(0).getId();
-        List<InventoryBatch> batches = batchRepository
-                .findByTenantIdAndProductVariantIdAndRemainingQuantityGreaterThanAndStatusOrderByPurchaseDateAscIdAsc(
-                        tenant.getId(), variantId, 0, InventoryBatch.BatchStatus.ACTIVE);
-        assertEquals(5, batches.size(), "each import with stock must create its own InventoryBatch");
-
-        assertBatchSumMatchesVariantStock(variantId);
-    }
-
-    @Test
-    @DisplayName("2) Sale spans batches → FIFO COGS (10×120 + 5×150)")
+    @DisplayName("1) Sale spans batches → FIFO COGS (10×120 + 5×150)")
     void saleAcrossTwoBatches_fifoCogs() {
         ProductVariant variant = createCatalogVariant("FIFO-SALE-" + System.currentTimeMillis());
         LocalDate expiry = LocalDate.now().plusMonths(12);
@@ -184,7 +150,7 @@ class FifoPracticalScenarioE2ETest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("3) Partial return restores stock on the batches that supplied the sale")
+    @DisplayName("2) Partial return restores stock on the batches that supplied the sale")
     void partialReturn_restoresBatchQuantities() {
         ProductVariant variant = createCatalogVariant("FIFO-RET-" + System.currentTimeMillis());
         LocalDate expiry = LocalDate.now().plusMonths(12);
@@ -216,74 +182,6 @@ class FifoPracticalScenarioE2ETest extends IntegrationTestBase {
         assertEquals(10, stillAllocated, "10 units remain sold after returning 5 of 15");
 
         assertBatchSumMatchesVariantStock(variant.getId());
-    }
-
-    @Test
-    @DisplayName("4) Re-import same SKU (Excel flow) updates product — no new variant")
-    void reimportSameSku_updatesWithoutNewVariant() {
-        String sku = "FIFO-XLS-" + System.currentTimeMillis();
-        runImportRow(sku, "Original Name", new BigDecimal("99"), new BigDecimal("50"), 2);
-
-        Product product = productRepository.findBySkuIgnoreCaseAndTenantId(sku, tenant.getId()).orElseThrow();
-        String variantId = variantRepository.findByProductId(product.getId()).get(0).getId();
-
-        runImportRow(sku, "Updated Excel Name", new BigDecimal("149"), new BigDecimal("70"), 3);
-
-        product = productRepository.findBySkuIgnoreCaseAndTenantId(sku, tenant.getId()).orElseThrow();
-        assertEquals("Updated Excel Name", product.getName());
-        List<ProductVariant> variants = variantRepository.findByProductId(product.getId());
-        assertEquals(1, variants.size());
-        assertEquals(variantId, variants.get(0).getId(), "must not create another ProductVariant");
-
-        assertBatchSumMatchesVariantStock(variantId);
-    }
-
-    @Test
-    @DisplayName("5) After import + update, batch sum equals variant stock (integrity gate)")
-    void stockIntegrityGateAfterImportOperations() {
-        String sku = "FIFO-FULL-" + System.currentTimeMillis();
-
-        for (int i = 0; i < 5; i++) {
-            runImportRow(sku, "Full Flow Product", new BigDecimal(100 + i * 10), new BigDecimal(10 + i * 10), 1);
-        }
-        ProductVariant variant = variantRepository.findByProductId(
-                productRepository.findBySkuIgnoreCaseAndTenantId(sku, tenant.getId()).orElseThrow().getId()).get(0);
-        assertEquals(1, variantRepository.findByProductId(variant.getProduct().getId()).size());
-        assertEquals(5, batchRepository
-                .findByTenantIdAndProductVariantIdAndRemainingQuantityGreaterThanAndStatusOrderByPurchaseDateAscIdAsc(
-                        tenant.getId(), variant.getId(), 0, InventoryBatch.BatchStatus.ACTIVE).size());
-
-        runImportRow(sku, "Full Flow Updated", new BigDecimal("160"), new BigDecimal("80"), 0);
-        assertEquals(1, variantRepository.findByProductId(variant.getProduct().getId()).size());
-
-        inventoryIntegrityService.reconcileTenant(tenant.getId());
-        assertBatchSumMatchesVariantStock(variant.getId());
-        assertTrue(inventoryIntegrityService.isVariantAligned(tenant.getId(), variant.getId()));
-    }
-
-    private void runImportRow(String sku, String name, BigDecimal price, BigDecimal cost, int stock) {
-        StartImportRequest start = new StartImportRequest();
-        start.setFileName("fifo-practical.xlsx");
-        start.setFileSize(10L);
-        start.setFileHash("hash-" + UUID.randomUUID());
-        start.setUploadedBy(employee.getId());
-        start.setDuplicateStrategy("UPDATE");
-        start.setTargetType("PRODUCTS");
-        ImportSession session = importService.startSession(start);
-
-        BulkImportItem item = new BulkImportItem();
-        item.setSku(sku);
-        item.setProductName(name);
-        item.setPrice(price);
-        item.setCost(cost);
-        item.setStock(stock);
-
-        ChunkImportRequest chunk = new ChunkImportRequest();
-        chunk.setEmployeeId(employee.getId());
-        chunk.setDryRun(false);
-        chunk.setItems(List.of(item));
-        importService.processChunk(session.getId(), chunk);
-        importService.finalizeSession(session.getId());
     }
 
     private ProductVariant createCatalogVariant(String sku) {

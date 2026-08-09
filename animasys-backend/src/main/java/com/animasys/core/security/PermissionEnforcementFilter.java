@@ -37,8 +37,17 @@ public class PermissionEnforcementFilter extends OncePerRequestFilter {
 
         var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated() && !(auth.getPrincipal() instanceof String)) {
-            Optional<String> required = registry.resolve(request.getMethod(), SecurityPathUtils.resolvePath(request));
-            if (required.isPresent() && !authorizationChecker.has(required.get())) {
+            String path = SecurityPathUtils.resolvePath(request);
+            Optional<String> required = registry.resolve(request.getMethod(), path);
+            if (required.isPresent()) {
+                if (!authorizationChecker.has(required.get())) {
+                    JsonSecurityHandlers.writeForbidden(response);
+                    return;
+                }
+            } else if (path.startsWith("/v1/")) {
+                // Fail closed: any authenticated API endpoint not explicitly
+                // registered here has no declared permission and must be denied,
+                // rather than silently allowed through to the controller.
                 JsonSecurityHandlers.writeForbidden(response);
                 return;
             }

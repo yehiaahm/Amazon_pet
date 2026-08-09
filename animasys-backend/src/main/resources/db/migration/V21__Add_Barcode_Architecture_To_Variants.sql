@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS tenant_barcode_settings (
     PRIMARY KEY (tenant_id)
 );
 
+/*!
 SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode');
 SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode VARCHAR(255) DEFAULT NULL', 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
@@ -54,6 +55,7 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 SET @fk := (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND CONSTRAINT_NAME = 'fk_variants_generated_by_employee');
 SET @sql := IF(@fk = 0, 'ALTER TABLE product_variants ADD CONSTRAINT fk_variants_generated_by_employee FOREIGN KEY (generated_by_employee_id) REFERENCES employees(id)', 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+*/
 
 CREATE TABLE IF NOT EXISTS variant_barcode_history (
     id VARCHAR(100) NOT NULL,

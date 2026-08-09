@@ -12,3 +12,8 @@ coverage/
 *.jar
 *.exe
 *.pdb
+backups/
+animasys-backend/logs/
+animasys-backend/.data-smoketest/
+.claude/settings.local.json
+.claude/worktrees/

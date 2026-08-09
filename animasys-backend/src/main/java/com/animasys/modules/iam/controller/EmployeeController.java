@@ -101,6 +101,37 @@ public class EmployeeController {
         return ResponseEntity.ok(ApiResponseWrapper.success(null, "تم حذف الموظف بنجاح"));
     }
 
+    @PutMapping("/{id}")
+    @PreAuthorize("@authz.has('employees.edit')")
+    public ResponseEntity<ApiResponseWrapper<Employee>> updateEmployee(
+            @PathVariable String id,
+            @RequestBody EmployeeUpdateRequest request) {
+
+        Employee current = SecurityUtils.requireEmployee();
+        Employee target = employeeRepository.findById(id)
+                .orElseThrow(() -> new BusinessRuleException("الموظف غير موجود"));
+
+        if (!target.getTenant().getId().equals(current.getTenant().getId())) {
+            throw new BusinessRuleException("الموظف غير موجود في نفس المؤسسة");
+        }
+
+        if (request.getFullName() != null && !request.getFullName().trim().isEmpty()) {
+            target.setFullName(request.getFullName().trim());
+        }
+        if (request.getEmail() != null) {
+            target.setEmail(request.getEmail().trim());
+        }
+        if (request.getRole() != null && !request.getRole().trim().isEmpty()) {
+            target.setRole(request.getRole().trim().toUpperCase());
+        }
+        if (request.getActive() != null) {
+            target.setActive(request.getActive());
+        }
+
+        Employee saved = employeeRepository.save(target);
+        return ResponseEntity.ok(ApiResponseWrapper.success(saved, "تم تحديث بيانات ومواصفات الموظف بنجاح"));
+    }
+
     @PutMapping("/{id}/password")
     @PreAuthorize("isAuthenticated() and (#id == authentication.principal.employee.id or @authz.has('employees.edit'))")
     public ResponseEntity<ApiResponseWrapper<Void>> changePassword(
@@ -155,5 +186,13 @@ public class EmployeeController {
     @Data
     public static class PasswordChangeRequest {
         private String newPassword;
+    }
+
+    @Data
+    public static class EmployeeUpdateRequest {
+        private String fullName;
+        private String email;
+        private String role;
+        private Boolean active;
     }
 }

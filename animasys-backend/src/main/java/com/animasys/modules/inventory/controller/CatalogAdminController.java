@@ -31,4 +31,14 @@ public class CatalogAdminController {
         SkuDuplicateMergeReport report = duplicateMergeService.mergeTenant(tenantId);
         return ResponseEntity.ok(ApiResponseWrapper.success(report, "Duplicate SKU merge completed"));
     }
+
+    /** For duplicates the automatic SKU-grouping can't pair (same product, different SKU). */
+    @PostMapping("/variants/{targetVariantId}/merge/{sourceVariantId}")
+    @PreAuthorize("@authz.has('settings.factory_reset')")
+    public ResponseEntity<ApiResponseWrapper<SkuDuplicateMergeReport>> mergeSpecificVariants(
+            @PathVariable String targetVariantId, @PathVariable String sourceVariantId) {
+        String tenantId = SecurityUtils.requireTenantId();
+        SkuDuplicateMergeReport report = duplicateMergeService.mergeSpecificVariants(tenantId, targetVariantId, sourceVariantId);
+        return ResponseEntity.ok(ApiResponseWrapper.success(report, "Variant merge completed"));
+    }
 }

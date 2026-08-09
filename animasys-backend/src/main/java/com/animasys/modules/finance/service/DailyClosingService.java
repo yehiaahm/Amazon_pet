@@ -25,10 +25,10 @@ public class DailyClosingService {
     private final BranchRepository branchRepository;
     private final EmployeeRepository employeeRepository;
 
-    public DailyClosing createDailyClosing(String branchId, String closedById, DailyClosing dto) {
-        Branch branch = branchRepository.findById(branchId)
+    public DailyClosing createDailyClosing(String tenantId, String branchId, String closedById, DailyClosing dto) {
+        Branch branch = branchRepository.findByIdAndTenantId(branchId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Branch not found: " + branchId));
-        Employee employee = employeeRepository.findById(closedById)
+        Employee employee = employeeRepository.findByIdAndTenantId(closedById, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee not found: " + closedById));
 
         if (dto.getPhysicalActual() == null || dto.getSystemExpected() == null) {
@@ -52,7 +52,9 @@ public class DailyClosingService {
     }
 
     @Transactional(readOnly = true)
-    public List<DailyClosing> getByBranch(String branchId) {
+    public List<DailyClosing> getByBranch(String tenantId, String branchId) {
+        branchRepository.findByIdAndTenantId(branchId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Branch not found: " + branchId));
         return dailyClosingRepository.findByBranchId(branchId);
     }
     

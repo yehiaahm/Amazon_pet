@@ -23,5 +23,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, String> {
     @Query("SELECT e FROM Employee e JOIN FETCH e.tenant JOIN FETCH e.branch WHERE e.tenant.id = :tenantId")
     List<Employee> findByTenantId(@Param("tenantId") String tenantId);
 
+    Optional<Employee> findByIdAndTenantId(String id, String tenantId);
+
     long countByTenantIdAndRole(String tenantId, String role);
 }

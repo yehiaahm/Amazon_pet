@@ -1,10 +1,18 @@
 -- Enforce NOT NULL + uniqueness after V16 backfill and V17 catalog merge.
 -- Uses MySQL syntax (MODIFY COLUMN / DROP INDEX) rather than H2/Postgres forms.
+-- Wrapped in MySQL-only "/*! ... */" executable comments (same trick used
+-- below) so the H2 fallback profile — which cannot parse MODIFY COLUMN this
+-- way — treats them as plain comments and skips them instead of failing
+-- startup outright. H2 is a desktop/dev fallback only; NOT NULL enforcement
+-- there is best-effort, same as the constraint blocks skipped below.
 
+/*!
 ALTER TABLE product_variants MODIFY COLUMN tenant_id VARCHAR(36) NOT NULL;
 ALTER TABLE product_variants MODIFY COLUMN sku VARCHAR(50) NOT NULL;
+*/
 
 -- Drop legacy single-column UNIQUE on products.sku (from V1), whatever MySQL named it
+/*!
 SET @legacy_sku_idx := (
     SELECT INDEX_NAME
     FROM information_schema.STATISTICS
@@ -24,7 +32,9 @@ SET @drop_legacy := IF(
 PREPARE stmt_drop_legacy FROM @drop_legacy;
 EXECUTE stmt_drop_legacy;
 DEALLOCATE PREPARE stmt_drop_legacy;
+*/
 
+/*!
 SET @uk_products := (
     SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
     WHERE TABLE_SCHEMA = DATABASE()
@@ -69,3 +79,4 @@ SET @sql_uk_pv_sku := IF(
 PREPARE stmt_uk_pv_sku FROM @sql_uk_pv_sku;
 EXECUTE stmt_uk_pv_sku;
 DEALLOCATE PREPARE stmt_uk_pv_sku;
+*/

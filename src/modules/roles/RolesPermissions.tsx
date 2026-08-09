@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   useRolesList,
+  useEmployeesList,
   usePermissionsCatalog,
   useRoleDetail,
   useUpdateRolePermissions,
@@ -9,13 +10,19 @@ import {
 } from '../../core/hooks/useERPData';
 import { usePermissions } from '../../core/permissions/usePermissions';
 import { PERMISSIONS } from '../../core/permissions/permissions';
+import {
+  translateModuleName,
+  translatePermissionName,
+  translateRole,
+} from '../../core/permissions/permissionLabels';
 import Can from '../../components/ui/Can';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
-import { Shield, CheckSquare, Square, ChevronLeft, Plus, Trash2 } from 'lucide-react';
+import { Shield, CheckSquare, Square, ChevronLeft, Plus, Trash2, User, Users } from 'lucide-react';
 
 interface PermissionCatalogEntry {
   code: string;
@@ -31,9 +38,11 @@ interface PermissionCatalogGroup {
 export const RolesPermissions: React.FC = () => {
   const { hasPermission } = usePermissions();
   const { data: roles, isLoading: rolesLoading } = useRolesList();
+  const { data: employees } = useEmployeesList();
   const { data: catalog } = usePermissionsCatalog();
 
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [draftCodes, setDraftCodes] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
@@ -65,10 +74,17 @@ export const RolesPermissions: React.FC = () => {
       .map((group) => ({
         ...group,
         permissions: group.permissions.filter(
-          (p: PermissionCatalogEntry) =>
-            p.name.toLowerCase().includes(q) ||
-            p.code.toLowerCase().includes(q) ||
-            p.module.toLowerCase().includes(q)
+          (p: PermissionCatalogEntry) => {
+            const arName = translatePermissionName(p.code, p.name).toLowerCase();
+            const arModule = translateModuleName(group.module).toLowerCase();
+            return (
+              arName.includes(q) ||
+              arModule.includes(q) ||
+              p.name.toLowerCase().includes(q) ||
+              p.code.toLowerCase().includes(q) ||
+              p.module.toLowerCase().includes(q)
+            );
+          }
         ),
       }))
       .filter((g) => g.permissions.length > 0);
@@ -151,6 +167,21 @@ export const RolesPermissions: React.FC = () => {
     });
   };
 
+  const handleSelectEmployeeQuick = (empId: string) => {
+    if (!empId) {
+      setSelectedEmpId(null);
+      return;
+    }
+    const emp = (employees || []).find((e: any) => e.id === empId);
+    if (emp && emp.role) {
+      const matchedRole = (roles || []).find((r: any) => r.code?.toUpperCase() === emp.role?.toUpperCase());
+      if (matchedRole) {
+        setSelectedEmpId(empId);
+        setSelectedRoleId(matchedRole.id);
+      }
+    }
+  };
+
   if (!hasPermission(PERMISSIONS.ROLES_VIEW)) {
     return (
       <div className="workspace">
@@ -168,8 +199,8 @@ export const RolesPermissions: React.FC = () => {
     return (
       <div className="workspace">
         <PageHeader
-          title="الأدوار والصلاحيات"
-          subtitle="إدارة أدوار الموظفين وصلاحيات كل دور"
+          title="الأدوار وصلاحيات الموظفين"
+          subtitle="تحديد الصلاحيات المباشرة للموظفين (مثل أمير، يحيى) وحسب أدوارهم في النظام"
           actions={
             <Can permission={PERMISSIONS.ROLES_CREATE}>
               <Button onClick={() => setShowCreateModal(true)}>
@@ -179,43 +210,109 @@ export const RolesPermissions: React.FC = () => {
           }
         />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--spacing-4)' }}>
-          {(roles || []).map((role) => (
-            <div
-              key={role.id}
-              className="card"
-              style={{ cursor: 'pointer', padding: 'var(--spacing-4)' }}
-              onClick={() => setSelectedRoleId(role.id)}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <Shield size={20} color="var(--color-primary)" />
-                <strong>{role.name}</strong>
-                {role.systemRole && <Badge variant="info">نظام</Badge>}
+        {/* Quick Employee Selection Header */}
+        <div className="card" style={{ padding: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)', backgroundColor: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-primary)', fontWeight: 'bold', fontSize: 'var(--font-size-sm)' }}>
+            <Users size={18} />
+            <span>اختر موظفاً لتعديل صلاحياته المباشرة:</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <Select
+              value={selectedEmpId || ''}
+              onChange={(e) => handleSelectEmployeeQuick(e.target.value)}
+              options={[
+                { value: '', label: '-- اختر الموظف (مثال: الكاشير أمير) --' },
+                ...(employees || []).map((emp: any) => ({
+                  value: emp.id,
+                  label: `👤 ${emp.fullName} (${emp.username}) — دور: ${emp.role}`,
+                })),
+              ]}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 'var(--spacing-4)' }}>
+          {(roles || []).map((role) => {
+            const translated = translateRole(role.code, role.name, role.description);
+            const assignedEmps = (employees || []).filter(
+              (e: any) => e.role?.toUpperCase() === role.code?.toUpperCase()
+            );
+
+            return (
+              <div
+                key={role.id}
+                className="card"
+                style={{ cursor: 'pointer', padding: 'var(--spacing-4)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+                onClick={() => {
+                  setSelectedEmpId(null);
+                  setSelectedRoleId(role.id);
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Shield size={20} color="var(--color-primary)" />
+                      <strong>{translated.name}</strong>
+                    </div>
+                    {role.systemRole && <Badge variant="info">نظام</Badge>}
+                  </div>
+
+                  <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', margin: '0 0 12px' }}>
+                    {translated.description || role.code}
+                  </p>
+
+                  <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-size-sm)', marginBottom: 12 }}>
+                    <span><strong>{assignedEmps.length}</strong> موظف</span>
+                    <span><strong>{role.permissionCount}</strong> صلاحية</span>
+                  </div>
+
+                  {/* Explicit List of Employees assigned to this role */}
+                  <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 10, marginTop: 4 }}>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 'bold', marginBottom: 6 }}>
+                      الموظفون الحاليون بهذا الدور:
+                    </div>
+                    {assignedEmps.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {assignedEmps.map((emp: any) => (
+                          <Badge
+                            key={emp.id}
+                            variant="primary"
+                            style={{ fontSize: '11px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}
+                          >
+                            <User size={12} /> {emp.fullName} ({emp.username})
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
+                        لا يوجد موظفون معينون بهذا الدور حالياً
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-primary)', fontWeight: 'bold' }}>
+                    تعديل صلاحيات {assignedEmps.length > 0 ? assignedEmps[0].fullName : translated.name} ←
+                  </span>
+                  <Can permission={PERMISSIONS.ROLES_DELETE}>
+                    {!role.systemRole && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteRole(role.id, role.systemRole);
+                        }}
+                      >
+                        <Trash2 size={14} /> حذف
+                      </Button>
+                    )}
+                  </Can>
+                </div>
               </div>
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', margin: '0 0 12px' }}>
-                {role.description || role.code}
-              </p>
-              <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-size-sm)' }}>
-                <span>{role.employeeCount} موظف</span>
-                <span>{role.permissionCount} صلاحية</span>
-              </div>
-              <Can permission={PERMISSIONS.ROLES_DELETE}>
-                {!role.systemRole && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    style={{ marginTop: 12 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteRole(role.id, role.systemRole);
-                    }}
-                  >
-                    <Trash2 size={14} /> حذف
-                  </Button>
-                )}
-              </Can>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="إنشاء دور جديد">
@@ -235,23 +332,69 @@ export const RolesPermissions: React.FC = () => {
   }
 
   // ── Permission editor view ──
+  const activeRoleTranslated = roleDetail
+    ? translateRole(roleDetail.code, roleDetail.name, roleDetail.description)
+    : null;
+
+  const activeRoleEmps = (employees || []).filter(
+    (e: any) => e.role?.toUpperCase() === roleDetail?.code?.toUpperCase()
+  );
+
+  const selectedSpecificEmp = selectedEmpId
+    ? (employees || []).find((e: any) => e.id === selectedEmpId)
+    : null;
+
   return (
     <div className="workspace">
       <PageHeader
-        title={roleDetail?.name || 'تحرير الصلاحيات'}
-        subtitle={roleDetail?.description || roleDetail?.code}
+        title={
+          selectedSpecificEmp
+            ? `تعديل صلاحيات الموظف: ${selectedSpecificEmp.fullName} (${selectedSpecificEmp.username})`
+            : `صلاحيات ${activeRoleTranslated?.name || roleDetail?.name || ''}`
+        }
+        subtitle={
+          activeRoleEmps.length > 0
+            ? `تطبق هذه الصلاحيات مباشرة على الموظف: ${activeRoleEmps.map((e: any) => `${e.fullName} (${e.username})`).join('، ')}`
+            : activeRoleTranslated?.description || roleDetail?.description || roleDetail?.code
+        }
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="ghost" onClick={() => { setSelectedRoleId(null); setDirty(false); }}>
-              <ChevronLeft size={16} /> رجوع
+            <Button variant="ghost" onClick={() => { setSelectedRoleId(null); setSelectedEmpId(null); setDirty(false); }}>
+              <ChevronLeft size={16} /> رجوع للأدوار والموظفين
             </Button>
             <Can permission={PERMISSIONS.ROLES_ASSIGN}>
               <Button variant="ghost" onClick={handleCancel} disabled={!dirty || saving}>إلغاء</Button>
-              <Button onClick={handleSave} disabled={!dirty || saving}>{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+              <Button onClick={handleSave} disabled={!dirty || saving}>{saving ? 'جاري الحفظ...' : 'حفظ الصلاحيات'}</Button>
             </Can>
           </div>
         }
       />
+
+      {/* Prominent Employee Focus Banner */}
+      <div
+        className="card"
+        style={{
+          padding: 'var(--spacing-3) var(--spacing-4)',
+          marginBottom: 16,
+          backgroundColor: 'var(--color-primary-light, rgba(59, 130, 246, 0.1))',
+          border: '1px solid var(--color-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <User size={20} color="var(--color-primary)" />
+          <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'bold' }}>
+            {activeRoleEmps.length > 0 ? (
+              <>أنت تقوم الآن بتسليم وتحديد الصلاحيات الممنوحة لـ: <u style={{ color: 'var(--color-primary)' }}>{activeRoleEmps.map((e: any) => `${e.fullName} (${e.username})`).join(' و ')}</u> ({activeRoleTranslated?.name})</>
+            ) : (
+              <>أنت تقوم بتحديد الصلاحيات الخاصة بـ: {activeRoleTranslated?.name}</>
+            )}
+          </span>
+        </div>
+      </div>
 
       {detailLoading ? (
         <div className="skeleton" style={{ height: 300 }} />
@@ -260,7 +403,7 @@ export const RolesPermissions: React.FC = () => {
           <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
               <Input
-                placeholder="بحث عن صلاحية..."
+                placeholder="بحث عن صلاحية أو قسم..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -283,7 +426,7 @@ export const RolesPermissions: React.FC = () => {
               return (
                 <div key={group.module} className="card" style={{ padding: 'var(--spacing-4)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <h3 style={{ margin: 0 }}>{group.module}</h3>
+                    <h3 style={{ margin: 0 }}>{translateModuleName(group.module)}</h3>
                     <Can permission={PERMISSIONS.ROLES_ASSIGN}>
                       <Button
                         variant="ghost"
@@ -294,7 +437,7 @@ export const RolesPermissions: React.FC = () => {
                       </Button>
                     </Can>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
                     {group.permissions.map((perm: PermissionCatalogEntry) => (
                       <label
                         key={perm.code}
@@ -314,7 +457,7 @@ export const RolesPermissions: React.FC = () => {
                           disabled={!hasPermission(PERMISSIONS.ROLES_ASSIGN)}
                           onChange={() => togglePermission(perm.code)}
                         />
-                        <span style={{ fontSize: 'var(--font-size-sm)' }}>{perm.name}</span>
+                        <span style={{ fontSize: 'var(--font-size-sm)' }}>{translatePermissionName(perm.code, perm.name)}</span>
                       </label>
                     ))}
                   </div>

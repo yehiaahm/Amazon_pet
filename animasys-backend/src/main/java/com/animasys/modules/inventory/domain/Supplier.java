@@ -8,7 +8,13 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "suppliers")
+@Table(
+        name = "suppliers",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_suppliers_tenant_name", columnNames = {"tenant_id", "name"}),
+                @UniqueConstraint(name = "uk_suppliers_tenant_code", columnNames = {"tenant_id", "supplier_code"})
+        }
+)
 @Data
 @Builder
 @NoArgsConstructor
@@ -21,10 +27,10 @@ public class Supplier {
     @JoinColumn(name = "tenant_id", nullable = false)
     private Tenant tenant;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String name;
 
-    @Column(name = "supplier_code", unique = true)
+    @Column(name = "supplier_code")
     private String supplierCode;
 
     @Column(name = "phone")

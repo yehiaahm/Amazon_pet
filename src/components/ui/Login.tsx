@@ -37,9 +37,13 @@ export const Login: React.FC = () => {
       const authData = resJson.data;
       localStorage.setItem('token', authData.token);
 
-      if (Array.isArray(authData.permissions)) {
-        usePermissionStore.getState().setPermissions(authData.permissions);
-      }
+      const permissionCodes = Array.isArray(authData.permissions) ? authData.permissions : [];
+      usePermissionStore.getState().setPermissions(permissionCodes);
+
+      const landing = resolveFirstAccessibleModule((moduleId) =>
+        canAccessModuleWithPermissions(permissionCodes, moduleId)
+      ) || 'pos';
+      setActiveModule(landing);
 
       setCurrentEmployee({
         id: authData.employeeId,
@@ -51,14 +55,6 @@ export const Login: React.FC = () => {
         active: true
       });
       setAuthenticated(true);
-
-      const permissionCodes = Array.isArray(authData.permissions) ? authData.permissions : [];
-      const landing = resolveFirstAccessibleModule((moduleId) =>
-        canAccessModuleWithPermissions(permissionCodes, moduleId)
-      );
-      if (landing) {
-        setActiveModule(landing);
-      }
     } catch (err: any) {
       const raw = err?.message || '';
       const msg =

@@ -22,6 +22,7 @@ public class DailyClosing {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "branch_id", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "tenant"})
     private Branch branch;
 
     @Column(name = "cashbox_id", nullable = false)
@@ -44,8 +45,27 @@ public class DailyClosing {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "closed_by_id", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "tenant", "branch", "passwordHash"})
     private Employee closedBy;
 
     @Column(nullable = false)
     private LocalDate date;
+
+    @Column(name = "cash_sales_total")
+    private BigDecimal cashSalesTotal;
+
+    @Column(name = "card_sales_total")
+    private BigDecimal cardSalesTotal;
+
+    @Column(name = "instapay_sales_total")
+    private BigDecimal instapaySalesTotal;
+
+    @Column(name = "vodafone_sales_total")
+    private BigDecimal vodafoneSalesTotal;
+
+    @Column(name = "total_sales")
+    private BigDecimal totalSales;
+
+    @Column(name = "cash_expenses_total")
+    private BigDecimal cashExpensesTotal;
 }

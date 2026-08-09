@@ -50,6 +50,14 @@ public class GlobalExceptionHandler {
                 .body(ApiResponseWrapper.error(ex.getMessage()));
     }
 
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponseWrapper<Void>> handleRateLimitExceeded(RateLimitExceededException ex) {
+        log.warn("Rate limit exceeded [{}]: {}", MDC.get("requestId"), ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiResponseWrapper.error(ex.getMessage()));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiResponseWrapper<Void>> handleBadCredentials(BadCredentialsException ex) {
         return ResponseEntity

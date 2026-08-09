@@ -2,3 +2,12 @@
 app:
   ai:
     mock-enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.animasys: INFO
+    org.hibernate.SQL: WARN
+    org.springframework: WARN
+  file:
+    name: ${LOG_FILE:./logs/animasys-backend.log}

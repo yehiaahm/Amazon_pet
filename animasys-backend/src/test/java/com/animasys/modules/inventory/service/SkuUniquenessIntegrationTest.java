@@ -6,14 +6,12 @@ import com.animasys.modules.iam.domain.Tenant;
 import com.animasys.modules.iam.repository.BranchRepository;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.iam.repository.TenantRepository;
-import com.animasys.modules.inventory.domain.ImportSession;
+import com.animasys.modules.inventory.domain.Category;
 import com.animasys.modules.inventory.domain.InventoryBatch;
 import com.animasys.modules.inventory.domain.Product;
 import com.animasys.modules.inventory.domain.ProductVariant;
 import com.animasys.modules.inventory.domain.Warehouse;
-import com.animasys.modules.inventory.dto.BulkImportItem;
-import com.animasys.modules.inventory.dto.ChunkImportRequest;
-import com.animasys.modules.inventory.dto.StartImportRequest;
+import com.animasys.modules.inventory.repository.CategoryRepository;
 import com.animasys.modules.inventory.repository.InventoryBatchRepository;
 import com.animasys.modules.inventory.repository.ProductRepository;
 import com.animasys.modules.inventory.repository.ProductVariantRepository;
@@ -38,7 +36,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 class SkuUniquenessIntegrationTest extends IntegrationTestBase {
 
-    @Autowired private ImportService importService;
+    @Autowired private SkuCatalogService skuCatalogService;
+    @Autowired private FifoCostingService fifoCostingService;
     @Autowired private SaleService saleService;
     @Autowired private CatalogQueryService catalogQueryService;
     @Autowired private ProductVariantDuplicateMergeService duplicateMergeService;
@@ -50,10 +49,12 @@ class SkuUniquenessIntegrationTest extends IntegrationTestBase {
     @Autowired private ProductVariantRepository variantRepository;
     @Autowired private InventoryBatchRepository batchRepository;
     @Autowired private POSSessionRepository posSessionRepository;
+    @Autowired private CategoryRepository categoryRepository;
 
     private Employee employee;
     private Tenant tenant;
     private Branch branch;
+    private Category category;
 
     @BeforeEach
     void seed() {
@@ -93,6 +94,12 @@ class SkuUniquenessIntegrationTest extends IntegrationTestBase {
                 .email("sku-uni-" + UUID.randomUUID() + "@test.com")
                 .role("MANAGER")
                 .active(true)
+                .build());
+
+        category = categoryRepository.save(Category.builder()
+                .id("cat-sku-uni-" + UUID.randomUUID().toString().substring(0, 8))
+                .tenant(tenant)
+                .name("SKU Uniqueness")
                 .build());
 
         authenticate(employee);
@@ -177,29 +184,33 @@ class SkuUniquenessIntegrationTest extends IntegrationTestBase {
         assertEquals(0, after.getRemainingQuantity(), "FIFO must consume oldest batch first");
     }
 
+    /**
+     * Repeats the same "add stock for this SKU" flow that used to run through the (now removed)
+     * bulk import pipeline: upsert-by-SKU must keep a single Product/ProductVariant, and each
+     * call with stock adds its own opening InventoryBatch.
+     */
     private void runImportRow(String sku, BigDecimal price, BigDecimal cost, int stock) {
-        StartImportRequest start = new StartImportRequest();
-        start.setFileName("sku-uni.xlsx");
-        start.setFileSize(10L);
-        start.setFileHash("hash-" + UUID.randomUUID());
-        start.setUploadedBy(employee.getId());
-        start.setDuplicateStrategy("UPDATE");
-        start.setTargetType("PRODUCTS");
-        ImportSession session = importService.startSession(start);
+        Product template = Product.builder()
+                .id("p-sku-uni-" + UUID.randomUUID().toString().substring(0, 8))
+                .tenant(tenant)
+                .sku(sku)
+                .name("SKU Uniqueness Product")
+                .category(category)
+                .minStockLimit(10)
+                .build();
+        ProductVariant variant = skuCatalogService.upsertVariantForSku(tenant.getId(), template, null, price, cost);
 
-        BulkImportItem item = new BulkImportItem();
-        item.setSku(sku);
-        item.setProductName("SKU Uniqueness Product");
-        item.setPrice(price);
-        item.setCost(cost);
-        item.setStock(stock);
-
-        ChunkImportRequest chunk = new ChunkImportRequest();
-        chunk.setEmployeeId(employee.getId());
-        chunk.setDryRun(false);
-        chunk.setItems(List.of(item));
-
-        importService.processChunk(session.getId(), chunk);
-        importService.finalizeSession(session.getId());
+        if (stock > 0) {
+            fifoCostingService.createOpeningBatch(
+                    tenant.getId(),
+                    StockService.DEFAULT_SALES_WAREHOUSE,
+                    variant.getId(),
+                    cost,
+                    stock,
+                    null,
+                    "SKU-UNI-" + UUID.randomUUID(),
+                    employee.getId()
+            );
+        }
     }
 }

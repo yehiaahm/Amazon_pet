@@ -11,7 +11,6 @@ public class ClosePosSessionRequest {
     @NotNull
     private BigDecimal closingBalance;
 
-    @NotNull
     private BigDecimal expectedBalance;
 
     @NotNull

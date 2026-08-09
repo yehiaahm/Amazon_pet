@@ -31,6 +31,28 @@ public class SkuCatalogService {
     @PersistenceContext
     private EntityManager entityManager;
 
+    /** Exactly-6-digit sequential codes, kept apart from any other "AP-..." SKU (e.g. a barcode-derived one). */
+    private static final java.util.regex.Pattern SEQUENTIAL_SKU = java.util.regex.Pattern.compile("^AP-(\\d{6})$");
+
+    /**
+     * Next code in the "AP-000001" sequence, for import rows with neither a SKU nor a
+     * barcode to derive one from. Scans existing SKUs rather than keeping a counter column,
+     * so it stays correct even if products were deleted or created outside import — and
+     * scans every tenant's SKUs, not just this one, since a collision would fail the row
+     * regardless of which tenant holds the clashing code.
+     */
+    @Transactional(readOnly = true)
+    public String nextSequentialSku() {
+        int max = 0;
+        for (String sku : productRepository.findSkusByPrefix("AP-")) {
+            java.util.regex.Matcher m = SEQUENTIAL_SKU.matcher(sku);
+            if (m.matches()) {
+                max = Math.max(max, Integer.parseInt(m.group(1)));
+            }
+        }
+        return String.format("AP-%06d", max + 1);
+    }
+
     public static String normalizeSku(String sku) {
         if (sku == null) {
             return "";
@@ -151,7 +173,10 @@ public class SkuCatalogService {
 
     public void syncVariantSkuFromProduct(ProductVariant variant, Product product) {
         if (product != null && product.getId() != null) {
-            variant.setTenantId(productRepository.findTenantIdByProductId(product.getId()));
+            String tId = (product.getTenant() != null && product.getTenant().getId() != null)
+                    ? product.getTenant().getId()
+                    : productRepository.findTenantIdByProductId(product.getId());
+            variant.setTenantId(tId);
             variant.setSku(product.getSku());
         }
     }

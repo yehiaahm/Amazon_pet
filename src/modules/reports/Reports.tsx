@@ -63,7 +63,7 @@ function TrendBadge({
 }
 export const Reports: React.FC = () => {
   // Queries
-  const { data: salesPage, isLoading: loadingSales, isError: errorSales, refetch: refetchSales } = useSales({ page: 0, size: 100, sort: 'date,desc' });
+  const { data: salesPage, isLoading: loadingSales, isError: errorSales, refetch: refetchSales } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
   const sales = salesPage?.content;
   const { data: expenses, isLoading: loadingExpenses, isError: errorExpenses, refetch: refetchExpenses } = useExpenses();
   const { data: purchaseInvoices, isLoading: loadingPurchases, isError: errorPurchases, refetch: refetchPurchases } = usePurchaseInvoices();

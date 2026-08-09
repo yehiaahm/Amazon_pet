@@ -48,13 +48,4 @@ public class PurchaseInvoiceController {
         return ResponseEntity.ok(ApiResponseWrapper.success(invoice, "تم استرجاع تفاصيل فاتورة الشراء"));
     }
 
-    @PutMapping("/{id}/pay")
-    @PreAuthorize("@authz.has('purchases.edit')")
-    public ResponseEntity<ApiResponseWrapper<PurchaseInvoice>> payInvoice(
-            @PathVariable String id,
-            @RequestParam java.math.BigDecimal amount) {
-        String tenantId = SecurityUtils.requireTenantId();
-        PurchaseInvoice updated = purchaseInvoiceService.payInvoice(tenantId, id, amount);
-        return ResponseEntity.ok(ApiResponseWrapper.success(updated, "تم تسجيل الدفعة بنجاح"));
-    }
 }

@@ -13,6 +13,12 @@ public class CreateProductRequest {
         return str(product, "sku");
     }
 
+    /** Explicit caller confirmation (e.g. import "create new anyway" resolution) to bypass the same-name duplicate guard. */
+    public boolean isAllowDuplicateName() {
+        Object v = product != null ? product.get("allowDuplicateName") : null;
+        return Boolean.TRUE.equals(v) || "true".equalsIgnoreCase(String.valueOf(v));
+    }
+
     public String getProductName() {
         return str(product, "name");
     }

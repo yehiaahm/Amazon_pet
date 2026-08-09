@@ -18,8 +18,11 @@ import com.animasys.modules.sales.dto.SaleRefundResult;
 import com.animasys.modules.sales.dto.SaleSearchCriteria;
 import com.animasys.modules.sales.repository.SaleItemBatchAllocationRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
+import com.animasys.modules.sales.service.IdempotentCheckoutService;
 import com.animasys.modules.sales.service.SaleQueryService;
 import com.animasys.modules.sales.service.SaleService;
+import com.animasys.modules.iam.repository.EmployeeRepository;
+import com.animasys.modules.sales.repository.SaleItemBatchAllocationRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -53,6 +56,8 @@ public class SaleController {
     private final SaleRepository saleRepository;
     private final SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
     private final AuthenticationManager authenticationManager;
+    private final EmployeeRepository employeeRepository;
+    private final IdempotentCheckoutService idempotentCheckoutService;
 
     @GetMapping
     @PreAuthorize("@authz.has('sales.create_sale')")
@@ -127,21 +132,21 @@ public class SaleController {
 
     @PostMapping
     @PreAuthorize("@authz.has('sales.create_sale')")
-    public ResponseEntity<ApiResponseWrapper<Sale>> createSale(@Valid @RequestBody CreateSaleRequest request) {
+    public ResponseEntity<ApiResponseWrapper<Sale>> createSale(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CreateSaleRequest request) {
+        
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponseWrapper.error("يجب إرسال Idempotency-Key لمنع تكرار الفواتير"));
+        }
+
         String employeeId = SecurityUtils.requireEmployeeId();
+        String tenantId = SecurityUtils.requireTenantId();
         List<SaleItem> items = mapSaleItems(request.getItems());
 
-        Sale created = saleService.createSale(
-                request.getPosSessionId(),
-                employeeId,
-                request.getCustomerId(),
-                request.getTotalAmount(),
-                request.getTax(),
-                request.getDiscount(),
-                request.getPaymentMethod(),
-                items,
-                request.getManagerUsername(),
-                request.getManagerPassword());
+        Sale created = idempotentCheckoutService.processCheckout(idempotencyKey, request, items, tenantId, employeeId);
+        
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponseWrapper.success(created, "تم تسجيل المبيعات بنجاح"));
     }
@@ -162,7 +167,7 @@ public class SaleController {
         if ("CASHIER".equals(role)) {
             String managerUsername = body != null ? body.getManagerUsername() : null;
             String managerPassword = body != null ? body.getManagerPassword() : null;
-            requireElevatedApproval(managerUsername, managerPassword);
+            requireElevatedApproval(managerUsername, managerPassword, tenantId);
         }
 
         List<SaleRefundLineRequest> lines = body != null ? body.getLines() : null;
@@ -219,13 +224,18 @@ public class SaleController {
         return today.equals(saleDay);
     }
 
-    private void requireElevatedApproval(String managerUsername, String managerPassword) {
+    private void requireElevatedApproval(String managerUsername, String managerPassword, String tenantId) {
         if (managerPassword == null || managerPassword.isBlank()) {
             throw new BusinessRuleException("يلزم إدخال رمز المدير لإتمام الإرجاع.");
         }
-        String username = (managerUsername != null && !managerUsername.isBlank())
-                ? managerUsername
-                : "owner_marwan";
+        String username = managerUsername;
+        if (username == null || username.isBlank()) {
+            username = employeeRepository.findByTenantId(tenantId).stream()
+                    .filter(e -> "OWNER".equalsIgnoreCase(e.getRole()) || "MANAGER".equalsIgnoreCase(e.getRole()))
+                    .map(Employee::getUsername)
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessRuleException("لا يوجد مدير متاح في النظام لطلب الموافقة."));
+        }
         try {
             Authentication auth = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(username, managerPassword));

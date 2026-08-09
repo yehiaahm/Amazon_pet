@@ -47,6 +47,7 @@ public class SaleServiceTest {
     @Mock private com.animasys.modules.inventory.service.InventoryIntegrityService inventoryIntegrityService;
     @Mock private SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
     @Mock private AuthenticationManager authenticationManager;
+    @Mock private com.animasys.modules.inventory.repository.WarehouseRepository warehouseRepository;
 
     @InjectMocks
     private SaleService saleService;
@@ -82,6 +83,9 @@ public class SaleServiceTest {
         doNothing().when(stockService).ensureMirrored(anyString());
         when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("v-1"))).thenReturn(5);
         when(fifoCostingService.allocateSaleItemFifo(eq("t-1"), anyString(), any(), eq("e-1"))).thenReturn(List.of());
+        
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
 
         Sale sale = saleService.createSale(
                 "s-1",

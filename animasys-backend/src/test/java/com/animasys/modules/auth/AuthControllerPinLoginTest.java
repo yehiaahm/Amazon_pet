@@ -3,7 +3,9 @@ package com.animasys.modules.auth;
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
 import com.animasys.core.security.JwtTokenProvider;
+import com.animasys.core.security.LoginRateLimiter;
 import com.animasys.core.security.UserPrincipal;
+import jakarta.servlet.http.HttpServletRequest;
 import com.animasys.modules.finance.repository.BankAccountRepository;
 import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.domain.Employee;
@@ -47,6 +49,8 @@ class AuthControllerPinLoginTest {
     @Mock private BankAccountRepository bankAccountRepository;
     @Mock private PermissionResolverService permissionResolverService;
     @Mock private RoleBootstrapService roleBootstrapService;
+    @Mock private LoginRateLimiter loginRateLimiter;
+    @Mock private HttpServletRequest httpServletRequest;
 
     @InjectMocks private AuthController authController;
 
@@ -57,6 +61,7 @@ class AuthControllerPinLoginTest {
     void setUp() {
         tenant = Tenant.builder().id("t-auth").name("Shop").subdomain("main").build();
         branch = Branch.builder().id("b-auth").tenant(tenant).name("Main").build();
+        lenient().when(httpServletRequest.getRemoteAddr()).thenReturn("127.0.0.1");
     }
 
     @Test
@@ -78,7 +83,7 @@ class AuthControllerPinLoginTest {
         when(tokenProvider.generateToken(auth)).thenReturn("jwt-token");
         when(permissionResolverService.resolvePermissionCodes(cashier)).thenReturn(Set.of("sales.create_sale"));
 
-        ResponseEntity<ApiResponseWrapper<JwtResponse>> response = authController.pinLogin(request);
+        ResponseEntity<ApiResponseWrapper<JwtResponse>> response = authController.pinLogin(request, httpServletRequest);
 
         assertEquals(200, response.getStatusCode().value());
         assertNotNull(response.getBody());
@@ -94,7 +99,7 @@ class AuthControllerPinLoginTest {
         when(tenantRepository.findBySubdomain("main")).thenReturn(Optional.of(tenant));
         when(employeeRepository.findByTenantId("t-auth")).thenReturn(List.of());
 
-        assertThrows(BusinessRuleException.class, () -> authController.pinLogin(request));
+        assertThrows(BusinessRuleException.class, () -> authController.pinLogin(request, httpServletRequest));
     }
 
     @Test
@@ -122,7 +127,7 @@ class AuthControllerPinLoginTest {
         when(tokenProvider.generateToken(auth)).thenReturn("owner-jwt");
         when(permissionResolverService.resolvePermissionCodes(owner)).thenReturn(Set.of());
 
-        ResponseEntity<ApiResponseWrapper<JwtResponse>> response = authController.pinLogin(request);
+        ResponseEntity<ApiResponseWrapper<JwtResponse>> response = authController.pinLogin(request, httpServletRequest);
 
         assertEquals("e-owner", response.getBody().getData().getEmployeeId());
     }
@@ -135,7 +140,7 @@ class AuthControllerPinLoginTest {
 
         when(tenantRepository.existsById("missing")).thenReturn(false);
 
-        assertThrows(BusinessRuleException.class, () -> authController.pinLogin(request));
+        assertThrows(BusinessRuleException.class, () -> authController.pinLogin(request, httpServletRequest));
     }
 
     @Test

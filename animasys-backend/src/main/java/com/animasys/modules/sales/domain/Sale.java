@@ -8,6 +8,7 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,6 +18,7 @@ import java.util.List;
 @Entity
 @Table(name = "sales")
 @Data
+@EqualsAndHashCode(of = "id")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -45,7 +47,7 @@ public class Sale {
     private BigDecimal discount;
 
     @Column(name = "payment_method", nullable = false)
-    private String paymentMethod; // CASH, CARD, MOBILE
+    private String paymentMethod; // CASH, CARD, MOBILE, INSTAPAY, VODAFONE_CASH
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "employee_id", nullable = false)

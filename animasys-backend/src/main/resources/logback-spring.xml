@@ -11,9 +11,47 @@
         </encoder>
     </appender>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-    </root>
+    <!-- Production: one JSON object per line so logs are directly ingestible
+         by any aggregator (Loki, ELK, CloudWatch, ...) without a parser. -->
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>requestId</includeMdcKeyName>
+            <includeMdcKeyName>tenantId</includeMdcKeyName>
+            <includeMdcKeyName>employeeId</includeMdcKeyName>
+            <customFields>{"service":"animasys-backend"}</customFields>
+        </encoder>
+    </appender>
+
+    <!-- ${LOG_FILE} is populated by Spring Boot from logging.file.name
+         (see application-production.yml) before this config is parsed. -->
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE:-./logs/animasys-backend.log}</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE:-./logs/animasys-backend}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>requestId</includeMdcKeyName>
+            <includeMdcKeyName>tenantId</includeMdcKeyName>
+            <includeMdcKeyName>employeeId</includeMdcKeyName>
+            <customFields>{"service":"animasys-backend"}</customFields>
+        </encoder>
+    </appender>
+
+    <springProfile name="production">
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+            <appender-ref ref="JSON_FILE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="!production">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
 
     <logger name="com.animasys" level="INFO"/>
 </configuration>

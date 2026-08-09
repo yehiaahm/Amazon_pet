@@ -12,6 +12,7 @@ import com.animasys.modules.iam.domain.Tenant;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.inventory.domain.ProductVariant;
 import com.animasys.modules.inventory.repository.ProductVariantRepository;
+import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.modules.inventory.service.FifoCostingService;
 import com.animasys.modules.inventory.service.InventoryIntegrityService;
 import com.animasys.modules.inventory.service.StockService;
@@ -58,6 +59,7 @@ public class SaleService {
     private final POSSessionRepository sessionRepository;
     private final EmployeeRepository employeeRepository;
     private final CustomerRepository customerRepository;
+    private final WarehouseRepository warehouseRepository;
     private final ProductVariantRepository variantRepository;
     private final GroomingServiceRepository groomingServiceRepository;
     private final StockService stockService;
@@ -98,6 +100,14 @@ public class SaleService {
 
         String tenantId = resolveTenantId(session, employee);
 
+        // Resolved once up front: item validation (stock check) and the FIFO deduction
+        // further down must agree on the same warehouse, or a "stock available" check
+        // can pass while the scoped deduction finds nothing and the sale rolls back.
+        String warehouseId = warehouseRepository.findByBranchId(session.getBranch().getId()).stream()
+                .findFirst()
+                .map(com.animasys.modules.inventory.domain.Warehouse::getId)
+                .orElse(StockService.DEFAULT_SALES_WAREHOUSE);
+
         Customer customer = null;
         if (customerId != null && !customerId.trim().isEmpty()) {
             customer = customerRepository.findByIdAndTenantId(customerId, tenantId)
@@ -126,7 +136,7 @@ public class SaleService {
                         .orElseThrow(() -> new ResourceNotFoundException("الصنف غير موجود: " + raw.getItemId()));
                 stockService.ensureMirrored(variant.getId());
                 int batchAvailable = resolveBatchAvailability(
-                        tenantId, variant, raw.getQuantity(), employeeId);
+                        tenantId, warehouseId, variant, raw.getQuantity(), employeeId);
                 if (batchAvailable < raw.getQuantity()) {
                     throw new BusinessRuleException(
                             "مخزون غير كافٍ للصنف '" + buildProductDisplayName(variant) + "'. المتاح: "
@@ -166,7 +176,7 @@ public class SaleService {
                 if (!isElevated) {
                     requireElevatedApproval(managerUsername, managerPassword,
                             "يلزم موافقة المدير لبيع '" + displayName + "' بأقل من "
-                                    + minAllowed + " (الحد الأدنى: خصم " + MAX_PRICE_DISCOUNT_PERCENT + "%).");
+                                    + minAllowed + " (الحد الأدنى: خصم " + MAX_PRICE_DISCOUNT_PERCENT + "%).", tenantId);
                 }
             }
 
@@ -208,21 +218,18 @@ public class SaleService {
 
         if (clientTotal != null
                 && clientTotal.subtract(total).abs().compareTo(new BigDecimal("2.00")) > 0) {
-            // Soft reject only when no loyalty and mismatch is severe (tampering)
-            if (loyaltyDiscount.compareTo(BigDecimal.ZERO) == 0) {
-                throw new BusinessRuleException(
-                        "إجمالي الفاتورة غير متطابق مع أسعار النظام. المتوقع: " + total + "، المُرسل: " + clientTotal);
-            }
+            throw new BusinessRuleException(
+                    "إجمالي الفاتورة غير متطابق مع أسعار النظام. المتوقع: " + total + "، المُرسل: " + clientTotal);
         }
 
         String payMethod = paymentMethod != null ? paymentMethod.toUpperCase(Locale.ROOT) : "CASH";
-        if (!Set.of("CASH", "CARD", "MOBILE").contains(payMethod)) {
+        if (!Set.of("CASH", "CARD", "MOBILE", "INSTAPAY", "VODAFONE_CASH").contains(payMethod)) {
             throw new BusinessRuleException("طريقة دفع غير مدعومة: " + paymentMethod);
         }
 
         Sale sale = Sale.builder()
                 .id(UUID.randomUUID().toString())
-                .saleNumber("INV-" + System.currentTimeMillis())
+                .saleNumber("INV-" + UUID.randomUUID().toString().toUpperCase())
                 .posSession(session)
                 .totalAmount(total)
                 .tax(tax)
@@ -247,7 +254,7 @@ public class SaleService {
         // Batch FIFO/FEFO allocation updates stock mirrors via InventoryStockSyncService
         for (SaleItem item : savedItems) {
             if ("PRODUCT".equalsIgnoreCase(item.getType())) {
-                fifoCostingService.allocateSaleItemFifo(tenantId, StockService.DEFAULT_SALES_WAREHOUSE, item, employeeId);
+                fifoCostingService.allocateSaleItemFifo(tenantId, warehouseId, item, employeeId);
             }
         }
 
@@ -370,9 +377,14 @@ public class SaleService {
             returnLineSubtotal = returnLineSubtotal.add(lineReturnSubtotal);
             productRevenue = productRevenue.add(lineReturnSubtotal);
 
+            String warehouseId = warehouseRepository.findByBranchId(sale.getPosSession().getBranch().getId()).stream()
+                    .findFirst()
+                    .map(com.animasys.modules.inventory.domain.Warehouse::getId)
+                    .orElse(StockService.DEFAULT_SALES_WAREHOUSE);
+
             BigDecimal cogsReversed = fifoCostingService.processCustomerReturn(
                     tenantId,
-                    StockService.DEFAULT_SALES_WAREHOUSE,
+                    warehouseId,
                     item.getId(),
                     qty,
                     employeeId);
@@ -504,8 +516,8 @@ public class SaleService {
      * Batch layers are source of truth. Reconcile mirrors so variant.stock matches batches (never inflate batches from stale variant qty).
      */
     private int resolveBatchAvailability(
-            String tenantId, ProductVariant variant, int quantityNeeded, String employeeId) {
-        int displayed = fifoCostingService.getAvailableBatchQuantity(tenantId, variant.getId());
+            String tenantId, String warehouseId, ProductVariant variant, int quantityNeeded, String employeeId) {
+        int displayed = fifoCostingService.getAvailableBatchQuantity(tenantId, warehouseId, variant.getId());
         if (displayed >= quantityNeeded) {
             return displayed;
         }
@@ -515,16 +527,21 @@ public class SaleService {
         } catch (Exception ignored) {
             // best-effort: batch layers are source of truth
         }
-        return fifoCostingService.getAvailableBatchQuantity(tenantId, variant.getId());
+        return fifoCostingService.getAvailableBatchQuantity(tenantId, warehouseId, variant.getId());
     }
 
-    private void requireElevatedApproval(String managerUsername, String managerPassword, String message) {
+    private void requireElevatedApproval(String managerUsername, String managerPassword, String message, String tenantId) {
         if (managerPassword == null || managerPassword.isBlank()) {
             throw new BusinessRuleException(message);
         }
-        String username = (managerUsername != null && !managerUsername.isBlank())
-                ? managerUsername
-                : "owner_marwan";
+        String username = managerUsername;
+        if (username == null || username.isBlank()) {
+            username = employeeRepository.findByTenantId(tenantId).stream()
+                    .filter(e -> "OWNER".equalsIgnoreCase(e.getRole()) || "MANAGER".equalsIgnoreCase(e.getRole()))
+                    .map(Employee::getUsername)
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessRuleException("لا يوجد مدير متاح في النظام لطلب الموافقة."));
+        }
         try {
             Authentication auth = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(username, managerPassword));

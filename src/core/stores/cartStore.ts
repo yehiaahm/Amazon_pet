@@ -20,7 +20,7 @@ interface CartState {
   /** Manual discount percent applied by cashier (0–MAX_POS_DISCOUNT_PERCENT). */
   discountPercent: number;
   loyaltyPercent: number;
-  paymentMethod: 'CASH' | 'CARD' | 'MOBILE';
+  paymentMethod: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH';
   /** Manager PIN captured when approving a below-minimum line price (cashier). */
   belowMinManagerPassword: string;
 
@@ -37,7 +37,7 @@ interface CartState {
   setCustomerId: (customerId: string) => void;
   setDiscountPercent: (percent: number) => void;
   setLoyaltyPercent: (loyaltyPercent: number) => void;
-  setPaymentMethod: (method: 'CASH' | 'CARD' | 'MOBILE') => void;
+  setPaymentMethod: (method: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH') => void;
   setBelowMinManagerPassword: (password: string) => void;
   clearCart: () => void;
   getUnapprovedBelowMinLines: () => SaleItem[];

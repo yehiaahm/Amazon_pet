@@ -23,7 +23,7 @@ import { LiveInsightEngine } from '../../core/ai/LiveInsightEngine';
 
 export const AIAdvisor: React.FC = () => {
   const { data: remoteInsights, isLoading: loadingInsights, isError: insightsError } = useAIInsights();
-  const { data: salesPage, isLoading: loadingSales } = useSales({ page: 0, size: 100, sort: 'date,desc' });
+  const { data: salesPage, isLoading: loadingSales } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
   const sales = salesPage?.content;
   const { data: expenses } = useExpenses();
   const { data: variants } = useVariants();

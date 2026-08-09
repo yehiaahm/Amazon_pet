@@ -4,6 +4,7 @@ import {
   useSales, useSale, useCustomers, useRefundSale, useVariants, useProducts, useServices, useEmployeesList
 } from '../../core/hooks/useERPData';
 import { useUIStore } from '../../core/stores/uiStore';
+import { useCartStore } from '../../core/stores/cartStore';
 import {
   saleRevenue,
   isCompletedSale,
@@ -30,6 +31,7 @@ import Modal from '../../components/ui/Modal';
 import {
   buildAmazonPetInvoiceHtml,
   printAmazonPetInvoice,
+  printThermalReceipt,
   saleToInvoiceData,
 } from '../../core/pos/amazonPetInvoice';
 import { usePermissions } from '../../core/permissions/usePermissions';
@@ -52,6 +54,7 @@ export const InvoiceReview: React.FC = () => {
   const { data: services } = useServices();
   const { mutate: triggerRefund, isPending: isRefunding } = useRefundSale();
   const addNotification = useUIStore(s => s.addNotification);
+  const setActiveModule = useUIStore(s => s.setActiveModule);
 
   // States
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
@@ -81,6 +84,9 @@ export const InvoiceReview: React.FC = () => {
   const [showManagerAuthModal, setShowManagerAuthModal] = useState(false);
   const [showRefundConfirmModal, setShowRefundConfirmModal] = useState(false);
   const [refundQuantities, setRefundQuantities] = useState<Record<string, number>>({});
+  // When true, the refund modal is being used as the "return" leg of an item exchange —
+  // on success we redirect to POS instead of just closing, so the cashier can ring up replacements.
+  const [exchangeMode, setExchangeMode] = useState(false);
 
   const localDateStr = (d: Date) => {
     const y = d.getFullYear();
@@ -107,7 +113,13 @@ export const InvoiceReview: React.FC = () => {
       size: pageSize,
       sort: `${sortField},${sortOrder}`,
     };
-    if (searchQuery.trim()) params.search = searchQuery.trim();
+    if (searchQuery.trim()) {
+      params.search = searchQuery.trim();
+    } else if (restrictedSalesScope) {
+      // Cashiers must enter an invoice number to view any invoice for returns
+      params.search = '___MUST_ENTER_INVOICE_NUMBER___';
+    }
+
     if (!restrictedSalesScope && filterCashier !== 'ALL') params.employee = filterCashier;
     if (filterPayMethod !== 'ALL') params.paymentMethod = filterPayMethod;
     if (filterStatus !== 'ALL') params.status = filterStatus;
@@ -359,72 +371,154 @@ export const InvoiceReview: React.FC = () => {
     return prod?.name || variant.name;
   };
 
-  const handleReprint = (_type: 'A4' | 'THERMAL') => {
-    if (!selectedSale) return;
+  const selectedInvoiceData = useMemo(() => {
+    if (!selectedSale) return null;
     const cust = customers?.find((c) => c.id === selectedSale.customerId);
     const cashier =
       selectedSale.employeeFullName ||
       currentEmployee.fullName ||
       'Cashier';
-    printAmazonPetInvoice(
-      saleToInvoiceData({
-        sale: selectedSale,
-        customerName: cust?.name || 'Walk-in Customer',
-        customerPhone: cust?.phone,
-        cashierName: cashier,
-        branchName: 'Hadaeq El Ahram',
-        resolveName: resolveInvoiceItemName,
-      })
-    );
+    return saleToInvoiceData({
+      sale: selectedSale,
+      customerName: cust?.name || 'Walk-in Customer',
+      customerPhone: cust?.phone,
+      cashierName: cashier,
+      branchName: 'Hadaeq El Ahram',
+      resolveName: resolveInvoiceItemName,
+    });
+  }, [selectedSale, customers, currentEmployee, variants, products, services]);
+
+  const handleReprint = (type: 'A4' | 'THERMAL') => {
+    if (!selectedSale || !selectedInvoiceData) return;
+
+    if (type === 'THERMAL') {
+      printThermalReceipt(selectedInvoiceData);
+    } else {
+      printAmazonPetInvoice(selectedInvoiceData);
+    }
+
     addNotification(
       'FINANCE',
-      'إعادة طباعة الفاتورة',
-      `تم إرسال أمر الطباعة للفاتورة ${selectedSale.saleNumber}.`
+      'طباعة الفاتورة',
+      `تم إرسال أمر طباعة (${type === 'THERMAL' ? 'إيصال حراري 80mm' : 'فاتورة A4'}) للفاتورة ${selectedSale.saleNumber}.`
     );
   };
 
   const selectedInvoiceHtml = useMemo(() => {
-    if (!selectedSale) return '';
-    const cust = customers?.find((c) => c.id === selectedSale.customerId);
-    const cashier =
-      selectedSale.employeeFullName ||
-      currentEmployee.fullName ||
-      'Cashier';
-    return buildAmazonPetInvoiceHtml(
-      saleToInvoiceData({
-        sale: selectedSale,
-        customerName: cust?.name || 'Walk-in Customer',
-        customerPhone: cust?.phone,
-        cashierName: cashier,
-        branchName: 'Hadaeq El Ahram',
-        resolveName: resolveInvoiceItemName,
-      })
-    );
-  }, [selectedSale, customers, currentEmployee, variants, products, services]);
+    if (!selectedInvoiceData) return '';
+    return buildAmazonPetInvoiceHtml(selectedInvoiceData);
+  }, [selectedInvoiceData]);
 
-  const handleDownloadPDF = () => {
-    addNotification('WARNINGS', 'غير متاح بعد', 'تصدير PDF غير متاح بعد.');
+  const handleDownloadPDF = async () => {
+    if (!selectedSale || !selectedInvoiceData) return;
+    const fileName = `Invoice-${selectedSale.saleNumber}.pdf`;
+    const electronAPI = (window as any).electronAPI;
+
+    if (electronAPI?.savePDF) {
+      try {
+        const result = await electronAPI.savePDF(selectedInvoiceHtml, fileName);
+        if (result?.success) {
+          addNotification(
+            'FINANCE',
+            'تنزيل الفاتورة PDF',
+            `تم حفظ الفاتورة ${selectedSale.saleNumber} كملف PDF على جهازك بنجاح.`
+          );
+        } else if (!result?.canceled) {
+          addNotification(
+            'WARNINGS',
+            'تعذر تنزيل PDF',
+            `حدث خطأ أثناء إنشاء ملف PDF: ${result?.error || 'خطأ غير معروف'}`
+          );
+        }
+      } catch (err) {
+        addNotification(
+          'WARNINGS',
+          'تعذر تنزيل PDF',
+          `حدث خطأ أثناء إنشاء ملف PDF: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`
+        );
+      }
+      return;
+    }
+
+    // Browser fallback (no Electron bridge, e.g. viewing the SPA directly in a browser):
+    // reuse the print pipeline and let the user pick "Save as PDF" from the printer list.
+    printAmazonPetInvoice(selectedInvoiceData);
+    addNotification(
+      'FINANCE',
+      'تنزيل PDF',
+      'افتح نافذة الطباعة واختر "حفظ كملف PDF" من قائمة الطابعات لتنزيل الفاتورة على جهازك.'
+    );
   };
 
   const handleShare = (type: 'WHATSAPP' | 'EMAIL') => {
     if (!selectedSale) return;
     setShareType(type);
-    const defaultVal = type === 'WHATSAPP' 
+    const defaultVal = type === 'WHATSAPP'
       ? (customers?.find(c => c.id === selectedSale.customerId)?.phone || '')
       : (customers?.find(c => c.id === selectedSale.customerId)?.email || '');
     setShareInput(defaultVal);
     setShowShareModal(true);
   };
 
+  /** Normalizes an Egyptian-style local or international number to WhatsApp's bare-digits format. */
+  const normalizeWhatsAppNumber = (raw: string): string | null => {
+    let digits = raw.replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.startsWith('00')) digits = digits.slice(2);
+    if (digits.startsWith('0')) digits = `20${digits.slice(1)}`;
+    if (digits.length < 10) return null;
+    return digits;
+  };
+
+  const buildWhatsAppMessage = () => {
+    if (!selectedSale) return '';
+    const cust = customers?.find((c) => c.id === selectedSale.customerId);
+    const itemLines = (selectedSale.items || [])
+      .map((i) => `• ${resolveInvoiceItemName(i) || i.name || 'صنف'} × ${i.quantity} = ${formatMoney(i.price * i.quantity)}`)
+      .join('\n');
+    return [
+      `فاتورة أمازون بت رقم ${selectedSale.saleNumber}`,
+      cust?.name ? `العميل: ${cust.name}` : null,
+      `التاريخ: ${new Date(selectedSale.date).toLocaleString('ar-EG')}`,
+      '——————————',
+      itemLines,
+      '——————————',
+      `الإجمالي: ${formatMoney(saleRevenue(selectedSale) || selectedSale.totalAmount)}`,
+      '',
+      'شكراً لتعاملكم مع أمازون بت 🐾',
+    ]
+      .filter((line) => line !== null)
+      .join('\n');
+  };
+
   const handleConfirmShare = () => {
-    addNotification('WARNINGS', 'غير متاح بعد', shareType === 'WHATSAPP'
-      ? 'إرسال واتساب غير متاح بعد.'
-      : 'إرسال البريد الإلكتروني غير متاح بعد.');
+    if (!selectedSale) return;
+
+    if (shareType === 'WHATSAPP') {
+      const number = normalizeWhatsAppNumber(shareInput);
+      if (!number) {
+        addNotification('WARNINGS', 'رقم واتساب غير صالح', 'يرجى إدخال رقم هاتف صحيح لإرسال الفاتورة عبر واتساب.');
+        return;
+      }
+      const url = `https://wa.me/${number}?text=${encodeURIComponent(buildWhatsAppMessage())}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      addNotification(
+        'FINANCE',
+        'مشاركة عبر واتساب',
+        `تم فتح واتساب لإرسال الفاتورة ${selectedSale.saleNumber} إلى ${shareInput}.`
+      );
+      setShowShareModal(false);
+      return;
+    }
+
+    // Email delivery has no backend mail sender wired up yet.
+    addNotification('WARNINGS', 'غير متاح بعد', 'إرسال البريد الإلكتروني غير متاح بعد.');
     setShowShareModal(false);
   };
 
   const handleRefundClick = () => {
     if (!selectedSale || isFullyRefundedSale(selectedSale) || isRefunding) return;
+    setExchangeMode(false);
 
     if (needsManagerApprovalForRefund(hasPermission)) {
       setManagerCode('');
@@ -474,6 +568,20 @@ export const InvoiceReview: React.FC = () => {
           if (filterStatus === 'COMPLETED') {
             setFilterStatus('ALL');
           }
+          if (exchangeMode) {
+            setExchangeMode(false);
+            const { clearCart, setCustomerId: setCartCustomerId } = useCartStore.getState();
+            clearCart();
+            if (selectedSale.customerId) {
+              setCartCustomerId(selectedSale.customerId);
+            }
+            setActiveModule('pos');
+            addNotification(
+              'FINANCE',
+              'استبدال السلع',
+              `تم إرجاع الأصناف المحددة من الفاتورة ${selectedSale.saleNumber}. أضف الأصناف البديلة الآن في نقطة البيع لإتمام الاستبدال.`
+            );
+          }
         },
         onError: (err: Error) => {
           const msg = err.message || '';
@@ -497,11 +605,76 @@ export const InvoiceReview: React.FC = () => {
   };
 
   const handleDuplicate = () => {
-    addNotification('WARNINGS', 'غير متاح بعد', 'نسخ الفاتورة غير متاح بعد.');
+    if (!selectedSale) return;
+    if (!hasPermission(PERMISSIONS.SALES_CREATE)) {
+      addNotification('WARNINGS', 'صلاحية مطلوبة', 'ليس لديك صلاحية إنشاء عملية بيع جديدة لنسخ هذه الفاتورة.');
+      return;
+    }
+
+    const { clearCart, addItem: addCartItem, updateQuantity: updateCartQuantity, setCustomerId: setCartCustomerId } = useCartStore.getState();
+    clearCart();
+
+    let copied = 0;
+    let skipped = 0;
+    (selectedSale.items || []).forEach((item) => {
+      if (item.type === 'SERVICE') {
+        const svc = services?.find((s) => s.id === item.itemId);
+        if (!svc) { skipped++; return; }
+        addCartItem({ type: 'SERVICE', itemId: svc.id, name: svc.name, price: svc.price, listPrice: svc.price, cost: 0 });
+        updateCartQuantity(svc.id, 'SERVICE', item.quantity);
+        copied++;
+        return;
+      }
+      const variant = variants?.find((v) => v.id === item.itemId);
+      if (!variant || variant.stockQuantity <= 0) { skipped++; return; }
+      addCartItem({
+        type: 'PRODUCT',
+        itemId: variant.id,
+        name: resolveInvoiceItemName(item) || item.name,
+        price: variant.price,
+        listPrice: variant.price,
+        cost: variant.cost,
+        stockQuantity: variant.stockQuantity,
+        maxStock: variant.stockQuantity,
+      });
+      updateCartQuantity(variant.id, 'PRODUCT', item.quantity);
+      copied++;
+    });
+
+    if (selectedSale.customerId) {
+      setCartCustomerId(selectedSale.customerId);
+    }
+
+    setActiveModule('pos');
+    addNotification(
+      'FINANCE',
+      'نسخ الفاتورة',
+      copied === 0
+        ? `تعذر نسخ أصناف الفاتورة ${selectedSale.saleNumber}: كل الأصناف لم تعد متاحة في الكتالوج.`
+        : skipped > 0
+          ? `تم نسخ ${copied} من أصناف الفاتورة ${selectedSale.saleNumber} إلى سلة بيع جديدة. تعذر نسخ ${skipped} صنف (غير متاح أو نفد مخزونه).`
+          : `تم نسخ جميع أصناف الفاتورة ${selectedSale.saleNumber} إلى سلة بيع جديدة في نقطة البيع.`
+    );
   };
 
   const handleExchange = () => {
-    addNotification('WARNINGS', 'غير متاح بعد', 'استبدال السلع غير متاح بعد.');
+    if (!selectedSale || isRefunding) return;
+    if (!canRefundSales) {
+      addNotification('WARNINGS', 'صلاحية مطلوبة', 'ليس لديك صلاحية استرجاع الأصناف اللازمة لعملية الاستبدال.');
+      return;
+    }
+    if (isFullyRefundedSale(selectedSale)) {
+      addNotification('WARNINGS', 'استبدال السلع', `الفاتورة ${selectedSale.saleNumber} مرتجعة بالكامل ولا يمكن استبدال أصناف منها.`);
+      return;
+    }
+
+    setExchangeMode(true);
+    if (needsManagerApprovalForRefund(hasPermission)) {
+      setManagerCode('');
+      setShowManagerAuthModal(true);
+      return;
+    }
+    setShowRefundConfirmModal(true);
   };
 
   return (
@@ -596,13 +769,19 @@ export const InvoiceReview: React.FC = () => {
           <div style={{ position: 'relative' }}>
             <Search 
               size={16} 
-              style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} 
+              style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: restrictedSalesScope ? 'var(--color-primary)' : 'var(--color-text-secondary)' }} 
             />
             <input
-              placeholder="ابحث برقم الفاتورة، اسم العميل، هاتفه، صنف، باركود..."
+              placeholder={restrictedSalesScope ? "أدخل أو امسح رقم الفاتورة لإتاحة المرتجع (مثال: #INV-2026...)... *" : "ابحث برقم الفاتورة، اسم العميل، هاتفه، صنف، باركود..."}
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              style={{ width: '100%', paddingRight: '32px' }}
+              style={{ 
+                width: '100%', 
+                paddingRight: '32px',
+                border: restrictedSalesScope ? '1.5px solid var(--color-primary)' : '1px solid var(--color-border)',
+                backgroundColor: restrictedSalesScope ? 'var(--color-primary-light, rgba(59,130,246,0.05))' : 'inherit'
+              }}
+              autoFocus={restrictedSalesScope}
             />
           </div>
 
@@ -727,6 +906,20 @@ export const InvoiceReview: React.FC = () => {
                       <div className="skeleton" style={{ height: '30px', margin: '8px 0' }} />
                       <div className="skeleton" style={{ height: '30px', margin: '8px 0' }} />
                       <div className="skeleton" style={{ height: '30px', margin: '8px 0' }} />
+                    </td>
+                  </tr>
+                ) : (restrictedSalesScope && !searchQuery.trim()) ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: 'var(--spacing-8)', color: 'var(--color-text-secondary)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: '420px', margin: '0 auto' }}>
+                        <Search size={44} color="var(--color-primary)" style={{ opacity: 0.8 }} />
+                        <strong style={{ fontSize: 'var(--font-size-md)', color: 'var(--color-text-primary)' }}>
+                          يرجى أدخل أو امسح رقم الفاتورة للبدء في المرتجع
+                        </strong>
+                        <span style={{ fontSize: 'var(--font-size-xs)', lineHeight: '1.5', color: 'var(--color-text-secondary)' }}>
+                          لأسباب الأمان والسرية، لا تظهر الفواتير للكاشير بشكل مفتوح. اكتب أو امسح رقم الفاتورة الخاص بالعميل في حقل البحث أعلاه لإظهار بيانات الفاتورة وإتمام الاسترجاع.
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ) : paginatedSales.length === 0 ? (
@@ -899,9 +1092,11 @@ export const InvoiceReview: React.FC = () => {
 
               {/* Extra operations in dropdown-like bar */}
               <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', justifyContent: 'center' }}>
-                <button onClick={handleExchange} className="btn-ghost" style={{ padding: '2px 8px', fontSize: '9px', border: '1px solid var(--color-border)' }}>
-                  <ArrowLeftRight size={10} /> استبدال سلع
-                </button>
+                {canRefundSales && (
+                  <button onClick={handleExchange} disabled={isFullyRefundedSale(selectedSale) || isRefunding} className="btn-ghost" style={{ padding: '2px 8px', fontSize: '9px', border: '1px solid var(--color-border)', opacity: isFullyRefundedSale(selectedSale) || isRefunding ? 0.6 : 1 }}>
+                    <ArrowLeftRight size={10} /> استبدال سلع
+                  </button>
+                )}
                 <button onClick={handleDuplicate} className="btn-ghost" style={{ padding: '2px 8px', fontSize: '9px', border: '1px solid var(--color-border)' }}>
                   <Sparkles size={10} /> نسخ الفاتورة
                 </button>
@@ -1016,25 +1211,27 @@ export const InvoiceReview: React.FC = () => {
         </div>
       </Modal>
 
-      {/* REFUND CONFIRMATION MODAL (replaces window.confirm — unreliable in Electron) */}
+      {/* REFUND CONFIRMATION MODAL (replaces window.confirm — unreliable in Electron); doubles as the "return" leg of an item exchange */}
       <Modal
         isOpen={showRefundConfirmModal}
-        onClose={() => !isRefunding && setShowRefundConfirmModal(false)}
-        title="تأكيد إرجاع الفاتورة"
+        onClose={() => { if (!isRefunding) { setShowRefundConfirmModal(false); setExchangeMode(false); } }}
+        title={exchangeMode ? 'استبدال السلع — اختر الأصناف المرتجعة' : 'تأكيد إرجاع الفاتورة'}
         footer={
           <div style={{ display: 'flex', gap: '8px' }}>
-            <Button onClick={() => setShowRefundConfirmModal(false)} variant="secondary" disabled={isRefunding}>
+            <Button onClick={() => { setShowRefundConfirmModal(false); setExchangeMode(false); }} variant="secondary" disabled={isRefunding}>
               إلغاء
             </Button>
             <Button onClick={executeRefund} variant="danger" disabled={isRefunding}>
-              {isRefunding ? 'جارٍ الإرجاع...' : 'تأكيد الإرجاع'}
+              {isRefunding ? 'جارٍ الإرجاع...' : exchangeMode ? 'تأكيد الإرجاع والمتابعة لنقطة البيع' : 'تأكيد الإرجاع'}
             </Button>
           </div>
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', fontSize: 'var(--font-size-sm)', direction: 'rtl' }}>
           <p>
-            اختر الكميات المراد إرجاعها للفاتورة <strong>{selectedSale?.saleNumber}</strong>
+            {exchangeMode
+              ? <>اختر كميات الأصناف المراد إرجاعها من الفاتورة <strong>{selectedSale?.saleNumber}</strong>، وبعد تأكيد الإرجاع ستنتقل تلقائياً إلى نقطة البيع لإضافة الأصناف البديلة.</>
+              : <>اختر الكميات المراد إرجاعها للفاتورة <strong>{selectedSale?.saleNumber}</strong></>}
           </p>
           {selectedSale?.items?.filter((i) => i.type === 'PRODUCT').map((item) => {
             const maxQ = saleLineReturnableQuantity(item);

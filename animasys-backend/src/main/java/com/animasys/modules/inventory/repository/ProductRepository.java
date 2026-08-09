@@ -20,4 +20,12 @@ public interface ProductRepository extends JpaRepository<Product, String> {
 
     @Query("SELECT p.tenant.id FROM Product p WHERE p.id = :id")
     String findTenantIdByProductId(@Param("id") String id);
+
+    /**
+     * Deliberately not tenant-scoped: SKU uniqueness is only guaranteed per-tenant by the
+     * schema, but generated codes must never collide with any tenant's, so the sequence
+     * this backs is computed against every tenant's SKUs, not just the current one.
+     */
+    @Query("SELECT p.sku FROM Product p WHERE p.sku LIKE CONCAT(:prefix, '%')")
+    List<String> findSkusByPrefix(@Param("prefix") String prefix);
 }

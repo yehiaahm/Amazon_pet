@@ -364,12 +364,27 @@ public class InventoryController {
     @PreAuthorize("@authz.has('products.print_barcode')")
     public ResponseEntity<ApiResponseWrapper<Map<String, Object>>> generateBarcode(
             @PathVariable String id,
-            @RequestParam(required = false, defaultValue = "CODE_128") String format
+            @RequestParam(required = false, defaultValue = "CODE_128") String format,
+            @RequestParam(required = false, defaultValue = "false") boolean force
     ) {
         String tenantId = SecurityUtils.requireTenantId();
         Employee employee = SecurityUtils.requireEmployee();
-        Map<String, Object> result = productService.generateBarcodeForVariant(tenantId, id, format, employee);
+        Map<String, Object> result = productService.generateBarcodeForVariant(tenantId, id, format, force, employee);
         return ResponseEntity.ok(ApiResponseWrapper.success(result, "تم توليد الباركود بنجاح"));
+    }
+
+    @PutMapping("/variants/{id}/barcode/custom")
+    @PreAuthorize("@authz.has('products.print_barcode')")
+    public ResponseEntity<ApiResponseWrapper<Map<String, Object>>> updateCustomBarcode(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body
+    ) {
+        String tenantId = SecurityUtils.requireTenantId();
+        Employee employee = SecurityUtils.requireEmployee();
+        String barcode = body.get("barcode");
+        String format = body.getOrDefault("format", "CODE_128");
+        Map<String, Object> result = productService.updateCustomBarcode(tenantId, id, barcode, format, employee);
+        return ResponseEntity.ok(ApiResponseWrapper.success(result, "تم تحديث الباركود المخصص بنجاح"));
     }
 
     @DeleteMapping("/variants/{id}/barcode")

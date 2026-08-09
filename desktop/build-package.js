@@ -48,6 +48,22 @@ function buildAll() {
     copySync(jarSrc, jarDest);
     console.log(`Success! Executable JAR placed at: ${jarDest}`);
 
+    // 4. Bake the licensing HMAC secret into this build. Required — without
+    // it the packaged app refuses every activation key (see main.js
+    // verifyLicenseKey). Never commit a real secret to source control;
+    // desktop/bin/ is gitignored.
+    const licenseSecret = process.env.LICENSE_SECRET;
+    if (!licenseSecret) {
+      throw new Error(
+        'LICENSE_SECRET environment variable is not set. Set it to a long, ' +
+        'random, private value before building (e.g. LICENSE_SECRET=... npm run build-app), ' +
+        'and keep the same value for desktop/keygen.js when issuing activation keys for this build.'
+      );
+    }
+    const secretDest = path.join(DESKTOP_BIN, 'license.secret');
+    fs.writeFileSync(secretDest, licenseSecret, { encoding: 'utf8' });
+    console.log(`License secret written to: ${secretDest}`);
+
     console.log('\n======================================================');
     console.log('Build completed successfully.');
     console.log('Next: npm run get-deps  (if JRE/MySQL missing)');

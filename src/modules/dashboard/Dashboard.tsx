@@ -140,7 +140,7 @@ export const Dashboard: React.FC = () => {
 
   const { data: kpis, isLoading: loadingKpis } = useKPIMetrics();
   const { data: dashboard, isLoading: loadingDashboard } = useDashboardMetrics();
-  const { data: salesPage, isLoading: loadingSales } = useSales({ page: 0, size: 100, sort: 'date,desc' });
+  const { data: salesPage, isLoading: loadingSales } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
   const sales = salesPage?.content;
   const { data: appointments } = useAppointments();
   const { data: expenses } = useExpenses();
@@ -281,6 +281,12 @@ export const Dashboard: React.FC = () => {
     () => expiringBatches(batches, variants, products, 90),
     [batches, variants, products]
   );
+
+  const uniqueCategoryCount = React.useMemo(() => {
+    if (!products) return 0;
+    const catSet = new Set(products.map((p) => p.categoryId).filter(Boolean));
+    return catSet.size;
+  }, [products]);
 
   const isLoadingExecutiveFinancial = loadingDashboard || loadingKpis;
 
@@ -675,7 +681,7 @@ export const Dashboard: React.FC = () => {
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--spacing-4)' }}>
-          <StatCard title="المنتجات المسجلة" value={products?.length || 0} description="تصنيفات السلع المختلفة" icon={<Package size={18} />} />
+          <StatCard title="المنتجات المسجلة" value={products?.length || 0} description={`عدد الأقسام والتصنيفات: ${uniqueCategoryCount || '—'}`} icon={<Package size={18} />} />
           <StatCard title="الأصناف المسجلة" value={variants?.length || 0} description="الأوزان والأحجام المسجلة" icon={<Package size={18} />} />
           <StatCard title="قيمة المخزون" value={formatMoney(d?.inventoryValue ?? kpis?.inventoryValue ?? 0)} description="تقييم FIFO" icon={<DollarSign size={18} />} />
           <StatCard title="المنتجات الراكدة" value={kpis?.deadStockCount || 0} description="لم تباع منذ 30 يوماً" icon={<AlertTriangle size={18} />} />

@@ -21,6 +21,7 @@ import Reports from './modules/reports/Reports';
 import Employees from './modules/employees/Employees';
 import RolesPermissions from './modules/roles/RolesPermissions';
 import { usePermissions } from './core/permissions/usePermissions';
+import { useMyPermissions } from './core/hooks/useERPData';
 import AccessDenied from './components/ui/AccessDenied';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
@@ -34,6 +35,7 @@ export const App: React.FC = () => {
   const isAuthenticated = useUIStore(s => s.isAuthenticated);
   const theme = useUIStore(s => s.theme);
   const { canAccessModule, resolveDefaultModule } = usePermissions();
+  useMyPermissions();
 
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

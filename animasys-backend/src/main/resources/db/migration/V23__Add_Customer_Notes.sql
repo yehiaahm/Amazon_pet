@@ -1,6 +1,7 @@
 -- V23: Add internal notes column to customers table
 -- Private staff remarks shown at POS when the customer is selected.
 
+/*!
 SET @col_notes := (
     SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
@@ -15,3 +16,4 @@ SET @sql_notes := IF(
 PREPARE stmt_notes FROM @sql_notes;
 EXECUTE stmt_notes;
 DEALLOCATE PREPARE stmt_notes;
+*/

@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { spawn, spawnSync, execSync, exec } = require('child_process');
 const crypto = require('crypto');
 const net = require('net');
@@ -277,7 +278,7 @@ async function startBackend() {
     ...process.env,
     JWT_SECRET: appConfig.jwtSecret,
     SEED_DEMO_DATA: 'true',
-    SYNC_DEFAULT_PINS: 'true'
+    SYNC_DEFAULT_PINS: 'false'
   };
 
   javaProcess = spawn(IS_PROD ? JAVA_EXE : 'java', javaArgs, {
@@ -431,14 +432,30 @@ function getMachineUUID() {
   }
 }
 
-function generateLicenseKey(uuid) {
-  const secret = process.env.LICENSE_SECRET || 'ANIMA-ERP-SECRET-2026';
+function loadLicenseSecret() {
+  const secretPath = path.join(BIN_DIR, 'license.secret');
+  try {
+    const value = fs.readFileSync(secretPath, 'utf8').trim();
+    return value || null;
+  } catch (e) {
+    logElectron(`License secret file missing or unreadable at ${secretPath}: ${e.message}`);
+    return null;
+  }
+}
+
+function generateLicenseKey(uuid, secret) {
   return crypto.createHmac('sha256', secret).update(uuid).digest('hex').substring(0, 16).toUpperCase();
 }
 
 function verifyLicenseKey(key) {
+  const secret = loadLicenseSecret();
+  if (!secret) {
+    // No secret baked into this build: refuse every key rather than
+    // falling back to a guessable, source-visible default.
+    return false;
+  }
   const uuid = getMachineUUID();
-  const validKey = generateLicenseKey(uuid);
+  const validKey = generateLicenseKey(uuid, secret);
   return key === validKey;
 }
 
@@ -487,6 +504,15 @@ function createMainWindow() {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     logElectron(`[ERROR] Main window failed to load: ${errorCode} ${errorDescription}`);
     showCrashReport(`Failed to load application UI: ${errorDescription}`);
+  });
+
+  // Links opened via window.open() (e.g. wa.me share links) go to the user's
+  // default browser instead of spawning an unmanaged Electron window.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
   });
 
   mainWindow.once('ready-to-show', () => {
@@ -583,6 +609,44 @@ ipcMain.handle('get-license-status', () => {
     registered: appConfig.registered,
     uuid: getMachineUUID()
   };
+});
+ipcMain.handle('save-invoice-pdf', async (event, { html, fileName }) => {
+  if (!mainWindow) return { success: false, error: 'no-window' };
+
+  const tmpPath = path.join(os.tmpdir(), `amazonpet-invoice-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.html`);
+  let pdfWindow = null;
+  try {
+    fs.writeFileSync(tmpPath, String(html || ''), 'utf8');
+
+    pdfWindow = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+    await pdfWindow.loadFile(tmpPath);
+
+    const pdfBuffer = await pdfWindow.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: { marginType: 'none' },
+    });
+
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'حفظ الفاتورة كملف PDF',
+      defaultPath: fileName || 'invoice.pdf',
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, canceled: true };
+    }
+
+    fs.writeFileSync(filePath, pdfBuffer);
+    logElectron(`Invoice PDF exported: ${filePath}`);
+    return { success: true, filePath };
+  } catch (err) {
+    logElectron(`[ERROR] Failed to export invoice PDF: ${err.message}`);
+    return { success: false, error: err.message };
+  } finally {
+    if (pdfWindow && !pdfWindow.isDestroyed()) pdfWindow.destroy();
+    try { fs.unlinkSync(tmpPath); } catch (_) { /* best-effort cleanup */ }
+  }
 });
 ipcMain.handle('verify-license', (event, key) => {
   const isValid = verifyLicenseKey(key);

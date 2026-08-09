@@ -3,7 +3,9 @@ package com.animasys.modules.auth;
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
 import com.animasys.core.security.JwtTokenProvider;
+import com.animasys.core.security.LoginRateLimiter;
 import com.animasys.core.security.UserPrincipal;
+import jakarta.servlet.http.HttpServletRequest;
 import com.animasys.modules.finance.domain.BankAccount;
 import com.animasys.modules.finance.repository.BankAccountRepository;
 import com.animasys.modules.iam.domain.Branch;
@@ -18,6 +20,7 @@ import com.animasys.modules.inventory.domain.Warehouse;
 import com.animasys.modules.inventory.repository.WarehouseRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -41,20 +44,41 @@ public class AuthController {
     private final EmployeeRepository employeeRepository;
     private final PasswordEncoder passwordEncoder;
     private final TenantRepository tenantRepository;
+
+    /**
+     * Only trust X-Forwarded-For when this deployment actually sits behind a
+     * reverse proxy that sets it. Left off by default: with no proxy, an
+     * unauthenticated caller could set this header themselves and spoof a
+     * different rate-limit bucket per request, defeating login throttling.
+     */
+    @Value("${app.security.trust-proxy-headers:false}")
+    private boolean trustProxyHeaders;
     private final BranchRepository branchRepository;
     private final WarehouseRepository warehouseRepository;
     private final BankAccountRepository bankAccountRepository;
     private final PermissionResolverService permissionResolverService;
     private final RoleBootstrapService roleBootstrapService;
+    private final LoginRateLimiter loginRateLimiter;
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponseWrapper<JwtResponse>> authenticateEmployee(@Valid @RequestBody LoginRequest loginRequest) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        loginRequest.getUsername(),
-                        loginRequest.getPassword()
-                )
-        );
+    public ResponseEntity<ApiResponseWrapper<JwtResponse>> authenticateEmployee(
+            @Valid @RequestBody LoginRequest loginRequest, HttpServletRequest httpRequest) {
+        String rateLimitKey = clientKey(httpRequest);
+        loginRateLimiter.checkAllowed(rateLimitKey);
+
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            loginRequest.getUsername(),
+                            loginRequest.getPassword()
+                    )
+            );
+        } catch (org.springframework.security.core.AuthenticationException ex) {
+            loginRateLimiter.recordFailure(rateLimitKey);
+            throw ex;
+        }
+        loginRateLimiter.recordSuccess(rateLimitKey);
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String jwt = tokenProvider.generateToken(authentication);
@@ -67,7 +91,11 @@ public class AuthController {
     }
 
     @PostMapping("/pin-login")
-    public ResponseEntity<ApiResponseWrapper<JwtResponse>> pinLogin(@Valid @RequestBody PinLoginRequest pinRequest) {
+    public ResponseEntity<ApiResponseWrapper<JwtResponse>> pinLogin(
+            @Valid @RequestBody PinLoginRequest pinRequest, HttpServletRequest httpRequest) {
+        String rateLimitKey = clientKey(httpRequest);
+        loginRateLimiter.checkAllowed(rateLimitKey);
+
         String tenantId = resolvePinLoginTenantId(pinRequest);
         List<Employee> employees = employeeRepository.findByTenantId(tenantId);
         Employee matched = null;
@@ -81,13 +109,22 @@ public class AuthController {
             }
         }
         if (matched == null) {
+            loginRateLimiter.recordFailure(rateLimitKey);
             throw new BusinessRuleException("رمز الدخول السري غير صحيح!");
         }
         String matchedUsername = matched.getUsername();
 
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(matchedUsername, pinRequest.getPin())
-        );
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(matchedUsername, pinRequest.getPin())
+            );
+        } catch (org.springframework.security.core.AuthenticationException ex) {
+            loginRateLimiter.recordFailure(rateLimitKey);
+            throw ex;
+        }
+        loginRateLimiter.recordSuccess(rateLimitKey);
+
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String jwt = tokenProvider.generateToken(authentication);
 
@@ -96,6 +133,23 @@ public class AuthController {
         JwtResponse jwtResponse = buildJwtResponse(jwt, employee);
 
         return ResponseEntity.ok(ApiResponseWrapper.success(jwtResponse, "PIN authentication successful"));
+    }
+
+    /**
+     * Rate-limit key: client IP. Defaults to the raw socket address, which is
+     * only spoofable by controlling the TCP connection itself. If this
+     * deployment runs behind a trusted reverse proxy, set
+     * APP_SECURITY_TRUST_PROXY_HEADERS=true so the real client IP (first hop
+     * in X-Forwarded-For) is used instead of the proxy's own address.
+     */
+    private String clientKey(HttpServletRequest request) {
+        if (trustProxyHeaders) {
+            String forwardedFor = request.getHeader("X-Forwarded-For");
+            if (forwardedFor != null && !forwardedFor.isBlank()) {
+                return forwardedFor.split(",")[0].trim();
+            }
+        }
+        return request.getRemoteAddr();
     }
 
     // ─── FIRST-RUN SETUP ─────────────────────────────────────────────────────────

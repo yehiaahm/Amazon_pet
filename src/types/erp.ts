@@ -168,6 +168,11 @@ export interface DailyClosing {
   difference: number;
   closedById: string;
   date: string;
+  cashSalesTotal?: number;
+  cardSalesTotal?: number;
+  instapaySalesTotal?: number;
+  vodafoneSalesTotal?: number;
+  totalSales?: number;
 }
 
 export interface POSSession {
@@ -209,7 +214,7 @@ export interface Sale {
   totalAmount: number;
   tax: number;
   discount: number;
-  paymentMethod: 'CASH' | 'CARD' | 'MOBILE';
+  paymentMethod: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH';
   employeeId: string;
   employeeFullName?: string;
   customerId?: string;
@@ -318,33 +323,6 @@ export interface AIAdvisorInsight {
   criticalAlerts: { title: string; description: string; severity: 'CRITICAL' | 'WARNING' }[];
   recommendations: { title: string; action: string; impact: string }[];
   forecastText: string;
-}
-
-export interface ImportSession {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  fileHash: string;
-  status: 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'UNDONE';
-  uploadedBy: string; // employeeId or employeeName in mock
-  uploadedAt: string;
-  duplicateStrategy: 'SKIP' | 'UPDATE' | 'REPLACE';
-  targetType: 'PRODUCTS' | 'CUSTOMERS' | 'SUPPLIERS';
-  totalRows: number;
-  successRows: number;
-  warningRows: number;
-  errorRows: number;
-  lastProcessedRow: number;
-  completedAt?: string;
-}
-
-export interface ImportSessionItem {
-  id: string;
-  sessionId: string;
-  rowNumber: number;
-  status: 'SUCCESS' | 'WARNING' | 'ERROR';
-  errorMessage?: string;
-  affectedEntityId?: string;
 }
 
 export interface PurchaseInvoice {

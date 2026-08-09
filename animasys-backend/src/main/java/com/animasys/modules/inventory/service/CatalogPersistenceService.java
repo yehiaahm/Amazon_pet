@@ -23,9 +23,12 @@ public class CatalogPersistenceService {
     public ProductVariant saveVariant(ProductVariant variant) {
         if (variant.getProduct() != null && variant.getProduct().getId() != null) {
             String productId = variant.getProduct().getId();
-            Product product = productRepository.findById(productId).orElseThrow();
+            Product product = productRepository.findById(productId).orElse(variant.getProduct());
             variant.setProduct(product);
-            variant.setTenantId(productRepository.findTenantIdByProductId(productId));
+            String tId = (product.getTenant() != null && product.getTenant().getId() != null)
+                    ? product.getTenant().getId()
+                    : productRepository.findTenantIdByProductId(productId);
+            variant.setTenantId(tId);
             variant.setSku(product.getSku());
         }
         return variantRepository.saveAndFlush(variant);

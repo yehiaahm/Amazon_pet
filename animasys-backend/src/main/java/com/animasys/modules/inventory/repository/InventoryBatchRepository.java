@@ -23,6 +23,7 @@ public interface InventoryBatchRepository extends JpaRepository<InventoryBatch, 
     @Query("""
         SELECT b FROM InventoryBatch b 
         WHERE b.tenantId = :tenantId 
+          AND b.warehouse.id = :warehouseId
           AND b.productVariant.id = :productVariantId 
           AND b.remainingQuantity > 0 
           AND b.status = 'ACTIVE' 
@@ -30,6 +31,7 @@ public interface InventoryBatchRepository extends JpaRepository<InventoryBatch, 
     """)
     List<InventoryBatch> findActiveBatchesForUpdate(
         @Param("tenantId") String tenantId,
+        @Param("warehouseId") String warehouseId,
         @Param("productVariantId") String productVariantId
     );
 
@@ -37,6 +39,7 @@ public interface InventoryBatchRepository extends JpaRepository<InventoryBatch, 
     @Query("""
         SELECT b FROM InventoryBatch b 
         WHERE b.tenantId = :tenantId 
+          AND b.warehouse.id = :warehouseId
           AND b.productVariant.id = :productVariantId 
           AND b.remainingQuantity > 0 
           AND b.status = 'ACTIVE' 
@@ -44,6 +47,7 @@ public interface InventoryBatchRepository extends JpaRepository<InventoryBatch, 
     """)
     List<InventoryBatch> findActiveBatchesForUpdateFefo(
         @Param("tenantId") String tenantId,
+        @Param("warehouseId") String warehouseId,
         @Param("productVariantId") String productVariantId
     );
 
@@ -57,6 +61,22 @@ public interface InventoryBatchRepository extends JpaRepository<InventoryBatch, 
     """)
     int sumRemainingQuantityByTenantAndVariantAndStatus(
         @Param("tenantId") String tenantId,
+        @Param("productVariantId") String productVariantId,
+        @Param("status") InventoryBatch.BatchStatus status
+    );
+
+    @Query("""
+        SELECT COALESCE(SUM(b.remainingQuantity), 0) 
+        FROM InventoryBatch b 
+        WHERE b.tenantId = :tenantId 
+          AND b.warehouse.id = :warehouseId
+          AND b.productVariant.id = :productVariantId 
+          AND b.status = :status 
+          AND b.remainingQuantity > 0
+    """)
+    int sumRemainingQuantityByTenantAndWarehouseAndVariantAndStatus(
+        @Param("tenantId") String tenantId,
+        @Param("warehouseId") String warehouseId,
         @Param("productVariantId") String productVariantId,
         @Param("status") InventoryBatch.BatchStatus status
     );

@@ -18,7 +18,12 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: 1,
+      retry: (failureCount, error) => {
+        if (error instanceof Error && (error.message.includes('403') || error.message.includes('401') || error.message.includes('HTTP 403') || error.message.includes('HTTP 401'))) {
+          return false;
+        }
+        return failureCount < 1;
+      },
       staleTime: 30_000,
       gcTime: 5 * 60_000,
     },

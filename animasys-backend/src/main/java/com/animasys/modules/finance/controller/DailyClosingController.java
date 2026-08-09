@@ -25,26 +25,29 @@ public class DailyClosingController {
     @GetMapping
     @PreAuthorize("@authz.has('finance.view_reports')")
     public ResponseEntity<ApiResponseWrapper<List<DailyClosing>>> getDailyClosings(
-            @RequestParam(defaultValue = "b-1") String branchId) {
+            @RequestParam(required = false) String branchId) {
         String tenantId = SecurityUtils.requireTenantId();
-        branchRepository.findById(branchId)
-                .filter(branch -> branch.getTenant() != null && tenantId.equals(branch.getTenant().getId()))
-                .orElseThrow(() -> new BusinessRuleException("الفرع غير موجود"));
-        List<DailyClosing> list = dailyClosingService.getByBranch(branchId);
+        String effectiveBranchId = (branchId != null && !branchId.isBlank())
+                ? branchId
+                : SecurityUtils.requireBranchId();
+        List<DailyClosing> list = dailyClosingService.getByBranch(tenantId, effectiveBranchId);
         return ResponseEntity.ok(ApiResponseWrapper.success(list, "تم استرجاع قائمة إغلاقات الصندوق بنجاح"));
     }
 
     @PostMapping
     @PreAuthorize("@authz.has('finance.view_reports')")
     public ResponseEntity<ApiResponseWrapper<DailyClosing>> createDailyClosing(
-            @RequestParam(defaultValue = "b-1") String branchId,
+            @RequestParam(required = false) String branchId,
             @RequestParam(required = false) String closedById,
             @RequestBody DailyClosing dto) {
         String tenantId = SecurityUtils.requireTenantId();
-        branchRepository.findById(branchId)
-                .filter(branch -> branch.getTenant() != null && tenantId.equals(branch.getTenant().getId()))
-                .orElseThrow(() -> new BusinessRuleException("الفرع غير موجود"));
-        DailyClosing created = dailyClosingService.createDailyClosing(branchId, SecurityUtils.requireEmployeeId(), dto);
+        String effectiveBranchId = (branchId != null && !branchId.isBlank())
+                ? branchId
+                : SecurityUtils.requireBranchId();
+        String effectiveClosedById = (closedById != null && !closedById.isBlank())
+                ? closedById
+                : SecurityUtils.requireEmployeeId();
+        DailyClosing created = dailyClosingService.createDailyClosing(tenantId, effectiveBranchId, effectiveClosedById, dto);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponseWrapper.success(created, "تم تسجيل إغلاق الصندوق بنجاح"));
     }

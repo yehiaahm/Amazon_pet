@@ -77,6 +77,7 @@ public class EndpointPermissionRegistry {
         // Employees & roles
         map("GET",    "/v1/employees",                              "employees.view");
         map("POST",   "/v1/employees",                              "employees.add");
+        map("PUT",    "/v1/employees/{id}",                         "employees.edit");
         map("DELETE", "/v1/employees/{id}",                         "employees.delete");
         map("GET",    "/v1/roles",                                  "roles.view");
         map("GET",    "/v1/roles/permissions",                      "roles.view");
@@ -97,6 +98,14 @@ public class EndpointPermissionRegistry {
         map("PUT",    "/v1/products/variants/{variantId}",          "products.edit");
         map("DELETE", "/v1/products/variants/{variantId}",          "products.delete");
 
+        // Products — smart Excel/CSV import
+        map("POST",   "/v1/inventory/import/sessions",              "products.import");
+        map("PUT",    "/v1/inventory/import/sessions/{id}/mapping", "products.import");
+        map("GET",    "/v1/inventory/import/sessions/{id}/preview", "products.import");
+        map("PATCH",  "/v1/inventory/import/sessions/{id}/duplicates", "products.import");
+        map("POST",   "/v1/inventory/import/sessions/{id}/commit",     "products.import");
+        map("GET",    "/v1/inventory/import/sessions/{id}/error-report", "products.import");
+
         // Inventory — stock views & operations
         map("GET",    "/v1/inventory/warehouses",                   "inventory.view");
         map("GET",    "/v1/inventory/variants",                     "inventory.view");
@@ -113,6 +122,7 @@ public class EndpointPermissionRegistry {
 
         // Inventory — barcodes & labels
         map("POST",   "/v1/inventory/variants/{id}/barcode/generate", "products.print_barcode");
+        map("PUT",    "/v1/inventory/variants/{id}/barcode/custom",   "products.print_barcode");
         map("DELETE", "/v1/inventory/variants/{id}/barcode",        "products.print_barcode");
         map("GET",    "/v1/inventory/variants/{id}/barcode",        "products.print_barcode");
         map("GET",    "/v1/inventory/variants/{id}/barcode/image",  "products.print_barcode");
@@ -133,6 +143,7 @@ public class EndpointPermissionRegistry {
         // Inventory — catalog admin (SKU dedup)
         map("GET",    "/v1/inventory/catalog-admin/duplicate-skus/preview",       "products.edit");
         map("POST",   "/v1/inventory/catalog-admin/duplicate-skus/merge",       "settings.factory_reset");
+        map("POST",   "/v1/inventory/catalog-admin/variants/{targetVariantId}/merge/{sourceVariantId}", "settings.factory_reset");
 
         // FIFO costing
         map("POST",   "/v1/inventory/fifo/batches",                   "inventory.receive_stock");
@@ -154,15 +165,6 @@ public class EndpointPermissionRegistry {
         map("GET",    "/v1/purchase-invoices",                        "purchases.view");
         map("POST",   "/v1/purchase-invoices",                        "purchases.create_invoice");
         map("GET",    "/v1/purchase-invoices/{id}",                   "purchases.view");
-        map("PUT",    "/v1/purchase-invoices/{id}/pay",               "purchases.edit");
-
-        // Import
-        map("POST",   "/v1/import/session/start",                     "purchases.ocr_import");
-        map("POST",   "/v1/import/session/{id}/chunk",                  "purchases.ocr_import");
-        map("POST",   "/v1/import/session/{id}/finalize",               "purchases.ocr_import");
-        map("POST",   "/v1/import/session/{id}/undo",                   "purchases.ocr_import");
-        map("DELETE", "/v1/import/session/{id}",                        "settings.factory_reset");
-        map("GET",    "/v1/import/history",                             "purchases.ocr_import");
 
         // POS / Sales
         map("GET",    "/v1/pos-sessions",                             "sales.open_shift");

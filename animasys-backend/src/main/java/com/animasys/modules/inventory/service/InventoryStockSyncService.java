@@ -10,6 +10,7 @@ import com.animasys.modules.inventory.repository.ProductVariantRepository;
 import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.modules.inventory.repository.WarehouseStockRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,7 @@ import java.util.List;
  * Keeps {@link ProductVariant#getStockQuantity()} and warehouse balances aligned with
  * the sum of active {@link InventoryBatch#getRemainingQuantity()} (single source of truth).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class InventoryStockSyncService {
@@ -52,28 +54,42 @@ public class InventoryStockSyncService {
         variant.setStockQuantity(batchTotal);
         variantRepository.save(variant);
 
-        Warehouse shelf = warehouseRepository.findById(StockService.DEFAULT_SALES_WAREHOUSE)
-                .orElseGet(() -> warehouseRepository.findByTenantId(tenantId).stream().findFirst().orElse(null));
-        if (shelf == null) {
-            return;
+        List<InventoryBatch> activeBatches = batchRepository.findByTenantIdAndProductVariantIdAndRemainingQuantityGreaterThanAndStatusOrderByPurchaseDateAscIdAsc(
+                tenantId, productVariantId, 0, InventoryBatch.BatchStatus.ACTIVE);
+        
+        java.util.Map<String, Integer> stockPerWarehouse = new java.util.HashMap<>();
+        for (InventoryBatch b : activeBatches) {
+            Warehouse batchWarehouse = b.getWarehouse();
+            if (batchWarehouse == null) {
+                log.warn("Skipping batch {} with null warehouse while syncing variant {} (tenant {}); needs data backfill",
+                        b.getId(), productVariantId, tenantId);
+                continue;
+            }
+            String wId = batchWarehouse.getId();
+            stockPerWarehouse.put(wId, stockPerWarehouse.getOrDefault(wId, 0) + b.getRemainingQuantity());
         }
-
-        WarehouseStock shelfRow = warehouseStockRepository
-                .findByWarehouseIdAndProductVariantId(shelf.getId(), productVariantId)
-                .orElseGet(() -> WarehouseStock.builder()
-                        .id(java.util.UUID.randomUUID().toString())
-                        .warehouse(shelf)
-                        .productVariant(variant)
-                        .quantity(0)
-                        .build());
-        shelfRow.setQuantity(batchTotal);
-        warehouseStockRepository.save(shelfRow);
 
         List<WarehouseStock> allRows = warehouseStockRepository.findByProductVariantId(productVariantId);
         for (WarehouseStock row : allRows) {
-            if (!row.getWarehouse().getId().equals(shelf.getId())) {
-                row.setQuantity(0);
-                warehouseStockRepository.save(row);
+            String wId = row.getWarehouse().getId();
+            int newQty = stockPerWarehouse.getOrDefault(wId, 0);
+            row.setQuantity(newQty);
+            warehouseStockRepository.save(row);
+            stockPerWarehouse.remove(wId);
+        }
+
+        for (java.util.Map.Entry<String, Integer> entry : stockPerWarehouse.entrySet()) {
+            if (entry.getValue() > 0) {
+                Warehouse w = warehouseRepository.findById(entry.getKey()).orElse(null);
+                if (w != null) {
+                    WarehouseStock newRow = WarehouseStock.builder()
+                            .id(java.util.UUID.randomUUID().toString())
+                            .warehouse(w)
+                            .productVariant(variant)
+                            .quantity(entry.getValue())
+                            .build();
+                    warehouseStockRepository.save(newRow);
+                }
             }
         }
     }

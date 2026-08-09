@@ -113,7 +113,7 @@ class FifoCostingServiceImplTest {
                 .cost(new BigDecimal("700.0000"))
                 .build();
 
-        when(batchRepository.findActiveBatchesForUpdate(tenantId, dogFoodVariant.getId()))
+        when(batchRepository.findActiveBatchesForUpdate(tenantId, warehouseId, dogFoodVariant.getId()))
                 .thenReturn(List.of(batch1));
 
         // Act - Allocate Sale #1
@@ -155,7 +155,7 @@ class FifoCostingServiceImplTest {
                 .cost(new BigDecimal("200.0000"))
                 .build();
 
-        when(batchRepository.findActiveBatchesForUpdate(tenantId, dogFoodVariant.getId()))
+        when(batchRepository.findActiveBatchesForUpdate(tenantId, warehouseId, dogFoodVariant.getId()))
                 .thenReturn(List.of(batch1, batch2));
 
         // Act - Allocate Sale #2 across multiple batches
@@ -192,7 +192,7 @@ class FifoCostingServiceImplTest {
                 .price(new BigDecimal("500.00"))
                 .build();
 
-        when(batchRepository.findActiveBatchesForUpdate(tenantId, dogFoodVariant.getId()))
+        when(batchRepository.findActiveBatchesForUpdate(tenantId, warehouseId, dogFoodVariant.getId()))
                 .thenReturn(List.of(batch));
 
         assertThrows(InsufficientStockException.class, () -> 

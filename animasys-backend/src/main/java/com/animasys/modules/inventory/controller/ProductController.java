@@ -28,7 +28,7 @@ public class ProductController {
     @PreAuthorize("@authz.has('products.view')")
     public ResponseEntity<ApiResponseWrapper<CatalogPageResponse>> searchProducts(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "1000") int size,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String q,

@@ -20,5 +20,5 @@ public class SaleSearchCriteria {
     String paymentMethod;
 
     public static final int DEFAULT_SIZE = 20;
-    public static final int MAX_SIZE = 100;
+    public static final int MAX_SIZE = 5000;
 }

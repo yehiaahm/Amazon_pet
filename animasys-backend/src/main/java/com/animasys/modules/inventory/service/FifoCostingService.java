@@ -45,6 +45,13 @@ public interface FifoCostingService {
     int getAvailableBatchQuantity(String tenantId, String productVariantId);
 
     /**
+     * Warehouse-scoped stock check. Must be used wherever the caller will subsequently
+     * allocate via {@link #allocateSaleItemFifo}, since that deduction is warehouse-scoped —
+     * a tenant-wide total here can say "in stock" while the actual warehouse has none.
+     */
+    int getAvailableBatchQuantity(String tenantId, String warehouseId, String productVariantId);
+
+    /**
      * Allocates stock for a sale item using FIFO/FEFO deduction with pessimistic DB locks.
      */
     List<SaleItemBatchAllocation> allocateSaleItemFifo(

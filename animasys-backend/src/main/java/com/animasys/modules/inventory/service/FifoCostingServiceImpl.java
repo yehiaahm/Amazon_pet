@@ -11,12 +11,14 @@ import com.animasys.modules.inventory.domain.InventoryLedgerTransaction;
 import com.animasys.modules.inventory.domain.ProductVariant;
 import com.animasys.modules.inventory.domain.PurchaseInvoice;
 import com.animasys.modules.inventory.domain.Supplier;
+import com.animasys.modules.inventory.domain.Warehouse;
 import com.animasys.modules.inventory.dto.InventoryValuationReportDTO;
 import com.animasys.modules.inventory.repository.InventoryBatchRepository;
 import com.animasys.modules.inventory.repository.InventoryLedgerTransactionRepository;
 import com.animasys.modules.inventory.repository.ProductVariantRepository;
 import com.animasys.modules.inventory.repository.PurchaseInvoiceRepository;
 import com.animasys.modules.inventory.repository.SupplierRepository;
+import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.modules.sales.domain.SaleItem;
 import com.animasys.modules.sales.domain.SaleItemBatchAllocation;
 import com.animasys.modules.sales.repository.SaleItemBatchAllocationRepository;
@@ -50,6 +52,7 @@ public class FifoCostingServiceImpl implements FifoCostingService {
     private final TenantRepository tenantRepository;
     private final InventoryStockSyncService stockSyncService;
     private final CatalogPersistenceService catalogPersistenceService;
+    private final WarehouseRepository warehouseRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -58,7 +61,14 @@ public class FifoCostingServiceImpl implements FifoCostingService {
     }
 
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Transactional(readOnly = true)
+    public int getAvailableBatchQuantity(String tenantId, String warehouseId, String productVariantId) {
+        return batchRepository.sumRemainingQuantityByTenantAndWarehouseAndVariantAndStatus(
+                tenantId, warehouseId, productVariantId, InventoryBatch.BatchStatus.ACTIVE);
+    }
+
+    @Override
+    @Transactional
     public InventoryBatch createOpeningBatch(
             String tenantId,
             String warehouseId,
@@ -88,7 +98,7 @@ public class FifoCostingServiceImpl implements FifoCostingService {
     }
 
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Transactional
     public InventoryBatch createPurchaseBatch(
             String tenantId,
             String warehouseId,
@@ -167,9 +177,13 @@ public class FifoCostingServiceImpl implements FifoCostingService {
 
         Instant effectivePurchaseDate = purchaseDate != null ? purchaseDate : Instant.now();
 
+        Warehouse warehouse = warehouseRepository.findById(warehouseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found: " + warehouseId));
+
         InventoryBatch batch = InventoryBatch.builder()
                 .id(UUID.randomUUID().toString())
                 .tenantId(tenantId)
+                .warehouse(warehouse)
                 .productVariant(productVariant)
                 .supplier(supplier)
                 .purchaseInvoice(purchaseInvoice)
@@ -233,7 +247,7 @@ public class FifoCostingServiceImpl implements FifoCostingService {
         log.info("Executing batch allocation for SaleItem [{}] ProductVariant [{}] Qty [{}]",
                 saleItem.getId(), productVariantId, quantityRequested);
 
-        List<InventoryBatch> activeBatches = lockActiveBatchesInDeductionOrder(tenantId, productVariantId);
+        List<InventoryBatch> activeBatches = lockActiveBatchesInDeductionOrder(tenantId, warehouseId, productVariantId);
 
         int totalAvailable = activeBatches.stream()
                 .mapToInt(InventoryBatch::getRemainingQuantity)
@@ -301,7 +315,11 @@ public class FifoCostingServiceImpl implements FifoCostingService {
         saleItem.setGrossProfit(grossProfit);
         saleItem.setUnitCogs(unitCogs);
         saleItem.setCost(unitCogs);
-        saleItem.setAllocations(allocations);
+        // Mutate the existing orphanRemoval-managed collection in place — replacing the
+        // list reference (setAllocations) makes Hibernate see the original collection as
+        // dereferenced and throw "no longer referenced by the owning entity instance" on flush.
+        saleItem.getAllocations().clear();
+        saleItem.getAllocations().addAll(allocations);
         saleItemRepository.save(saleItem);
 
         stockSyncService.syncVariantFromBatches(tenantId, productVariantId);
@@ -326,7 +344,7 @@ public class FifoCostingServiceImpl implements FifoCostingService {
             throw new BusinessRuleException("Adjustment deduction quantity must be greater than zero");
         }
 
-        List<InventoryBatch> activeBatches = lockActiveBatchesInDeductionOrder(tenantId, productVariantId);
+        List<InventoryBatch> activeBatches = lockActiveBatchesInDeductionOrder(tenantId, warehouseId, productVariantId);
         int totalAvailable = activeBatches.stream().mapToInt(InventoryBatch::getRemainingQuantity).sum();
         if (totalAvailable < quantity) {
             throw new InsufficientStockException(productVariantId, quantity, totalAvailable);
@@ -362,6 +380,15 @@ public class FifoCostingServiceImpl implements FifoCostingService {
         stockSyncService.syncVariantFromBatches(tenantId, productVariantId);
     }
 
+    /**
+     * Handles customer return by restoring allocated batch stock in reverse-FIFO order.
+     * <p>
+     * Note: If the original batch is now in an EXPIRED or QUARANTINED state, restoring
+     * the stock will NOT make it ACTIVE again. This is intentional to ensure returned
+     * goods don't inadvertently enter active circulation if the batch was flagged.
+     * </p>
+     * @return total COGS reversed for the returned quantity
+     */
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public BigDecimal processCustomerReturn(
@@ -590,7 +617,7 @@ public class FifoCostingServiceImpl implements FifoCostingService {
                         "ProductVariant not found (save variant before creating batch): " + productVariantId));
     }
 
-    private List<InventoryBatch> lockActiveBatchesInDeductionOrder(String tenantId, String productVariantId) {
+    private List<InventoryBatch> lockActiveBatchesInDeductionOrder(String tenantId, String warehouseId, String productVariantId) {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
         InventoryDeductionStrategy strategy = InventoryDeductionStrategy.FIFO;
@@ -599,8 +626,8 @@ public class FifoCostingServiceImpl implements FifoCostingService {
             strategy = InventoryDeductionStrategy.FEFO;
         }
         if (strategy == InventoryDeductionStrategy.FEFO) {
-            return batchRepository.findActiveBatchesForUpdateFefo(tenantId, productVariantId);
+            return batchRepository.findActiveBatchesForUpdateFefo(tenantId, warehouseId, productVariantId);
         }
-        return batchRepository.findActiveBatchesForUpdate(tenantId, productVariantId);
+        return batchRepository.findActiveBatchesForUpdate(tenantId, warehouseId, productVariantId);
     }
 }

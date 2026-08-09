@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDatabaseStatus: () => ipcRenderer.invoke('get-db-status'),
   triggerBackup: () => ipcRenderer.invoke('trigger-backup'),
   verifyLicense: (key) => ipcRenderer.invoke('verify-license', key),
+  savePDF: (html, fileName) => ipcRenderer.invoke('save-invoice-pdf', { html, fileName }),
   getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   onStatusUpdate: (callback) => ipcRenderer.on('status-update', (event, value) => callback(value))

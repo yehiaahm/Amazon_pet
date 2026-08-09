@@ -32,6 +32,10 @@ public class InventoryBatch {
     private String tenantId;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "warehouse_id", nullable = false)
+    private Warehouse warehouse;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_variant_id", nullable = false)
     private ProductVariant productVariant;
 
@@ -81,6 +85,15 @@ public class InventoryBatch {
         }
     }
 
+    /**
+     * Restores quantity to the batch (e.g., from a customer return).
+     * <p>
+     * Design Decision: If a batch is currently QUARANTINED or EXPIRED, restoring quantity 
+     * will NOT revert its status to ACTIVE. The returned items will correctly enter the batch 
+     * but will inherit its restricted status to prevent accidental resale of expired/quarantined goods.
+     * It only reverts to ACTIVE if it was previously EXHAUSTED.
+     * </p>
+     */
     public void restoreQuantity(int amount) {
         if (amount <= 0) {
             throw new IllegalArgumentException("Restoration quantity must be positive");

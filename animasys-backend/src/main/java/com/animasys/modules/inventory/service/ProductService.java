@@ -86,6 +86,17 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
 
         Optional<Product> existing = productRepository.findBySkuIgnoreCaseAndTenantId(request.getSku().trim(), tenantId);
+        if (existing.isEmpty() && !request.isAllowDuplicateName()) {
+            // Same product re-entered under a different/new SKU (e.g. a second purchase at a
+            // new cost) must land on the SAME catalog row, not fragment stock/FIFO across two —
+            // route it to the existing product by name instead of minting a duplicate. Skipped
+            // when the caller already confirmed this is intentionally a distinct product (e.g.
+            // import's per-row "create new anyway" duplicate resolution).
+            List<Product> nameMatches = productRepository.findByNameIgnoreCaseAndTenantId(request.getProductName().trim(), tenantId);
+            if (!nameMatches.isEmpty()) {
+                existing = Optional.of(nameMatches.get(0));
+            }
+        }
         if (existing.isPresent()) {
             Product product = existing.get();
             product.setName(request.getProductName().trim());
@@ -116,6 +127,8 @@ public class ProductService {
             return buildProductResponse(product, variant);
         }
 
+        // Neither SKU nor name matched (or the caller explicitly confirmed a distinct
+        // product) — this is genuinely a new product.
         Category category = resolveCategory(tenant, request);
         Brand brand = resolveBrand(tenant, request);
         Supplier supplier = resolveSupplier(tenant, request);
@@ -662,14 +675,14 @@ public class ProductService {
     }
 
     public Map<String, Object> generateBarcodeForVariant(String tenantId, String variantId, String formatStr, Employee employee) {
+        return generateBarcodeForVariant(tenantId, variantId, formatStr, true, employee);
+    }
+
+    public Map<String, Object> generateBarcodeForVariant(String tenantId, String variantId, String formatStr, boolean force, Employee employee) {
         ProductVariant variant = variantRepository.findById(variantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Variant not found: " + variantId));
         if (!tenantId.equals(variant.getTenantId())) {
             throw new BusinessRuleException("غير مصرح بالوصول لهذا المنتج");
-        }
-
-        if (variant.getBarcode() != null && isVariantReferenced(variant.getId())) {
-            throw new BusinessRuleException("لا يمكن إعادة توليد باركود المنتج لوجود عمليات بيع أو تحويل مخزني مسجلة له في النظام.");
         }
 
         String oldBarcode = variant.getBarcode();
@@ -686,7 +699,7 @@ public class ProductService {
 
         variantRepository.save(variant);
 
-        logBarcodeHistory(variant, oldBarcode, newBarcode, format, BarcodeSource.SYSTEM_GENERATED, "Regeneration requested", employee);
+        logBarcodeHistory(variant, oldBarcode, newBarcode, format, BarcodeSource.SYSTEM_GENERATED, "Barcode generation requested", employee);
 
         Map<String, Object> response = new HashMap<>();
         response.put("variantId", variant.getId());
@@ -695,6 +708,43 @@ public class ProductService {
         response.put("barcodeGenerated", variant.getBarcodeGenerated());
         response.put("barcodeSource", variant.getBarcodeSource().name());
         response.put("base64Image", barcodeImageService.generatePNGAsBase64(format.name(), newBarcode, 300, 100));
+        return response;
+    }
+
+    public Map<String, Object> updateCustomBarcode(String tenantId, String variantId, String customBarcode, String formatStr, Employee employee) {
+        ProductVariant variant = variantRepository.findById(variantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Variant not found: " + variantId));
+        if (!tenantId.equals(variant.getTenantId())) {
+            throw new BusinessRuleException("غير مصرح بالوصول لهذا المنتج");
+        }
+
+        if (customBarcode == null || customBarcode.isBlank()) {
+            throw new BusinessRuleException("يرجى إدخال رمز باركود صالح");
+        }
+
+        String trimmedBarcode = customBarcode.trim().toUpperCase(java.util.Locale.ROOT);
+        String oldBarcode = variant.getBarcode();
+        BarcodeFormat format = parseBarcodeFormat(formatStr);
+
+        variant.setBarcode(trimmedBarcode);
+        variant.setBarcodeFormat(format);
+        variant.setBarcodeGenerated(false);
+        variant.setBarcodeGeneratedAt(java.time.Instant.now());
+        variant.setGeneratedByEmployee(employee);
+        variant.setBarcodeSource(BarcodeSource.USER_DEFINED);
+        variant.setBarcodeStatus(BarcodeStatus.ACTIVE);
+
+        variantRepository.save(variant);
+
+        logBarcodeHistory(variant, oldBarcode, trimmedBarcode, format, BarcodeSource.USER_DEFINED, "Custom barcode manual update", employee);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("variantId", variant.getId());
+        response.put("barcode", variant.getBarcode());
+        response.put("barcodeFormat", variant.getBarcodeFormat().name());
+        response.put("barcodeGenerated", variant.getBarcodeGenerated());
+        response.put("barcodeSource", variant.getBarcodeSource().name());
+        response.put("base64Image", barcodeImageService.generatePNGAsBase64(format.name(), trimmedBarcode, 300, 100));
         return response;
     }
 

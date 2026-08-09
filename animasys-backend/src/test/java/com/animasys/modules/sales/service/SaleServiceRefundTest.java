@@ -22,6 +22,7 @@ import com.animasys.modules.sales.repository.SaleItemBatchAllocationRepository;
 import com.animasys.modules.sales.repository.SaleItemRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
 import com.animasys.modules.services.repository.GroomingServiceRepository;
+import com.animasys.modules.inventory.repository.WarehouseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
@@ -56,6 +57,7 @@ class SaleServiceRefundTest {
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
     @Mock private AuthenticationManager authenticationManager;
+    @Mock private WarehouseRepository warehouseRepository;
 
     @InjectMocks
     private SaleService saleService;
@@ -125,6 +127,9 @@ class SaleServiceRefundTest {
         });
         when(auditLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(saleRepository.saveAndFlush(any(Sale.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id(StockService.DEFAULT_SALES_WAREHOUSE).branch(branch).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-refund")).thenReturn(List.of(wh));
     }
 
     @Test

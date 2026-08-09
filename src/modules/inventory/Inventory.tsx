@@ -6,7 +6,6 @@ import {
   useUpdateStock,
   useTransferStock,
   useWarehouses,
-  useStockMovements,
   useAddProduct,
   useUpdateProduct,
   useDeleteVariant,
@@ -15,15 +14,13 @@ import { useUIStore } from '../../core/stores/uiStore';
 import {
   PlusCircle,
   Calendar,
-  ArrowRightLeft,
-  History,
   Layers,
   ShoppingCart,
-  Upload,
   Barcode,
   Settings2,
   Pencil,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
@@ -34,13 +31,13 @@ import Modal from '../../components/ui/Modal';
 import DataTable from '../../components/ui/DataTable';
 import FifoInventoryAdmin from './FifoInventoryAdmin';
 import PurchaseInvoicePanel from './PurchaseInvoicePanel';
-import ImportPanel from './ImportPanel';
 import BarcodeAdminPanel from './BarcodeAdminPanel';
+import ImportWizard from './import/ImportWizard';
 import Can from '../../components/ui/Can';
 import { usePermissions } from '../../core/permissions/usePermissions';
 import { PERMISSIONS } from '../../core/permissions/permissions';
 
-type MainTab = 'STOCK' | 'BATCHES' | 'MOVEMENTS' | 'PURCHASES' | 'FIFO' | 'IMPORT' | 'BARCODE';
+type MainTab = 'STOCK' | 'BATCHES' | 'PURCHASES' | 'FIFO' | 'BARCODE' | 'IMPORT';
 
 type ProductForm = {
   sku: string;
@@ -72,8 +69,12 @@ export const Inventory: React.FC = () => {
   const { data: products, isLoading: loadingProds } = useProducts();
   const { data: variants, isLoading: loadingVars } = useVariants();
   const { data: batches } = useBatches();
-  const { data: warehouses } = useWarehouses();
-  const { data: movements } = useStockMovements();
+  const {
+    data: warehouses,
+    isLoading: loadingWarehouses,
+    isError: warehousesFailed,
+    refetch: refetchWarehouses,
+  } = useWarehouses();
   const { mutate: adjustStock, isPending: adjusting } = useUpdateStock();
   const { mutate: transferStock, isPending: transferring } = useTransferStock();
   const { mutate: addProduct, isPending: addingProduct } = useAddProduct();
@@ -127,17 +128,19 @@ export const Inventory: React.FC = () => {
   const variantsTableData =
     variants?.map((v) => {
       const prod = products?.find((p) => p.id === v.productId);
+      const price = Number(v.price) || 0;
+      const cost = Number(v.cost) || 0;
       return {
         id: v.id,
         productId: v.productId,
-        sku: prod?.sku || '',
-        name: prod?.name || '',
+        sku: prod?.sku || v.barcode || '',
+        name: prod?.name || v.name || '',
         variant: v.name,
-        price: v.price,
-        cost: v.cost,
-        stock: v.stockQuantity,
+        price,
+        cost,
+        stock: Number(v.stockQuantity) || 0,
         limit: prod?.minStockLimit || 10,
-        margin: v.price > 0 ? (((v.price - v.cost) / v.price) * 100).toFixed(0) + '%' : '—',
+        margin: price > 0 && cost >= 0 ? (((price - cost) / price) * 100).toFixed(0) + '%' : '—',
       };
     }) || [];
 
@@ -244,9 +247,19 @@ export const Inventory: React.FC = () => {
   const handleAdjustStock = () => {
     if (!selectedVariant) return;
     const diff = parseInt(adjustQty, 10) || 0;
+
+    if (loadingWarehouses) {
+      addNotification('WARNINGS', 'جارٍ التحميل', 'جارٍ تحميل بيانات المستودعات، برجاء الانتظار لحظة وإعادة المحاولة.');
+      return;
+    }
+    if (warehousesFailed) {
+      addNotification('WARNINGS', 'تعذر تحميل المستودعات', 'حدث خطأ أثناء جلب بيانات المستودعات. يتم إعادة المحاولة الآن.');
+      refetchWarehouses();
+      return;
+    }
     const warehouseId = warehouses?.[0]?.id;
     if (!warehouseId) {
-      addNotification('WARNINGS', 'لا يوجد مستودع', 'لم يتم العثور على مستودع افتراضي.');
+      addNotification('WARNINGS', 'لا يوجد مستودع', 'لم يتم العثور على مستودع افتراضي. تواصل مع الدعم الفني.');
       return;
     }
 
@@ -308,8 +321,14 @@ export const Inventory: React.FC = () => {
     { header: 'الكمية المتاحة', accessor: 'stock' as const, key: 'stock', sortable: true },
     { header: 'الهامش %', accessor: 'margin' as const, key: 'margin' },
     {
+      header: 'سعر الشراء',
+      accessor: (row: any) => row.cost > 0 ? `${Number(row.cost).toFixed(2)} ج.م` : '—',
+      key: 'cost',
+      sortable: true,
+    },
+    {
       header: 'سعر البيع',
-      accessor: (row: any) => `$${row.price.toFixed(2)}`,
+      accessor: (row: any) => row.price > 0 ? `${Number(row.price).toFixed(2)} ج.م` : '—',
       key: 'price',
       sortable: true,
     },
@@ -382,37 +401,6 @@ export const Inventory: React.FC = () => {
     },
   ];
 
-  const movementsColumns = [
-    { header: 'تاريخ الحركة', accessor: 'timestamp' as const, key: 'timestamp', sortable: true },
-    {
-      header: 'موقع المستودع',
-      accessor: (row: any) => {
-        const wh = warehouses?.find((w) => w.id === row.warehouseId);
-        return wh?.name || row.warehouseId || '—';
-      },
-      key: 'warehouse',
-    },
-    {
-      header: 'رمز الصنف (SKU)',
-      accessor: (row: any) => {
-        const variant = variants?.find((v) => v.id === row.productVariantId);
-        return products?.find((p) => p.id === variant?.productId)?.sku || '';
-      },
-      key: 'sku',
-    },
-    { header: 'تغيير الكمية', accessor: 'quantity' as const, key: 'quantity', sortable: true },
-    {
-      header: 'نوع الحركة',
-      accessor: (row: any) => {
-        if (row.type === 'SALE') return 'مبيعات الكاشير';
-        if (row.type === 'PURCHASE') return 'شحنة واردة';
-        if (row.type === 'TRANSFER') return 'تحويل مستودعات';
-        return 'تعديل جرد يدوي';
-      },
-      key: 'type',
-    },
-  ];
-
   const tabBtn = (id: MainTab, label: string, icon: React.ReactNode) => (
     <button
       type="button"
@@ -435,17 +423,12 @@ export const Inventory: React.FC = () => {
   );
 
   return (
-    <div className="workspace">
+    <div className="workspace" style={{ overflowY: 'hidden', paddingBottom: 0 }}>
       <PageHeader
         title="رقابة جرد ومخازن الفروع"
         subtitle="إدارة وتتبع السلع، تواريخ الصلاحية، وحركات التحويل المخزني"
         actions={
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Can permission={PERMISSIONS.INVENTORY_TRANSFER}>
-              <Button onClick={() => setShowTransferModal(true)} variant="secondary" size="sm">
-                <ArrowRightLeft size={14} /> تحويل كميات بين المستودعات
-              </Button>
-            </Can>
             <Can permission={PERMISSIONS.PRODUCTS_ADD}>
               <Button onClick={openAddProduct} variant="primary" size="sm">
                 <PlusCircle size={14} /> إضافة كود SKU جديد
@@ -467,14 +450,13 @@ export const Inventory: React.FC = () => {
       >
         {tabBtn('STOCK', 'أرصدة المخزون', <Layers size={16} />)}
         {tabBtn('BATCHES', 'الشحنات', <Calendar size={16} />)}
-        {tabBtn('MOVEMENTS', 'حركات المخزن', <History size={16} />)}
         {hasPermission(PERMISSIONS.PURCHASES_VIEW) && tabBtn('PURCHASES', 'فواتير الشراء', <ShoppingCart size={16} />)}
         {hasPermission(PERMISSIONS.INVENTORY_BATCH) && tabBtn('FIFO', 'FIFO / FEFO', <Settings2 size={16} />)}
-        {hasPermission(PERMISSIONS.AI_OCR) && tabBtn('IMPORT', 'استيراد', <Upload size={16} />)}
         {hasPermission(PERMISSIONS.PRODUCTS_PRINT_BARCODE) && tabBtn('BARCODE', 'الباركود', <Barcode size={16} />)}
+        {hasPermission(PERMISSIONS.PRODUCTS_IMPORT) && tabBtn('IMPORT', 'استيراد Excel', <Upload size={16} />)}
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginTop: '12px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginTop: '12px', overflowY: 'auto', paddingBottom: 'var(--spacing-6)', paddingRight: '4px' }}>
         {activeTab === 'STOCK' && (
           <DataTable
             data={variantsTableData}
@@ -495,18 +477,10 @@ export const Inventory: React.FC = () => {
           />
         )}
 
-        {activeTab === 'MOVEMENTS' && (
-          <DataTable
-            data={[...(movements || [])].reverse()}
-            columns={movementsColumns}
-            rowKey="id"
-          />
-        )}
-
         {activeTab === 'PURCHASES' && <PurchaseInvoicePanel />}
         {activeTab === 'FIFO' && <FifoInventoryAdmin />}
-        {activeTab === 'IMPORT' && <ImportPanel />}
         {activeTab === 'BARCODE' && <BarcodeAdminPanel />}
+        {activeTab === 'IMPORT' && <ImportWizard />}
       </div>
 
       <Modal
@@ -518,8 +492,8 @@ export const Inventory: React.FC = () => {
             <Button onClick={() => setSelectedVariant(null)} variant="secondary">
               إلغاء
             </Button>
-            <Button onClick={handleAdjustStock} disabled={adjusting} variant="primary">
-              حفظ وتعديل الرصيد
+            <Button onClick={handleAdjustStock} disabled={adjusting || loadingWarehouses} variant="primary">
+              {loadingWarehouses ? 'جارٍ التحميل...' : 'حفظ وتعديل الرصيد'}
             </Button>
           </div>
         }

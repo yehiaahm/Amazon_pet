@@ -52,3 +52,33 @@ jobs:
           name: jacoco-report
           path: animasys-backend/target/site/jacoco/
           if-no-files-found: ignore
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: backend-tests
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Always build (validates the Dockerfile on every PR); only push on main/master.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and (conditionally) push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: animasys-backend
+          push: ${{ github.event_name == 'push' }}
+          tags: ghcr.io/${{ github.repository }}/animasys-backend:${{ github.sha }},ghcr.io/${{ github.repository }}/animasys-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

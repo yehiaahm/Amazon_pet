@@ -229,7 +229,7 @@ class BarcodeSystemIntegrationTest {
 
         List<BarcodeHistory> history = historyRepository.findByProductVariantIdOrderByGeneratedAtDesc(variant.getId());
         assertFalse(history.isEmpty());
-        assertEquals("Regeneration requested", history.get(0).getReason());
+        assertEquals("Barcode generation requested", history.get(0).getReason());
     }
 
     @Test

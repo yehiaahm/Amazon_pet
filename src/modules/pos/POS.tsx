@@ -92,6 +92,12 @@ export const POS: React.FC = () => {
   const belowMinManagerPassword = useCartStore(s => s.belowMinManagerPassword);
   const setBelowMinManagerPassword = useCartStore(s => s.setBelowMinManagerPassword);
 
+  const checkoutIdempotencyKeyRef = useRef(crypto.randomUUID());
+
+  useEffect(() => {
+    checkoutIdempotencyKeyRef.current = crypto.randomUUID();
+  }, [cartItems, customerId, paymentMethod, discountPercent]);
+
   // Queries & Mutations
   const { data: products } = useProducts();
   const { data: variants } = useVariants();
@@ -195,30 +201,59 @@ export const POS: React.FC = () => {
   const clearScanBufferRef = useRef<() => void>(() => {});
 
   // Calculate expected cash dynamically
-  const expectedCashBalance = useMemo(() => {
-    if (!activeSession) return 0;
+  const shiftReport = useMemo(() => {
+    if (!activeSession) return null;
     const opening = activeSession.openingBalance || 0;
     const sessionOpenedAt = activeSession.openedAt
       ? new Date(activeSession.openedAt).getTime()
       : 0;
 
-    const cashSalesTotal = (sales || [])
-      .filter(
-        (sale) =>
-          sale.posSessionId === activeSession.id &&
-          sale.status !== 'REFUNDED' &&
-          sale.paymentMethod === 'CASH'
-      )
-      .reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
+    let cashSalesTotal = 0;
+    let cardSalesTotal = 0;
+    let instapaySalesTotal = 0;
+    let vodafoneSalesTotal = 0;
+    let otherSalesTotal = 0;
 
-    const cashRefundsTotal = (sales || [])
-      .filter(
-        (sale) =>
-          sale.posSessionId === activeSession.id &&
-          sale.status === 'REFUNDED' &&
-          sale.paymentMethod === 'CASH'
-      )
-      .reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
+    const getNetSaleAmount = (sale: any) => {
+      if (sale.status === 'REFUNDED') return 0;
+      if (sale.status !== 'PARTIALLY_REFUNDED') return sale.totalAmount || 0;
+
+      let originalSubtotal = 0;
+      let retainedSubtotal = 0;
+
+      (sale.items || []).forEach((item: any) => {
+        const price = Number(item.price) || 0;
+        const qty = Number(item.quantity) || 0;
+        const returnedQty = Number(item.quantityReturned) || 0;
+        const retainedQty = Math.max(0, qty - returnedQty);
+
+        originalSubtotal += price * qty;
+        retainedSubtotal += price * retainedQty;
+      });
+
+      if (originalSubtotal === 0) return 0;
+
+      const discount = Number(sale.discount) || 0;
+      const tax = Number(sale.tax) || 0;
+
+      const retainedDiscount = (discount * retainedSubtotal) / originalSubtotal;
+      const retainedTax = (tax * retainedSubtotal) / originalSubtotal;
+
+      return retainedSubtotal - retainedDiscount + retainedTax;
+    };
+
+    (sales || []).forEach(sale => {
+      if (sale.posSessionId === activeSession.id && sale.status !== 'REFUNDED') {
+        const amt = getNetSaleAmount(sale);
+        if (sale.paymentMethod === 'CASH') cashSalesTotal += amt;
+        else if (sale.paymentMethod === 'CARD') cardSalesTotal += amt;
+        else if (sale.paymentMethod === 'INSTAPAY') instapaySalesTotal += amt;
+        else if (sale.paymentMethod === 'VODAFONE_CASH') vodafoneSalesTotal += amt;
+        else otherSalesTotal += amt;
+      }
+    });
+
+    const cashRefundsTotal = 0; // Handled dynamically in getNetSaleAmount now
 
     const cashExpensesTotal = (expenses || [])
       .filter((exp) => {
@@ -228,7 +263,21 @@ export const POS: React.FC = () => {
       })
       .reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
 
-    return opening + cashSalesTotal - cashRefundsTotal - cashExpensesTotal;
+    const expectedCashBalance = opening + cashSalesTotal - cashExpensesTotal;
+    const totalSales = cashSalesTotal + cardSalesTotal + instapaySalesTotal + vodafoneSalesTotal + otherSalesTotal;
+
+    return {
+      opening,
+      cashSalesTotal,
+      cardSalesTotal,
+      instapaySalesTotal,
+      vodafoneSalesTotal,
+      otherSalesTotal,
+      totalSales,
+      cashRefundsTotal,
+      cashExpensesTotal,
+      expectedCashBalance,
+    };
   }, [activeSession, sales, expenses]);
 
   // Reset limit when query changes
@@ -356,17 +405,29 @@ export const POS: React.FC = () => {
   };
 
   const printThermal = (receipt: any) => {
+    // Defensive check: ensure required fields exist
+    if (!receipt || !receipt.saleNumber) {
+      addNotification('WARNINGS', 'خطأ في الفاتورة', 'البيانات غير مكتملة للطباعة الحرارية.');
+      return;
+    }
     const cust = customers?.find((c) => c.id === receipt.customerId);
-    printThermalReceipt(
-      saleToInvoiceData({
-        sale: receipt,
-        customerName: cust?.name || 'Walk-in Customer',
-        customerPhone: cust?.phone,
-        cashierName: currentEmployee.fullName || currentEmployee.username || 'Cashier',
-        branchName: 'Hadaeq El Ahram',
-        resolveName: resolveInvoiceItemName,
-      })
-    );
+    try {
+      printThermalReceipt(
+        saleToInvoiceData({
+          sale: receipt,
+          customerName: cust?.name || 'Walk-in Customer',
+          customerPhone: cust?.phone,
+          cashierName: currentEmployee.fullName || currentEmployee.username || 'Cashier',
+          branchName: 'Hadaeq El Ahram',
+          resolveName: resolveInvoiceItemName,
+        })
+      );
+    } catch (e) {
+      console.error('Print thermal error:', e);
+      addNotification('WARNINGS', 'فشل الطباعة الحرارية', e instanceof Error ? e.message : 'خطأ غير معروف');
+    }
+    // Reset receipt after attempt
+    setActiveReceipt(null);
   };
 
   const receiptPreviewHtml = useMemo(() => {
@@ -418,6 +479,7 @@ export const POS: React.FC = () => {
     const totals = getTotals();
     const resolvedManagerPassword = managerPassword || belowMinManagerPassword || undefined;
     const saleData = {
+      idempotencyKey: checkoutIdempotencyKeyRef.current,
       posSessionId: activeSession!.id,
       totalAmount: totals.total,
       tax: totals.tax,
@@ -439,8 +501,16 @@ export const POS: React.FC = () => {
         clearCart();
         setShowCheckoutManagerModal(false);
         setCheckoutManagerCode('');
-        if (canPrintA4) {
-          setTimeout(() => printReceipt(receipt), 300);
+        if (canPrintThermal || canPrintA4) {
+          // Delay to ensure iframe is ready
+          setTimeout(() => {
+            try {
+              printThermal(receipt);
+            } catch (e) {
+              console.error('Print receipt error:', e);
+              addNotification('WARNINGS', 'فشل طباعة الفاتورة', e instanceof Error ? e.message : 'خطأ غير معروف');
+            }
+          }, 300);
         }
       },
       onError: (err: any) => {
@@ -481,18 +551,25 @@ export const POS: React.FC = () => {
   };
 
   const handleCloseShift = async () => {
+    if (!activeSession) {
+      addNotification('WARNINGS', 'تنبيه', 'لا توجد وردية مفتوحة حالياً لإغلاقها.');
+      setShowCloseShiftModal(false);
+      return;
+    }
     const cashCounted = parseFloat(countedCash) || 0;
+    const safeExpected = shiftReport?.expectedCashBalance ?? cashCounted;
 
     try {
       await endSession(
-        activeSession!.id,
+        activeSession.id,
         cashCounted,
-        expectedCashBalance,
+        safeExpected,
         cashCounted,
         currentEmployee.id
       );
       setShowCloseShiftModal(false);
       setCountedCash('');
+      addNotification('WARNINGS', 'نجاح إغلاق الوردية', 'تم تسليم الجرد وإغلاق الوردية بنجاح.');
 
       if (logoutAfterCloseShift) {
         setLogoutAfterCloseShift(false);
@@ -500,7 +577,7 @@ export const POS: React.FC = () => {
         setCurrentEmployee(null);
         setAuthenticated(false);
       }
-    } catch {
+    } catch (err: any) {
       // Error surfaced via sessionStore notification
     }
   };
@@ -931,6 +1008,7 @@ export const POS: React.FC = () => {
     );
   }
 
+
   // ==========================================
   // VIEW: MAIN ACTIVE POS CART SCREEN
   // ==========================================
@@ -1083,7 +1161,17 @@ export const POS: React.FC = () => {
             <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-4)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', width: '100%', direction: 'rtl' }}>
               <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold', margin: '0 0 var(--spacing-2) 0', color: 'var(--color-text-secondary)' }}>سجل الفواتير (انقر على الفاتورة لفتحها ومعاينتها)</h3>
-              {filteredSalesInPOS.slice(0, visibleInvoicesLimit).map((s) => {
+              {restrictedSalesScope && !searchQuery.trim() ? (
+                <div style={{ padding: 'var(--spacing-6)', textAlign: 'center', backgroundColor: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-secondary)' }}>
+                  <Search size={32} color="var(--color-primary)" style={{ marginBottom: 8, opacity: 0.8 }} />
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold', color: 'var(--color-text-primary)' }}>
+                    برجاء كتابة أو مسح رقم الفاتورة
+                  </div>
+                  <div style={{ fontSize: '10px', marginTop: 4 }}>
+                    أدخل رقم الفاتورة المراد إرجاعها في حقل البحث أعلى الشاشة لإظهار بياناتها.
+                  </div>
+                </div>
+              ) : filteredSalesInPOS.slice(0, visibleInvoicesLimit).map((s) => {
                 const isRefunded = s.status === 'REFUNDED';
                 return (
                   <div 
@@ -1569,7 +1657,7 @@ export const POS: React.FC = () => {
           </div>
 
           {/* Payment Methods buttons */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--spacing-2)', marginTop: 'var(--spacing-1)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
             <button
               onClick={() => setPaymentMethod('CASH')}
               className="btn-secondary"
@@ -1595,16 +1683,28 @@ export const POS: React.FC = () => {
               <CreditCard size={16} /> بطاقة (F4)
             </button>
             <button
-              onClick={() => setPaymentMethod('MOBILE')}
+              onClick={() => setPaymentMethod('INSTAPAY')}
               className="btn-secondary"
               style={{
-                borderColor: paymentMethod === 'MOBILE' ? 'var(--color-primary)' : 'var(--color-border)',
-                backgroundColor: paymentMethod === 'MOBILE' ? 'var(--color-primary-light)' : 'var(--color-surface)',
-                color: paymentMethod === 'MOBILE' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                borderColor: paymentMethod === 'INSTAPAY' ? 'var(--color-primary)' : 'var(--color-border)',
+                backgroundColor: paymentMethod === 'INSTAPAY' ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                color: paymentMethod === 'INSTAPAY' ? 'var(--color-primary)' : 'var(--color-text-primary)',
                 display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
               }}
             >
-              <Smartphone size={16} /> دفع إلكتروني
+              <Smartphone size={16} /> إنستاباي
+            </button>
+            <button
+              onClick={() => setPaymentMethod('VODAFONE_CASH')}
+              className="btn-secondary"
+              style={{
+                borderColor: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary)' : 'var(--color-border)',
+                backgroundColor: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                color: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
+              }}
+            >
+              <Smartphone size={16} /> فودافون كاش
             </button>
           </div>
 
@@ -1628,13 +1728,18 @@ export const POS: React.FC = () => {
         maxWidth="920px"
         footer={
           <div style={{ display: 'flex', gap: '8px', width: '100%', direction: 'rtl' }}>
-            {canPrintA4 && (
-              <Button onClick={() => printReceipt(activeReceipt)} variant="secondary" style={{ flex: 1 }}>
-                <Printer size={14} /> طباعة الفاتورة
+            {canPrintThermal && (
+              <Button onClick={() => printThermal(activeReceipt)} variant="primary" style={{ flex: 1 }}>
+                <Printer size={14} /> طباعة إيصال حراري (80mm)
               </Button>
             )}
-            <Button onClick={() => setActiveReceipt(null)} variant="primary" style={{ flex: 1 }}>
-              فتح سلة جديدة (إغلاق)
+            {canPrintA4 && (
+              <Button onClick={() => printReceipt(activeReceipt)} variant="secondary" style={{ flex: 1 }}>
+                <Printer size={14} /> فاتورة A4
+              </Button>
+            )}
+            <Button onClick={() => setActiveReceipt(null)} variant="ghost" style={{ flex: 1 }}>
+              إغلاق
             </Button>
           </div>
         }
@@ -1808,37 +1913,198 @@ export const POS: React.FC = () => {
       <Modal
         isOpen={showCloseShiftModal}
         onClose={() => setShowCloseShiftModal(false)}
-        title="وردية نقطة البيع - جرد ومطابقة نقود درج الكاشير"
+        title={restrictedSalesScope ? "إغلاق وتسليم الوردية" : "تقرير تسوية وإغلاق الوردية"}
         footer={
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button onClick={() => setShowCloseShiftModal(false)} variant="secondary">إلغاء</Button>
-            <Button onClick={handleCloseShift} variant="danger">تأكيد وإغلاق الوردية</Button>
+            <Button onClick={handleCloseShift} disabled={!countedCash} variant="danger">تأكيد وإغلاق الوردية الآن</Button>
           </div>
         }
+        maxWidth={restrictedSalesScope ? "520px" : "780px"}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            قم بجرود جميع الأوراق النقدية والعملات المعدنية الموجودة في درج الكاشير وأدخل القيمة الكلية. سيقوم النظام تلقائياً بتسجيل الفروقات.
-          </div>
-          
-          <div style={{ padding: 'var(--spacing-3)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', marginBottom: '4px' }}>
-              <span>النقدية المتوقعة في الدرج:</span>
-              <strong>{formatMoney(expectedCashBalance)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
-              <span>عهدة البداية النقدي:</span>
-              <span>{formatMoney(activeSession.openingBalance)}</span>
-            </div>
-          </div>
+        {shiftReport && (() => {
+          const shiftSales = (sales || []).filter(
+            s => s.posSessionId === activeSession.id && s.status !== 'REFUNDED'
+          );
+          const payMethodLabel = (method: string) => {
+            if (method === 'CASH') return 'كاش';
+            if (method === 'CARD') return 'فيزا';
+            if (method === 'INSTAPAY') return 'إنستا باي';
+            if (method === 'VODAFONE_CASH') return 'فودافون كاش';
+            return method;
+          };
+          const payMethodBadgeColor = (method: string): string => {
+            if (method === 'CASH') return '#16a34a';
+            if (method === 'CARD') return '#2563eb';
+            if (method === 'INSTAPAY') return '#7c3aed';
+            if (method === 'VODAFONE_CASH') return '#dc2626';
+            return 'var(--color-text-secondary)';
+          };
+          const cashCounted = parseFloat(countedCash) || 0;
+          const diff = cashCounted - shiftReport.expectedCashBalance;
+          const rowStyle: React.CSSProperties = {
+            display: 'grid',
+            gridTemplateColumns: '1fr 1.8fr 1fr 1fr',
+            gap: '0',
+            alignItems: 'center',
+          };
 
-          <Input
-            label="إجمالي النقد الفعلي الذي تم جردة في الدرج (ج.م)"
-            value={countedCash}
-            onChange={(e) => setCountedCash(e.target.value)}
-            placeholder="0.00"
-          />
-        </div>
+          // ── BLIND CLOSING FOR CASHIER ROLE ──
+          if (restrictedSalesScope) {
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)', direction: 'rtl', textAlign: 'right' }}>
+                <div style={{
+                  padding: 'var(--spacing-3)',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: 'var(--font-size-xs)',
+                  lineHeight: '1.6',
+                  color: 'var(--color-text-secondary)'
+                }}>
+                  <strong style={{ color: 'var(--color-primary)', display: 'block', marginBottom: 4, fontSize: 'var(--font-size-sm)' }}>
+                    🔒 جرد وتسليم الوردية:
+                  </strong>
+                  قم بعدّ جميع النقدية (المبلغ الكاش) الموجودة بالدرج أدناه، وأدخل الناتج بصرامة. سيتم تسجيل القيمة سرياً وإرسال التقرير للإدارة للمطابقة.
+                </div>
+
+                <div style={{ border: '1.5px solid var(--color-primary)', borderRadius: 'var(--radius-md)', padding: 'var(--spacing-4)', backgroundColor: 'var(--color-primary-light, rgba(59,130,246,0.05))' }}>
+                  <Input
+                    label="💵 أدخل المبلغ النقدي الكلي المعدود في درج الكاشير (ج.م) *"
+                    value={countedCash}
+                    onChange={(e) => setCountedCash(e.target.value)}
+                    placeholder="0.00"
+                    type="number"
+                    autoFocus
+                  />
+                </div>
+              </div>
+            );
+          }
+
+          // ── FULL REPORT FOR MANAGERS & OWNERS ──
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)', direction: 'rtl', textAlign: 'right' }}>
+
+              {/* ── SECTION 1: Invoices Table ── */}
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)', borderBottom: '2px solid var(--color-primary)', paddingBottom: '4px', marginBottom: '8px' }}>
+                  📋 فواتير الوردية ({shiftSales.length} فاتورة)
+                </div>
+                <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', fontSize: 'var(--font-size-xs)' }}>
+                  {/* Table header */}
+                  <div style={{ ...rowStyle, backgroundColor: 'var(--color-surface)', fontWeight: 'bold', padding: '8px 12px', borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                    <span>رقم الفاتورة</span>
+                    <span>الوقت والتاريخ</span>
+                    <span style={{ textAlign: 'center' }}>طريقة الدفع</span>
+                    <span style={{ textAlign: 'left' }}>القيمة</span>
+                  </div>
+                  {/* Table rows */}
+                  {shiftSales.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                      لا توجد فواتير في هذه الوردية
+                    </div>
+                  ) : (
+                    <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                      {shiftSales.map((s, idx) => (
+                        <div key={s.id} style={{ ...rowStyle, padding: '7px 12px', borderBottom: idx < shiftSales.length - 1 ? '1px solid var(--color-border)' : 'none', backgroundColor: idx % 2 === 0 ? 'transparent' : 'var(--color-bg)' }}>
+                          <span style={{ fontWeight: 'bold', color: 'var(--color-primary)' }}>{s.saleNumber}</span>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>
+                            {new Date(s.date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            {' — '}
+                            {new Date(s.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <span style={{ textAlign: 'center' }}>
+                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 'bold', color: '#fff', backgroundColor: payMethodBadgeColor(s.paymentMethod) }}>
+                              {payMethodLabel(s.paymentMethod)}
+                            </span>
+                          </span>
+                          <span style={{ textAlign: 'left', fontWeight: 'bold' }}>{formatMoney(s.totalAmount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── SECTION 2: Payment Method Summary ── */}
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)', borderBottom: '2px solid var(--color-primary)', paddingBottom: '4px', marginBottom: '8px' }}>
+                  💳 ملخص المبيعات حسب وسيلة الدفع
+                </div>
+                <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', fontSize: 'var(--font-size-xs)' }}>
+                  {[
+                    { label: 'إجمالي مبيعات الكاش', value: shiftReport.cashSalesTotal, color: '#16a34a', icon: '💵' },
+                    { label: 'إجمالي مبيعات إنستا باي', value: shiftReport.instapaySalesTotal, color: '#7c3aed', icon: '📲' },
+                    { label: 'إجمالي مبيعات الفيزا', value: shiftReport.cardSalesTotal, color: '#2563eb', icon: '💳' },
+                    { label: 'إجمالي مبيعات فودافون كاش', value: shiftReport.vodafoneSalesTotal, color: '#dc2626', icon: '📱' },
+                  ].map((row, idx, arr) => (
+                    <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: idx < arr.length - 1 ? '1px solid var(--color-border)' : 'none', backgroundColor: idx % 2 === 0 ? 'transparent' : 'var(--color-bg)' }}>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>{row.icon} {row.label}</span>
+                      <span style={{ fontWeight: 'bold', color: row.value > 0 ? row.color : 'var(--color-text-secondary)' }}>{formatMoney(row.value)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-primary)', color: '#fff', fontWeight: 'bold' }}>
+                    <span>🏆 إجمالي المبيعات الكلي</span>
+                    <span style={{ fontSize: 'var(--font-size-sm)' }}>{formatMoney(shiftReport.totalSales)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── SECTION 3: Cash Drawer Reconciliation ── */}
+              <div>
+                <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)', borderBottom: '2px solid var(--color-primary)', paddingBottom: '4px', marginBottom: '8px' }}>
+                  🏦 تسوية الخزينة (جرد درج الكاشير)
+                </div>
+                <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', fontSize: 'var(--font-size-xs)' }}>
+                  {/* Actual cash input — expected amount hidden intentionally */}
+                  <div style={{ padding: '12px', borderBottom: '1px solid var(--color-border)' }}>
+                    <Input
+                      label="💵 قم بعد النقدية في الدرج وأدخل المبلغ الفعلي (ج.م) *"
+                      value={countedCash}
+                      onChange={(e) => setCountedCash(e.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                    />
+                  </div>
+
+                  {/* Difference row — shown only after cashier enters amount */}
+                  {countedCash && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', fontWeight: 'bold', backgroundColor: diff === 0 ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-danger-bg, #fee2e2)', color: diff === 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                      <span>{diff === 0 ? '✅ الفرق (متطابق)' : diff > 0 ? '⬆️ الفرق (زيادة)' : '⬇️ الفرق (عجز)'}</span>
+                      <span style={{ fontSize: 'var(--font-size-sm)' }}>
+                        {diff === 0 ? formatMoney(0) : diff > 0 ? `+ ${formatMoney(diff)}` : `- ${formatMoney(Math.abs(diff))}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── SECTION 4: Closing Confirmation Statement ── */}
+              {countedCash && (
+                <div style={{
+                  padding: 'var(--spacing-3)',
+                  borderRadius: 'var(--radius-md)',
+                  border: `2px solid ${diff === 0 ? 'var(--color-success)' : 'var(--color-danger)'}`,
+                  backgroundColor: diff === 0 ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-danger-bg, #fee2e2)',
+                  color: diff === 0 ? 'var(--color-success)' : 'var(--color-danger)',
+                  textAlign: 'center',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 'bold',
+                  lineHeight: '1.8',
+                }}>
+                  قام الكاشير <strong>({currentEmployee.fullName || currentEmployee.username})</strong> بإغلاق الوردية على مبلغ فعلي قدره <strong>{formatMoney(cashCounted)}</strong>
+                  {diff === 0
+                    ? ' — الوردية متطابقة تماماً ✅'
+                    : diff > 0
+                      ? ` — الوردية تحتوي على زيادة (علاوة) بقيمة ${formatMoney(diff)} ⬆️`
+                      : ` — الوردية تحتوي على عجز بقيمة ${formatMoney(Math.abs(diff))} ⬇️`
+                  }
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
 
       {/* 3. QUICK CUSTOMER REGISTRATION MODAL */}
