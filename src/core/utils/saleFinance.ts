@@ -1,9 +1,30 @@
 import type { Sale, SaleItem } from '../../types/erp';
 
-/** Local calendar day key YYYY-MM-DD (avoids UTC shift from toISOString). */
+/** Business timezone for day-bucketing — must match the backend's BusinessTimeZone.ZONE. */
+const BUSINESS_TIME_ZONE = 'Africa/Cairo';
+
+const cairoDateKeyFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
+ * Cairo-zoned calendar day key YYYY-MM-DD. `Sale.date` is a UTC instant
+ * ("...T22:15:00Z"). This must NOT use the browser/device's local timezone
+ * (via Date#getFullYear/getMonth/getDate) — a user whose OS clock is set to
+ * UTC or another zone would bucket a late-night Cairo sale onto the wrong
+ * day versus the backend's Africa/Cairo-zoned reports (see
+ * BusinessTimeZone.java on the backend). Date-only strings (Expense.date,
+ * PurchaseInvoice.invoiceDate) have no time/zone component to begin with, so
+ * they pass through unchanged.
+ */
 export function saleDateKey(date: string | undefined): string {
   if (!date) return '';
-  return date.split('T')[0];
+  if (!date.includes('T')) return date.slice(0, 10);
+  // en-CA locale formats as YYYY-MM-DD.
+  return cairoDateKeyFormatter.format(new Date(date));
 }
 
 /** Net sold quantity on a line after partial returns. */

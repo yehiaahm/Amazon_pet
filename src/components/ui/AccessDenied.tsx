@@ -5,9 +5,10 @@ import Button from './Button';
 interface AccessDeniedProps {
   moduleName?: string;
   onGoHome?: () => void;
+  goHomeLabel?: string;
 }
 
-export const AccessDenied: React.FC<AccessDeniedProps> = ({ moduleName, onGoHome }) => (
+export const AccessDenied: React.FC<AccessDeniedProps> = ({ moduleName, onGoHome, goHomeLabel }) => (
   <div className="workspace" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '320px', gap: 'var(--spacing-4)', textAlign: 'center' }}>
     <ShieldOff size={48} style={{ color: 'var(--color-warning)' }} />
     <h2 style={{ margin: 0 }}>غير مصرح بالوصول</h2>
@@ -18,7 +19,7 @@ export const AccessDenied: React.FC<AccessDeniedProps> = ({ moduleName, onGoHome
     </p>
     {onGoHome && (
       <Button variant="primary" onClick={onGoHome}>
-        العودة للصفحة الرئيسية
+        {goHomeLabel || 'العودة للصفحة الرئيسية'}
       </Button>
     )}
   </div>

@@ -18,11 +18,11 @@ import { api } from '../../core/api/endpoints';
 import SaleBatchAllocationsPanel from '../../components/sales/SaleBatchAllocationsPanel';
 import { formatMoney } from '../../core/utils/money';
 import { 
-  Search, User, UserCheck, 
+  Search, User, UserCheck,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Printer, FileText, Share2, Trash2, ArrowLeftRight,
   Sparkles, AlertTriangle, Clock,
-  Download, Send
+  Download, Send, Copy
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -87,6 +87,7 @@ export const InvoiceReview: React.FC = () => {
   // When true, the refund modal is being used as the "return" leg of an item exchange —
   // on success we redirect to POS instead of just closing, so the cashier can ring up replacements.
   const [exchangeMode, setExchangeMode] = useState(false);
+  const [isCopyingImage, setIsCopyingImage] = useState(false);
 
   const localDateStr = (d: Date) => {
     const y = d.getFullYear();
@@ -450,6 +451,75 @@ export const InvoiceReview: React.FC = () => {
     );
   };
 
+  const copyInvoiceAsImage = async () => {
+    if (!selectedSale || !selectedInvoiceHtml || isCopyingImage) return;
+    setIsCopyingImage(true);
+    try {
+      const electronAPI = (window as any).electronAPI;
+      const fileName = `Invoice-${selectedSale.saleNumber}.png`;
+
+      // Desktop app: native Electron capture — renders in an offscreen window and
+      // writes straight to the OS clipboard (same path already used for WhatsApp sharing).
+      if (electronAPI?.captureInvoiceImage) {
+        const result = await electronAPI.captureInvoiceImage(selectedInvoiceHtml, fileName);
+        if (result?.success) {
+          addNotification('FINANCE', 'تم نسخ صورة الفاتورة', `يمكنك الآن لصقها في واتساب أو أي تطبيق آخر — فاتورة ${selectedSale.saleNumber}.`);
+        } else {
+          addNotification('WARNINGS', 'فشل نسخ صورة الفاتورة', result?.error || 'خطأ غير معروف');
+        }
+        return;
+      }
+
+      // Browser fallback (no Electron bridge): rasterize the invoice HTML client-side
+      // and use the browser's Clipboard API.
+      const { default: html2canvas } = await import('html2canvas');
+      const renderFrame = document.createElement('iframe');
+      renderFrame.style.position = 'fixed';
+      renderFrame.style.top = '0';
+      renderFrame.style.left = '-10000px';
+      renderFrame.style.width = '800px';
+      renderFrame.style.height = '1131px';
+      renderFrame.style.border = 'none';
+      document.body.appendChild(renderFrame);
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          renderFrame.onload = () => resolve();
+          renderFrame.srcdoc = selectedInvoiceHtml;
+          setTimeout(() => reject(new Error('انتهت مهلة تجهيز معاينة الفاتورة')), 10000);
+        });
+
+        const frameDoc = renderFrame.contentDocument;
+        if (!frameDoc?.body) throw new Error('تعذر تجهيز معاينة الفاتورة');
+
+        const canvas = await html2canvas(frameDoc.body, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+        const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        if (!blob) throw new Error('تعذر إنشاء صورة الفاتورة');
+
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          addNotification('FINANCE', 'تم نسخ صورة الفاتورة', `يمكنك الآن لصقها في واتساب أو أي تطبيق آخر — فاتورة ${selectedSale.saleNumber}.`);
+        } catch (clipboardErr) {
+          console.error('Clipboard write failed, falling back to download:', clipboardErr);
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName;
+          link.click();
+          URL.revokeObjectURL(url);
+          addNotification('WARNINGS', 'تعذر النسخ للحافظة', 'تم تنزيل صورة الفاتورة بدلاً من ذلك.');
+        }
+      } finally {
+        document.body.removeChild(renderFrame);
+      }
+    } catch (e) {
+      console.error('Copy invoice image error:', e);
+      addNotification('WARNINGS', 'فشل نسخ صورة الفاتورة', e instanceof Error ? e.message : 'خطأ غير معروف');
+    } finally {
+      setIsCopyingImage(false);
+    }
+  };
+
   const handleShare = (type: 'WHATSAPP' | 'EMAIL') => {
     if (!selectedSale) return;
     setShareType(type);
@@ -491,7 +561,7 @@ export const InvoiceReview: React.FC = () => {
       .join('\n');
   };
 
-  const handleConfirmShare = () => {
+  const handleConfirmShare = async () => {
     if (!selectedSale) return;
 
     if (shareType === 'WHATSAPP') {
@@ -500,6 +570,39 @@ export const InvoiceReview: React.FC = () => {
         addNotification('WARNINGS', 'رقم واتساب غير صالح', 'يرجى إدخال رقم هاتف صحيح لإرسال الفاتورة عبر واتساب.');
         return;
       }
+
+      const electronAPI = (window as any).electronAPI;
+      if (electronAPI?.captureInvoiceImage && selectedInvoiceHtml) {
+        try {
+          const fileName = `Invoice-${selectedSale.saleNumber}.png`;
+          const result = await electronAPI.captureInvoiceImage(selectedInvoiceHtml, fileName);
+          if (result?.success) {
+            window.open(`https://wa.me/${number}`, '_blank', 'noopener,noreferrer');
+            addNotification(
+              'FINANCE',
+              'مشاركة عبر واتساب',
+              `تم نسخ صورة الفاتورة ${selectedSale.saleNumber} إلى الحافظة. افتح المحادثة مع ${shareInput} في واتساب واضغط Ctrl+V داخل مربع الكتابة ثم أرسل. تم أيضاً حفظ نسخة من الصورة في: ${result.filePath}`
+            );
+          } else {
+            addNotification(
+              'WARNINGS',
+              'تعذر إنشاء صورة الفاتورة',
+              `حدث خطأ أثناء إنشاء صورة الفاتورة: ${result?.error || 'خطأ غير معروف'}`
+            );
+          }
+        } catch (err) {
+          addNotification(
+            'WARNINGS',
+            'تعذر إنشاء صورة الفاتورة',
+            `حدث خطأ أثناء إنشاء صورة الفاتورة: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`
+          );
+        }
+        setShowShareModal(false);
+        return;
+      }
+
+      // Browser fallback (no Electron bridge): there's no reliable way to attach an
+      // image via a wa.me link outside the desktop app, so fall back to a text summary.
       const url = `https://wa.me/${number}?text=${encodeURIComponent(buildWhatsAppMessage())}`;
       window.open(url, '_blank', 'noopener,noreferrer');
       addNotification(
@@ -1053,11 +1156,11 @@ export const InvoiceReview: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               
               {/* Toolbar & Actions */}
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(5, 1fr)', 
-                gap: '4px', 
-                borderBottom: '1px solid var(--color-border)', 
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(6, 1fr)',
+                gap: '4px',
+                borderBottom: '1px solid var(--color-border)',
                 paddingBottom: 'var(--spacing-2)',
                 marginBottom: 'var(--spacing-2)'
               }}>
@@ -1073,6 +1176,15 @@ export const InvoiceReview: React.FC = () => {
                 )}
                 <button onClick={handleDownloadPDF} className="btn-secondary" style={{ padding: '4px', fontSize: '10px' }} title="تنزيل PDF">
                   <Download size={12} /> PDF
+                </button>
+                <button
+                  onClick={copyInvoiceAsImage}
+                  disabled={isCopyingImage}
+                  className="btn-secondary"
+                  style={{ padding: '4px', fontSize: '10px', opacity: isCopyingImage ? 0.6 : 1 }}
+                  title="نسخ صورة الفاتورة للحافظة (لصقها في واتساب مثلاً)"
+                >
+                  <Copy size={12} /> {isCopyingImage ? '...' : 'نسخ صورة'}
                 </button>
                 <button onClick={() => handleShare('WHATSAPP')} className="btn-secondary" style={{ padding: '4px', fontSize: '10px' }} title="واتساب">
                   <Share2 size={12} /> واتساب
@@ -1198,8 +1310,8 @@ export const InvoiceReview: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            {shareType === 'WHATSAPP' 
-              ? 'أدخل رقم هاتف العميل متضمناً رمز الدولة لإرسال الفاتورة عبر الواتساب تلقائياً.' 
+            {shareType === 'WHATSAPP'
+              ? 'أدخل رقم هاتف العميل متضمناً رمز الدولة. سيتم إنشاء صورة كاملة للفاتورة ونسخها للحافظة، وفتح واتساب على هذا الرقم — فقط الصق الصورة (Ctrl+V) داخل المحادثة ثم أرسل.'
               : 'أدخل البريد الإلكتروني للعميل لإرسال نسخة PDF من الفاتورة.'}
           </p>
           <Input

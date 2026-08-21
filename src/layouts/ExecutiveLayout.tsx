@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users, 
   Scissors, DollarSign, BarChart3, Brain, 
   Dog, UserCheck, LogOut,
-  Sun, Moon, FileText, RotateCcw, Shield
+  Sun, Moon, FileText, RotateCcw, Shield, Gift
 } from 'lucide-react';
 import { usePermissions } from '../core/permissions/usePermissions';
 import { usePermissionStore } from '../core/permissions/permissionStore';
@@ -55,7 +55,8 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
         { id: 'dashboard-executive', name: 'التقرير التنفيذي', icon: <LayoutDashboard size={18} /> },
         { id: 'dashboard-financial', name: 'التقرير المالي', icon: <DollarSign size={18} /> },
         { id: 'dashboard-inventory', name: 'تقرير المخزون والمنتجات', icon: <Package size={18} /> },
-        { id: 'dashboard-operations', name: 'التقرير التشغيلي', icon: <BarChart3 size={18} /> }
+        { id: 'dashboard-operations', name: 'التقرير التشغيلي', icon: <BarChart3 size={18} /> },
+        { id: 'loyalty-dashboard', name: 'لوحة تحكم الولاء', icon: <Gift size={18} /> }
       ]
     },
     {

@@ -6,6 +6,7 @@ import {
   useDeleteExpense,
   useSales,
   useKPIMetrics,
+  usePurchaseInvoices,
 } from '../../core/hooks/useERPData';
 import {
   PlusCircle,
@@ -22,6 +23,7 @@ import {
   CreditCard,
   Wallet,
   TrendingUp,
+  Truck,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
@@ -34,6 +36,8 @@ import { formatMoney } from '../../core/utils/money';
 import AccountsPayablePanel from './AccountsPayablePanel';
 import Can from '../../components/ui/Can';
 import { PERMISSIONS } from '../../core/permissions/permissions';
+import { usePermissions } from '../../core/permissions/usePermissions';
+import { hasRestrictedSalesScope } from '../../core/permissions/salesAuth';
 
 type FinancialEntry = {
   id: string;
@@ -45,12 +49,19 @@ type FinancialEntry = {
   paymentMethod: 'CASH' | 'BANK' | 'INSTAPAY' | 'VODAFONE_CASH';
   user: string;
   referenceId?: string;
+  /** Inventory/supplier payments move real cash but must not double-count COGS
+   * (already deducted from profit at sale time) — so they're excluded from
+   * the realized-profit calc while still hitting cash balances below. */
+  excludeFromProfit?: boolean;
 };
 
 export const Finance: React.FC = () => {
+  const { hasPermission } = usePermissions();
+  const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
   const { data: expenses = [], isLoading: loadingExpenses } = useExpenses();
   const { data: closings = [], isLoading: loadingClosings } = useDailyClosings();
   const { data: salesPage } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
+  const { data: purchaseInvoices = [] } = usePurchaseInvoices();
   const { data: kpis } = useKPIMetrics();
   const { mutate: logExpense, isPending: logging } = useAddExpense();
   const { mutate: deleteExpense } = useDeleteExpense();
@@ -122,9 +133,39 @@ export const Finance: React.FC = () => {
       });
     });
 
+    // 3. Add Supplier Payments (Money OUT / سداد فواتير الشراء) — hits cash
+    // balances like any outflow, but excluded from profit: the cost of this
+    // inventory is already deducted from profit as COGS when it's sold, so
+    // counting it again here as an "expense" would double-subtract it.
+    purchaseInvoices.forEach((inv) => {
+      (inv.installments || []).forEach((inst) => {
+        const paid = Number(inst.paidAmount) || 0;
+        if (paid <= 0) return;
+
+        let method: FinancialEntry['paymentMethod'] = 'CASH';
+        const notes = inst.notes || '';
+        if (notes.includes('تحويل بنكي')) method = 'BANK';
+        else if (notes.includes('إنستاباي')) method = 'INSTAPAY';
+        else if (notes.includes('فودافون')) method = 'VODAFONE_CASH';
+
+        entries.push({
+          id: `supplier-pay-${inst.id}`,
+          date: inst.paidAt || inv.invoiceDate || new Date().toISOString(),
+          type: 'OUT',
+          category: 'سداد فاتورة مورد',
+          description: `${inv.supplierName} — فاتورة ${inv.invoiceNumber}${inst.notes ? ` (${inst.notes})` : ''}`,
+          amount: paid,
+          paymentMethod: method,
+          user: 'حسابات الموردين',
+          referenceId: inv.id,
+          excludeFromProfit: true,
+        });
+      });
+    });
+
     // Sort descending by date
     return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sales, expenses]);
+  }, [sales, expenses, purchaseInvoices]);
 
   // Filtered Ledger
   const filteredLedger = useMemo(() => {
@@ -135,10 +176,19 @@ export const Finance: React.FC = () => {
     });
   }, [masterLedger, ledgerTypeFilter, ledgerMethodFilter]);
 
+  // Cashiers must not be able to browse individual invoices here - only the owner/manager
+  // "view employees" permission unlocks the itemized ledger; totals above stay accurate
+  // because `metrics` is derived from the unfiltered masterLedger, not this view.
+  const visibleLedger = useMemo(() => {
+    if (!restrictedSalesScope) return filteredLedger;
+    return filteredLedger.filter((entry) => !entry.id.startsWith('sale-'));
+  }, [filteredLedger, restrictedSalesScope]);
+
   // Aggregated Financial Metrics
   const metrics = useMemo(() => {
     let totalIn = 0;
     let totalOut = 0;
+    let profitReducingOut = 0; // OUT total minus supplier payments — COGS already covers those at sale time
     let cashInDrawer = 0;
     let bankTotal = 0;
     let instapayTotal = 0;
@@ -153,6 +203,7 @@ export const Finance: React.FC = () => {
         else if (entry.paymentMethod === 'VODAFONE_CASH') vodafoneTotal += entry.amount;
       } else {
         totalOut += entry.amount;
+        if (!entry.excludeFromProfit) profitReducingOut += entry.amount;
         if (entry.paymentMethod === 'CASH') cashInDrawer -= entry.amount;
         else if (entry.paymentMethod === 'BANK') bankTotal -= entry.amount;
         else if (entry.paymentMethod === 'INSTAPAY') instapayTotal -= entry.amount;
@@ -161,7 +212,7 @@ export const Finance: React.FC = () => {
     });
 
     const netCashFlow = totalIn - totalOut;
-    const realizedNetProfit = kpis?.netProfit ?? (totalIn - (kpis?.cogs || 0) - totalOut);
+    const realizedNetProfit = kpis?.netProfit ?? (totalIn - (kpis?.cogs || 0) - profitReducingOut);
 
     return {
       totalIn,
@@ -174,6 +225,18 @@ export const Finance: React.FC = () => {
       vodafoneTotal,
     };
   }, [masterLedger, kpis]);
+
+  // Delivery orders — count + fees collected (fully refunded sales don't count as money in)
+  const deliveryMetrics = useMemo(() => {
+    let deliveryOrdersCount = 0;
+    let deliveryFeesTotal = 0;
+    sales.forEach((s) => {
+      if (!s.delivery || s.status === 'REFUNDED') return;
+      deliveryOrdersCount += 1;
+      deliveryFeesTotal += Number(s.deliveryFee) || 0;
+    });
+    return { deliveryOrdersCount, deliveryFeesTotal };
+  }, [sales]);
 
   const handleRecordExpense = () => {
     const amount = parseFloat(expAmount) || 0;
@@ -206,7 +269,7 @@ export const Finance: React.FC = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const rowsHtml = filteredLedger
+    const rowsHtml = visibleLedger
       .slice(0, 300)
       .map(
         (entry) => `
@@ -251,7 +314,7 @@ export const Finance: React.FC = () => {
         </head>
         <body>
           <h2>تقرير التدفقات المالية وتفاصيل الدخل والخرج (360°)</h2>
-          <div class="header-info">تاريخ التقرير: ${new Date().toLocaleString('ar-EG')} — إجمالي الحركات المسجلة: ${filteredLedger.length}</div>
+          <div class="header-info">تاريخ التقرير: ${new Date().toLocaleString('ar-EG')} — إجمالي الحركات المسجلة: ${visibleLedger.length}</div>
           
           <div class="summary-cards">
             <div class="card">
@@ -427,6 +490,11 @@ export const Finance: React.FC = () => {
       header: 'إجمالي المبيعات',
       accessor: (row: any) => formatMoney(row.totalSales || 0),
       key: 'totalSales',
+    },
+    {
+      header: 'التوصيل',
+      accessor: (row: any) => `${formatMoney(row.deliveryFeesTotal || 0)} (${row.deliveryOrdersCount || 0})`,
+      key: 'deliveryFeesTotal',
     },
     {
       header: 'إجمالي المتوقع بالنظام (ج.م)',
@@ -635,6 +703,41 @@ export const Finance: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--spacing-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(139, 92, 246, 0.15)',
+              color: '#8B5CF6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Truck size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              طلبات الدليفري ({deliveryMetrics.deliveryOrdersCount}) — رسوم التوصيل
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#8B5CF6' }}>
+              {formatMoney(deliveryMetrics.deliveryFeesTotal)}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Navigation Sub-Tabs */}
@@ -758,8 +861,20 @@ export const Finance: React.FC = () => {
               </div>
             </div>
 
+            {restrictedSalesScope && (
+              <div style={{
+                padding: 'var(--spacing-2) var(--spacing-3)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px dashed var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+              }}>
+                لأسباب الأمان والسرية، تفاصيل فواتير المبيعات الفردية لا تظهر هنا. لإرجاع أو مراجعة فاتورة معينة، افتح شاشة "الفواتير" واكتب أو امسح رقم الفاتورة.
+              </div>
+            )}
             <DataTable
-              data={filteredLedger}
+              data={visibleLedger}
               columns={masterLedgerColumns}
               rowKey="id"
               searchField="description"

@@ -130,6 +130,94 @@ export interface Pet {
   age: number;
 }
 
+/** Upcoming/DueSoon/DueToday/Overdue are always computed from the due date; Completed is stored. */
+export type FollowUpStatus = 'UPCOMING' | 'DUE_SOON' | 'DUE_TODAY' | 'OVERDUE' | 'COMPLETED';
+
+export interface VaccinationRecord {
+  id: string;
+  petId: string;
+  petName: string;
+  ownerId?: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  vaccineName: string;
+  /** Recurrence in months; null/undefined means one-time. */
+  intervalMonths?: number | null;
+  lastAdministeredDate?: string | null;
+  nextDueDate?: string | null;
+  notes?: string;
+  status: FollowUpStatus;
+  /** Null when status is COMPLETED (no active next-due-date). */
+  daysUntilDue?: number | null;
+  createdByName?: string;
+  createdAt?: string;
+}
+
+export interface VaccinationHistoryEntry {
+  id: string;
+  vaccinationRecordId: string;
+  petId: string;
+  vaccineName: string;
+  administeredDate: string;
+  administeredByName?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface AnimalReminder {
+  id: string;
+  petId: string;
+  petName: string;
+  ownerId?: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  title: string;
+  description?: string;
+  dueDate: string;
+  status: FollowUpStatus;
+  daysUntilDue?: number | null;
+  createdByName?: string;
+  completedByName?: string;
+  createdAt?: string;
+  completedAt?: string;
+}
+
+export interface AnimalFollowUpDashboard {
+  dueSoonThresholdDays: number;
+  vaccinationsDueSoon: VaccinationRecord[];
+  vaccinationsOverdue: VaccinationRecord[];
+  remindersOverdue: AnimalReminder[];
+  remindersDueToday: AnimalReminder[];
+  remindersDueThisWeek: AnimalReminder[];
+  vaccinationsDueSoonCount: number;
+  vaccinationsOverdueCount: number;
+  remindersOverdueCount: number;
+  remindersDueTodayCount: number;
+  remindersDueThisWeekCount: number;
+}
+
+export interface PetOwnerSummary {
+  id: string;
+  name: string;
+  phone?: string;
+}
+
+export interface PetFollowUpView {
+  petId: string;
+  petName: string;
+  owner?: PetOwnerSummary;
+  vaccinations: VaccinationRecord[];
+  reminders: AnimalReminder[];
+}
+
+export interface PetFollowUpSummary {
+  petId: string;
+  overdueCount: number;
+  dueSoonCount: number;
+  nextDueDate?: string | null;
+  nextItemTitle?: string;
+}
+
 export interface Service {
   id: string;
   name: string;
@@ -173,6 +261,8 @@ export interface DailyClosing {
   instapaySalesTotal?: number;
   vodafoneSalesTotal?: number;
   totalSales?: number;
+  deliveryOrdersCount?: number;
+  deliveryFeesTotal?: number;
 }
 
 export interface POSSession {
@@ -214,13 +304,92 @@ export interface Sale {
   totalAmount: number;
   tax: number;
   discount: number;
-  paymentMethod: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH';
+  paymentMethod: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH' | 'SPLIT';
   employeeId: string;
   employeeFullName?: string;
   customerId?: string;
   date: string;
   status?: 'COMPLETED' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
   items: SaleItem[];
+  /** Tender breakdown: one entry for a normal sale, two when paymentMethod is 'SPLIT'. */
+  payments?: { method: string; amount: number }[];
+  delivery?: boolean;
+  deliveryFee?: number;
+  /** Loyalty balance credited from this sale. */
+  loyaltyEarned?: number;
+  /** Loyalty balance spent as payment on this sale. */
+  loyaltyRedeemed?: number;
+}
+
+export interface LoyaltyAccount {
+  customerId: string;
+  tenantId: string;
+  balance: number;
+  updatedAt?: string;
+}
+
+export type LoyaltyLedgerType = 'EARNED' | 'USED' | 'RETURN_REVERSAL' | 'MANUAL_ADJUSTMENT' | 'EXPIRED';
+
+export interface LoyaltyLedgerEntry {
+  id: string;
+  customerId: string;
+  saleId?: string;
+  saleNumber?: string;
+  employeeId?: string;
+  employeeName?: string;
+  type: LoyaltyLedgerType;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  note?: string;
+  relatedEntryId?: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
+export interface LoyaltySettings {
+  tenantId: string;
+  enabled: boolean;
+  programOpen: boolean;
+  earnRatePercent: number;
+  maxUsagePercent?: number;
+  maxUsageAmount?: number;
+  eligibleCategoryIds: string[];
+  excludedCategoryIds: string[];
+  eligibleProductIds: string[];
+  excludedProductIds: string[];
+  expirationEnabled: boolean;
+  expirationMonths?: number;
+}
+
+export interface LoyaltyLedgerPage {
+  content: LoyaltyLedgerEntry[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+}
+
+export interface LoyaltyCustomerBalance {
+  customerId: string;
+  name: string;
+  phone?: string;
+  balance: number;
+}
+
+export interface LoyaltyDashboardResponse {
+  /** Sum of every customer's current balance — what would be owed if all points were redeemed today. */
+  totalOutstandingLiability: number;
+  /** All-time value credited to customers via checkout earning. */
+  totalEarned: number;
+  /** All-time value actually redeemed at checkout — the real cost already paid out. */
+  totalRedeemed: number;
+  /** All-time earned value that expired unused. */
+  totalExpired: number;
+  totalReturnReversals: number;
+  totalManualAdjustments: number;
+  activeCustomersCount: number;
+  customers: LoyaltyCustomerBalance[];
 }
 
 export interface SalesQueryParams {
@@ -343,8 +512,9 @@ export interface PurchaseInvoice {
   uploadedAt: string;
   uploadedBy: string;
   imageUrl?: string;
-  status: 'DRAFT' | 'COMPLETED';
-  dueDate?: string;
+  status: 'DRAFT' | 'COMPLETED' | 'PARTIALLY_RETURNED' | 'RETURNED';
+  /** Null/undefined means open-ended — payable any time, no forced deadline. */
+  dueDate?: string | null;
   paymentType?: 'LUMP_SUM' | 'INSTALLMENTS';
   paymentStatus?: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
   paidAmount?: number;
@@ -360,7 +530,8 @@ export interface PurchaseInvoiceInstallment {
   supplierId?: string;
   supplierName?: string;
   installmentNumber: number;
-  dueDate: string;
+  /** Null/undefined means open-ended — payable any time, no forced deadline. */
+  dueDate?: string | null;
   amount: number;
   paidAmount: number;
   remainingAmount?: number;
@@ -405,6 +576,7 @@ export interface PurchaseInvoiceItem {
   cost: number;
   price: number;
   quantity: number;
+  quantityReturned?: number;
   confidenceName?: number;
   confidenceQty?: number;
   confidenceCost?: number;
@@ -426,12 +598,23 @@ export interface PurchaseInvoiceCreateResponse {
   warnings: PurchaseLineReceiptWarning[];
 }
 
+export interface PurchaseReturnResult {
+  invoice: PurchaseInvoice;
+  returnedAmount: number;
+  /** Money the supplier now owes back — the invoice balance couldn't absorb the whole return. */
+  excessCredit: number;
+  fullReturn: boolean;
+  linesProcessed?: Array<{ purchaseInvoiceItemId: string; quantity: number }>;
+}
+
 export interface SaleRefundResult {
   sale: Sale;
   refundAmount: number;
   cogsReversed: number;
   fullRefund: boolean;
   linesProcessed?: Array<{ saleItemId: string; quantity: number }>;
+  /** How much of this refund goes back to each original tender (cash/card/...). */
+  refundBreakdown?: { method: string; amount: number }[];
 }
 
 export interface SaleBatchAllocationRow {

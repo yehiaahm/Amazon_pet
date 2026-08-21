@@ -14,6 +14,7 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import DataTable from '../../components/ui/DataTable';
 import Input from '../../components/ui/Input';
+import DatePicker from '../../components/ui/DatePicker';
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import { formatMoney } from '../../core/utils/money';
@@ -132,6 +133,7 @@ const AccountsPayablePanel: React.FC = () => {
     if (item.overdue) return <Badge variant="danger">متأخرة ({Math.abs(item.daysUntilDue ?? 0)} يوم)</Badge>;
     if (item.dueSoon) return <Badge variant="warning">مستحقة قريباً ({item.daysUntilDue} يوم)</Badge>;
     if (item.status === 'PARTIALLY_PAID') return <Badge variant="info">مدفوعة جزئياً</Badge>;
+    if (!item.dueDate) return <Badge variant="gray">مفتوحة — ادفع وقت ما تحب</Badge>;
     return <Badge variant="gray">معلقة</Badge>;
   };
 
@@ -156,7 +158,8 @@ const AccountsPayablePanel: React.FC = () => {
     },
     {
       header: 'تاريخ الاستحقاق',
-      accessor: (row: PurchaseInvoiceInstallment) => new Date(row.dueDate).toLocaleDateString('ar-EG'),
+      accessor: (row: PurchaseInvoiceInstallment) =>
+        row.dueDate ? new Date(row.dueDate).toLocaleDateString('ar-EG') : 'مفتوح — بدون موعد محدد',
       key: 'dueDate',
       sortable: true,
     },
@@ -433,13 +436,12 @@ const AccountsPayablePanel: React.FC = () => {
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--color-border)',
               }}>
-                <Input
+                <DatePicker
                   label={`دفعة ${idx + 1} — تاريخ الاستحقاق`}
-                  type="date"
                   value={draft.dueDate}
-                  onChange={(e) => {
+                  onChange={(v) => {
                     const next = [...installmentDrafts];
-                    next[idx] = { ...next[idx], dueDate: e.target.value };
+                    next[idx] = { ...next[idx], dueDate: v };
                     setInstallmentDrafts(next);
                   }}
                 />

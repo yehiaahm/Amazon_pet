@@ -3,14 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '../../core/stores/cartStore';
 import { useSessionStore } from '../../core/stores/sessionStore';
 import { useUIStore } from '../../core/stores/uiStore';
-import { 
-  useVariants, useProducts, useServices, 
+import {
+  useVariants, useProducts, useServices,
   useCustomers, useCreateSale, useSales, useRefundSale, useAddCustomer,
-  useExpenses
+  useExpenses, useLoyaltyAccount, useLoyaltySettings, useSetLoyaltyProgramOpen
 } from '../../core/hooks/useERPData';
-import { 
+import {
   Search, Trash2, ShoppingCart,
-  UserPlus, DollarSign, CreditCard, Smartphone, Printer, Mic, MicOff, AlertTriangle
+  UserPlus, DollarSign, CreditCard, Smartphone, Printer, Mic, MicOff, AlertTriangle, Truck
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -18,6 +18,7 @@ import Input from '../../components/ui/Input';
 import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
 import { formatMoney } from '../../core/utils/money';
+import { levenshteinDistance } from '../../core/utils/productMatcher';
 import {
   getSpeechRecognitionCtor,
   matchSpokenCatalog,
@@ -85,18 +86,28 @@ export const POS: React.FC = () => {
   const discountPercent = useCartStore(s => s.discountPercent);
   const setDiscountPercent = useCartStore(s => s.setDiscountPercent);
   const setLoyaltyPercent = useCartStore(s => s.setLoyaltyPercent);
+  const loyaltyRedeemAmount = useCartStore(s => s.loyaltyRedeemAmount);
+  const setLoyaltyRedeemAmount = useCartStore(s => s.setLoyaltyRedeemAmount);
   const paymentMethod = useCartStore(s => s.paymentMethod);
   const setPaymentMethod = useCartStore(s => s.setPaymentMethod);
+  const isSplitPayment = useCartStore(s => s.isSplitPayment);
+  const setSplitPaymentEnabled = useCartStore(s => s.setSplitPaymentEnabled);
+  const splitPayments = useCartStore(s => s.splitPayments);
+  const setSplitPaymentLine = useCartStore(s => s.setSplitPaymentLine);
   const clearCart = useCartStore(s => s.clearCart);
   const getTotals = useCartStore(s => s.getTotals);
   const belowMinManagerPassword = useCartStore(s => s.belowMinManagerPassword);
   const setBelowMinManagerPassword = useCartStore(s => s.setBelowMinManagerPassword);
+  const isDelivery = useCartStore(s => s.isDelivery);
+  const setIsDelivery = useCartStore(s => s.setIsDelivery);
+  const deliveryFee = useCartStore(s => s.deliveryFee);
+  const setDeliveryFee = useCartStore(s => s.setDeliveryFee);
 
   const checkoutIdempotencyKeyRef = useRef(crypto.randomUUID());
 
   useEffect(() => {
     checkoutIdempotencyKeyRef.current = crypto.randomUUID();
-  }, [cartItems, customerId, paymentMethod, discountPercent]);
+  }, [cartItems, customerId, paymentMethod, isSplitPayment, splitPayments, discountPercent, isDelivery, deliveryFee, loyaltyRedeemAmount]);
 
   // Queries & Mutations
   const { data: products } = useProducts();
@@ -104,6 +115,11 @@ export const POS: React.FC = () => {
   const { data: services } = useServices();
   const { data: customers } = useCustomers();
   const { data: expenses } = useExpenses();
+  const { data: loyaltySettings } = useLoyaltySettings();
+  const { data: loyaltyAccount } = useLoyaltyAccount(customerId || null);
+  const { mutate: toggleLoyaltyProgram, isPending: togglingLoyaltyProgram } = useSetLoyaltyProgramOpen();
+  const canManageLoyalty = hasPermission(PERMISSIONS.CUSTOMERS_LOYALTY);
+  const loyaltyBalance = loyaltyAccount?.balance ?? 0;
   const { mutate: executeSale, isPending: checkingOut } = useCreateSale();
   const { data: salesPage } = useSales({
     page: 0,
@@ -165,6 +181,7 @@ export const POS: React.FC = () => {
   const [visibleInvoicesLimit, setVisibleInvoicesLimit] = useState(10);
   const [refundTarget, setRefundTarget] = useState<any | null>(null);
   const [refundQuantities, setRefundQuantities] = useState<Record<string, number>>({});
+  const [isCopyingReceiptImage, setIsCopyingReceiptImage] = useState(false);
 
   const { data: receiptBatchAllocations } = useQuery({
     queryKey: ['saleBatchAllocations', activeReceipt?.id],
@@ -213,6 +230,8 @@ export const POS: React.FC = () => {
     let instapaySalesTotal = 0;
     let vodafoneSalesTotal = 0;
     let otherSalesTotal = 0;
+    let deliveryOrdersCount = 0;
+    let deliveryFeesTotal = 0;
 
     const getNetSaleAmount = (sale: any) => {
       if (sale.status === 'REFUNDED') return 0;
@@ -242,14 +261,32 @@ export const POS: React.FC = () => {
       return retainedSubtotal - retainedDiscount + retainedTax;
     };
 
+    const addToBucket = (method: string, amount: number) => {
+      if (method === 'CASH') cashSalesTotal += amount;
+      else if (method === 'CARD') cardSalesTotal += amount;
+      else if (method === 'INSTAPAY') instapaySalesTotal += amount;
+      else if (method === 'VODAFONE_CASH') vodafoneSalesTotal += amount;
+      else otherSalesTotal += amount;
+    };
+
     (sales || []).forEach(sale => {
       if (sale.posSessionId === activeSession.id && sale.status !== 'REFUNDED') {
         const amt = getNetSaleAmount(sale);
-        if (sale.paymentMethod === 'CASH') cashSalesTotal += amt;
-        else if (sale.paymentMethod === 'CARD') cardSalesTotal += amt;
-        else if (sale.paymentMethod === 'INSTAPAY') instapaySalesTotal += amt;
-        else if (sale.paymentMethod === 'VODAFONE_CASH') vodafoneSalesTotal += amt;
-        else otherSalesTotal += amt;
+
+        if (sale.paymentMethod === 'SPLIT' && Array.isArray(sale.payments) && sale.payments.length > 0) {
+          const saleTotal = Number(sale.totalAmount) || 0;
+          const retainedRatio = saleTotal > 0 ? amt / saleTotal : 0;
+          sale.payments.forEach((payment: any) => {
+            addToBucket(payment.method, (Number(payment.amount) || 0) * retainedRatio);
+          });
+        } else {
+          addToBucket(sale.paymentMethod, amt);
+        }
+
+        if (sale.delivery) {
+          deliveryOrdersCount += 1;
+          deliveryFeesTotal += Number(sale.deliveryFee) || 0;
+        }
       }
     });
 
@@ -277,6 +314,8 @@ export const POS: React.FC = () => {
       cashRefundsTotal,
       cashExpensesTotal,
       expectedCashBalance,
+      deliveryOrdersCount,
+      deliveryFeesTotal,
     };
   }, [activeSession, sales, expenses]);
 
@@ -285,8 +324,12 @@ export const POS: React.FC = () => {
     setVisibleInvoicesLimit(10);
   }, [searchQuery]);
 
-  const filteredSalesInPOS = useMemo(() => {
-    if (!sales) return [];
+  // How many characters an invoice number search is allowed to be "off by"
+  // (typos or a missing character) before we give up and refuse to guess.
+  const FUZZY_INVOICE_MAX_DISTANCE = 2;
+
+  const invoiceSearchResult = useMemo(() => {
+    if (!sales) return { list: [], fuzzy: false };
     let list = [...sales].reverse();
 
     // Restricted sales scope: own invoices from today only
@@ -300,16 +343,31 @@ export const POS: React.FC = () => {
       });
     }
 
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase().trim();
-      list = list.filter(s => 
-        s.saleNumber.toLowerCase().includes(q) ||
-        (customers?.find(c => c.id === s.customerId)?.name || '').toLowerCase().includes(q) ||
-        (customers?.find(c => c.id === s.customerId)?.phone || '').includes(q)
-      );
+    if (debouncedSearchQuery) {
+      const q = debouncedSearchQuery.toLowerCase().trim();
+      if (restrictedSalesScope) {
+        // Cashier must type/scan the exact invoice number - no browsing by
+        // customer name/phone, which would otherwise list multiple invoices.
+        const exact = list.filter(s => s.saleNumber.toLowerCase() === q);
+        if (exact.length > 0) return { list: exact, fuzzy: false };
+
+        // Allow for a small typo (1-2 characters off/missing). If more than
+        // one invoice is that close, it's too ambiguous to guess - refuse
+        // both rather than risk opening the wrong customer's invoice.
+        const close = list.filter(s => levenshteinDistance(s.saleNumber.toLowerCase(), q) <= FUZZY_INVOICE_MAX_DISTANCE);
+        return close.length === 1 ? { list: close, fuzzy: true } : { list: [], fuzzy: false };
+      } else {
+        list = list.filter(s =>
+          s.saleNumber.toLowerCase().includes(q) ||
+          (customers?.find(c => c.id === s.customerId)?.name || '').toLowerCase().includes(q) ||
+          (customers?.find(c => c.id === s.customerId)?.phone || '').includes(q)
+        );
+      }
     }
-    return list;
-  }, [sales, searchQuery, customers, currentEmployee, restrictedSalesScope]);
+    return { list, fuzzy: false };
+  }, [sales, debouncedSearchQuery, customers, currentEmployee, restrictedSalesScope]);
+
+  const filteredSalesInPOS = invoiceSearchResult.list;
 
   // Invoice navigation helpers inside POS Receipt Modal
   const activeReceiptIndex = useMemo(() => {
@@ -445,6 +503,65 @@ export const POS: React.FC = () => {
     );
   }, [activeReceipt, customers, currentEmployee, variants, products, services]);
 
+  const copyReceiptAsImage = async () => {
+    if (!activeReceipt || !receiptPreviewHtml || isCopyingReceiptImage) return;
+    setIsCopyingReceiptImage(true);
+    let renderFrame: HTMLIFrameElement | null = null;
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+
+      // Render the branded invoice HTML off-screen at a fixed A4 width so the
+      // captured image looks the same regardless of the visible preview's size.
+      renderFrame = document.createElement('iframe');
+      renderFrame.style.position = 'fixed';
+      renderFrame.style.top = '0';
+      renderFrame.style.left = '-10000px';
+      renderFrame.style.width = '800px';
+      renderFrame.style.height = '1131px';
+      renderFrame.style.border = 'none';
+      document.body.appendChild(renderFrame);
+
+      await new Promise<void>((resolve, reject) => {
+        if (!renderFrame) return reject(new Error('تعذر تجهيز معاينة الفاتورة'));
+        renderFrame.onload = () => resolve();
+        renderFrame.srcdoc = receiptPreviewHtml;
+      });
+
+      const frameDoc = renderFrame.contentDocument;
+      if (!frameDoc?.body) throw new Error('تعذر تجهيز معاينة الفاتورة');
+
+      const canvas = await html2canvas(frameDoc.body, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      });
+
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('تعذر إنشاء صورة الفاتورة');
+
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        addNotification('FINANCE', 'تم نسخ صورة الفاتورة', `يمكنك الآن لصقها في واتساب أو أي تطبيق آخر — فاتورة ${activeReceipt.saleNumber}.`);
+      } catch (clipboardErr) {
+        // Clipboard image-write can be blocked by browser/OS permissions — fall back to a direct download.
+        console.error('Clipboard write failed, falling back to download:', clipboardErr);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `فاتورة-${activeReceipt.saleNumber}.png`;
+        link.click();
+        URL.revokeObjectURL(url);
+        addNotification('WARNINGS', 'تعذر النسخ للحافظة', 'تم تنزيل صورة الفاتورة بدلاً من ذلك.');
+      }
+    } catch (e) {
+      console.error('Copy receipt image error:', e);
+      addNotification('WARNINGS', 'فشل نسخ صورة الفاتورة', e instanceof Error ? e.message : 'خطأ غير معروف');
+    } finally {
+      if (renderFrame) document.body.removeChild(renderFrame);
+      setIsCopyingReceiptImage(false);
+    }
+  };
+
   const handleRequireManagerPriceApproval = (
     itemId: string,
     type: 'PRODUCT' | 'SERVICE',
@@ -477,6 +594,20 @@ export const POS: React.FC = () => {
 
   const executeCheckout = (managerPassword?: string) => {
     const totals = getTotals();
+
+    if (isSplitPayment) {
+      const [first, second] = splitPayments;
+      const sum = (first?.amount || 0) + (second?.amount || 0);
+      if (Math.abs(sum - totals.total) > 0.01) {
+        addNotification('WARNINGS', 'الدفع المقسم غير مكتمل', `مجموع طرق الدفع (${formatMoney(sum)}) لا يساوي إجمالي الفاتورة (${formatMoney(totals.total)}).`);
+        return;
+      }
+      if (!first?.method || !second?.method || first.method === second.method) {
+        addNotification('WARNINGS', 'طرق دفع غير صالحة', 'اختر طريقتي دفع مختلفتين للدفع المقسم.');
+        return;
+      }
+    }
+
     const resolvedManagerPassword = managerPassword || belowMinManagerPassword || undefined;
     const saleData = {
       idempotencyKey: checkoutIdempotencyKeyRef.current,
@@ -485,8 +616,12 @@ export const POS: React.FC = () => {
       tax: totals.tax,
       discount: totals.discount,
       paymentMethod,
+      ...(isSplitPayment ? { payments: splitPayments } : {}),
       employeeId: currentEmployee.id,
       customerId: customerId || undefined,
+      delivery: isDelivery,
+      deliveryFee: isDelivery ? totals.deliveryFee : 0,
+      loyaltyRedeem: totals.loyaltyRedeemed,
       items: cartItems.map((item) => ({
         ...item,
         listPrice: item.listPrice ?? item.price,
@@ -525,6 +660,7 @@ export const POS: React.FC = () => {
       addNotification('WARNINGS', 'عميل محظور', 'لا يمكن إتمام البيع لعميل محظور. تم إلغاء اختيار العميل.');
       setCustomerId('');
       setLoyaltyPercent(0);
+      setLoyaltyRedeemAmount(0);
       setCustSearchQuery('');
       return;
     }
@@ -606,6 +742,7 @@ export const POS: React.FC = () => {
           setCustomerId(newCust.id);
           setCustSearchQuery(`${newCust.name} (${newCust.phone})`);
           setLoyaltyPercent(Number(newCust.discount) || 0);
+          setLoyaltyRedeemAmount(0);
         }
         setShowAddCustomerModal(false);
         setNewCustName('');
@@ -1034,9 +1171,13 @@ export const POS: React.FC = () => {
               <Input
                 ref={searchInputRef}
                 placeholder={
-                  scanArmed
-                    ? 'جاهز للمسح — امسح الباركود أو اكتب الكود ثم Enter'
-                    : 'ابحث بالاسم… أو اضغط سلة المشتريات للمسح'
+                  selectedCategory === 'INVOICES'
+                    ? (restrictedSalesScope
+                        ? 'اكتب أو امسح رقم الفاتورة المراد إرجاعها هنا...'
+                        : 'ابحث برقم الفاتورة أو اسم العميل...')
+                    : scanArmed
+                      ? 'جاهز للمسح — امسح الباركود أو اكتب الكود ثم Enter'
+                      : 'ابحث بالاسم… أو اضغط سلة المشتريات للمسح'
                 }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -1082,7 +1223,9 @@ export const POS: React.FC = () => {
                 }}
                 style={{
                   paddingLeft: '32px',
-                  boxShadow: scanArmed ? '0 0 0 2px rgba(34, 197, 94, 0.35)' : undefined,
+                  boxShadow: scanArmed && selectedCategory !== 'INVOICES' ? '0 0 0 2px rgba(34, 197, 94, 0.35)' : undefined,
+                  border: selectedCategory === 'INVOICES' && restrictedSalesScope ? '1.5px solid var(--color-primary)' : undefined,
+                  backgroundColor: selectedCategory === 'INVOICES' && restrictedSalesScope ? 'var(--color-primary-light, rgba(59,130,246,0.05))' : undefined,
                 }}
               />
             </div>
@@ -1171,6 +1314,22 @@ export const POS: React.FC = () => {
                     أدخل رقم الفاتورة المراد إرجاعها في حقل البحث أعلى الشاشة لإظهار بياناتها.
                   </div>
                 </div>
+              ) : debouncedSearchQuery.trim() && filteredSalesInPOS.length === 0 ? (
+                <div style={{ padding: 'var(--spacing-6)', textAlign: 'center', backgroundColor: 'var(--color-surface)', border: '1px dashed var(--color-danger)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-secondary)' }}>
+                  <Search size={32} color="var(--color-danger)" style={{ marginBottom: 8, opacity: 0.8 }} />
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold', color: 'var(--color-text-primary)' }}>
+                    رقم الفاتورة اللي كتبته غلط أو ناقص
+                  </div>
+                  {restrictedSalesScope ? (
+                    <div style={{ fontSize: '10px', marginTop: 4 }}>
+                      تأكد إنك كتبت الرقم زي ما هو مطبوع بالظبط. لاحظ إن البحث هنا بيظهر بس فواتيرك انت اللي عملتها النهاردة — لو الفاتورة قديمة أو عملها كاشير تاني، اطلب من المدير يفتحها من شاشة "الفواتير".
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '10px', marginTop: 4 }}>
+                      تأكد من رقم الفاتورة وحاول تاني.
+                    </div>
+                  )}
+                </div>
               ) : filteredSalesInPOS.slice(0, visibleInvoicesLimit).map((s) => {
                 const isRefunded = s.status === 'REFUNDED';
                 return (
@@ -1204,6 +1363,9 @@ export const POS: React.FC = () => {
                         <Badge variant={isRefunded ? 'danger' : 'success'}>
                           {isRefunded ? 'مرتجعة / ملغية' : 'مكتملة'}
                         </Badge>
+                        {invoiceSearchResult.fuzzy && (
+                          <Badge variant="warning">أقرب رقم مطابق — تأكد منه</Badge>
+                        )}
                       </div>
                       <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
                         التاريخ: {new Date(s.date).toLocaleString()} • {s.items.length} أصناف
@@ -1278,7 +1440,7 @@ export const POS: React.FC = () => {
 
         {/* Scrollable list of cart items */}
         <div
-          style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-4)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}
+          style={{ flex: 1, minHeight: '160px', overflowY: 'auto', padding: 'var(--spacing-4)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}
           onClick={(e) => {
             // Click empty space in cart → ready for next barcode (no search-bar hunt)
             if (e.target === e.currentTarget) armBarcodeScan();
@@ -1423,8 +1585,38 @@ export const POS: React.FC = () => {
           padding: 'var(--spacing-4)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--spacing-3)'
+          gap: 'var(--spacing-3)',
+          flexShrink: 0,
+          maxHeight: '55%',
+          overflowY: 'auto'
         }}>
+          {/* Loyalty program status */}
+          {loyaltySettings?.enabled && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '6px 10px', borderRadius: '6px',
+              backgroundColor: loyaltySettings.programOpen ? 'rgba(16, 185, 129, 0.12)' : 'rgba(107, 114, 128, 0.15)',
+            }}>
+              <span style={{
+                fontSize: '11px', fontWeight: 700,
+                color: loyaltySettings.programOpen ? '#065f46' : '#374151',
+              }}>
+                برنامج الولاء: {loyaltySettings.programOpen ? 'مفتوح (يكسب العملاء نقاط)' : 'مغلق (لا كسب حالياً)'}
+              </span>
+              {canManageLoyalty && (
+                <button
+                  type="button"
+                  onClick={() => toggleLoyaltyProgram(!loyaltySettings.programOpen)}
+                  disabled={togglingLoyaltyProgram}
+                  className="btn-secondary"
+                  style={{ fontSize: '10px', padding: '3px 8px' }}
+                >
+                  {loyaltySettings.programOpen ? 'إغلاق البرنامج' : 'فتح البرنامج'}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Customer CRM Selector */}
           <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
             <div style={{ position: 'relative', flex: 1 }}>
@@ -1438,6 +1630,7 @@ export const POS: React.FC = () => {
                     if (!e.target.value) {
                       setCustomerId('');
                       setLoyaltyPercent(0);
+                      setLoyaltyRedeemAmount(0);
                     }
                   }}
                   onFocus={() => setShowCustSuggestions(true)}
@@ -1448,6 +1641,7 @@ export const POS: React.FC = () => {
                     onClick={() => {
                       setCustomerId('');
                       setLoyaltyPercent(0);
+                      setLoyaltyRedeemAmount(0);
                       setCustSearchQuery('');
                       setShowCustSuggestions(false);
                     }}
@@ -1494,6 +1688,29 @@ export const POS: React.FC = () => {
                 </div>
               )}
 
+              {/* Loyalty Balance Banner */}
+              {selectedCustomer && loyaltySettings?.enabled && (
+                <div style={{
+                  marginTop: '6px',
+                  padding: '8px 12px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid #10b981',
+                  borderRadius: '8px',
+                  direction: 'rtl',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#065f46' }}>
+                    رصيد الولاء
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#065f46' }}>
+                    {formatMoney(loyaltyBalance)}
+                  </span>
+                </div>
+              )}
+
               {/* Suggestion Dropdown List */}
               {showCustSuggestions && custSearchQuery && customerSuggestions.length > 0 && (
                 <div 
@@ -1522,12 +1739,14 @@ export const POS: React.FC = () => {
                           addNotification('WARNINGS', 'عميل محظور', `لا يمكن اختيار العميل ${cust.name} لأنه محظور.`);
                           setCustomerId('');
                           setLoyaltyPercent(0);
+                          setLoyaltyRedeemAmount(0);
                           setCustSearchQuery('');
                           setShowCustSuggestions(false);
                           return;
                         }
                         setCustomerId(cust.id);
                         setLoyaltyPercent(Number(cust.discount) || 0);
+                        setLoyaltyRedeemAmount(0);
                         setCustSearchQuery(`${cust.name} (${cust.phone})`);
                         setShowCustSuggestions(false);
                       }}
@@ -1640,6 +1859,72 @@ export const POS: React.FC = () => {
             </div>
           )}
 
+          {/* Use Loyalty balance as payment */}
+          {selectedCustomer && loyaltySettings?.enabled && loyaltyBalance > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
+                  استخدام الولاء
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={loyaltyRedeemAmount || ''}
+                  onChange={(e) => {
+                    const raw = parseFloat(e.target.value);
+                    setLoyaltyRedeemAmount(Number.isFinite(raw) ? raw : 0);
+                  }}
+                  placeholder="0.00"
+                  style={{ padding: '4px var(--spacing-2)', maxWidth: '100px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setLoyaltyRedeemAmount(loyaltyBalance)}
+                  className="btn-secondary"
+                  style={{ fontSize: '10px', padding: '4px 8px', whiteSpace: 'nowrap' }}
+                >
+                  استخدام الحد الأقصى
+                </button>
+              </div>
+              {totals.loyaltyRedeemed > 0 && (
+                <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                  سيتم خصم {formatMoney(totals.loyaltyRedeemed)} من رصيد الولاء (المتاح: {formatMoney(loyaltyBalance)})
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Delivery order toggle */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px dashed var(--color-border)', paddingTop: 'var(--spacing-2)' }}>
+            <button
+              onClick={() => setIsDelivery(!isDelivery)}
+              className="btn-secondary"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', padding: '8px',
+                borderColor: isDelivery ? 'var(--color-primary)' : 'var(--color-border)',
+                backgroundColor: isDelivery ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                color: isDelivery ? 'var(--color-primary)' : 'var(--color-text-primary)',
+              }}
+            >
+              <Truck size={16} /> طلب دليفري{isDelivery ? ' ✓' : ''}
+            </button>
+            {isDelivery && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>رسوم التوصيل</span>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={deliveryFee === 0 ? '' : deliveryFee}
+                  onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  style={{ padding: '4px var(--spacing-2)' }}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Pricing Summary */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', borderTop: '1px dashed var(--color-border)', paddingTop: 'var(--spacing-2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1650,63 +1935,144 @@ export const POS: React.FC = () => {
               <span>الخصم</span>
               <span>{formatMoney(-totals.discount)}</span>
             </div>
+            {isDelivery && totals.deliveryFee > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>رسوم التوصيل</span>
+                <span>{formatMoney(totals.deliveryFee)}</span>
+              </div>
+            )}
+            {totals.loyaltyRedeemed > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669' }}>
+                <span>ولاء مستخدم</span>
+                <span>{formatMoney(-totals.loyaltyRedeemed)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-lg)', fontWeight: 'bold', color: 'var(--color-text-primary)', borderTop: '1px solid var(--color-border)', paddingTop: '4px', marginTop: '4px' }}>
               <span>المجموع الكلي</span>
               <span>{formatMoney(totals.total)}</span>
             </div>
           </div>
 
-          {/* Payment Methods buttons */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
-            <button
-              onClick={() => setPaymentMethod('CASH')}
-              className="btn-secondary"
-              style={{
-                borderColor: paymentMethod === 'CASH' ? 'var(--color-primary)' : 'var(--color-border)',
-                backgroundColor: paymentMethod === 'CASH' ? 'var(--color-primary-light)' : 'var(--color-surface)',
-                color: paymentMethod === 'CASH' ? 'var(--color-primary)' : 'var(--color-text-primary)',
-                display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
-              }}
-            >
-              <DollarSign size={16} /> نقدي (F3)
-            </button>
-            <button
-              onClick={() => setPaymentMethod('CARD')}
-              className="btn-secondary"
-              style={{
-                borderColor: paymentMethod === 'CARD' ? 'var(--color-primary)' : 'var(--color-border)',
-                backgroundColor: paymentMethod === 'CARD' ? 'var(--color-primary-light)' : 'var(--color-surface)',
-                color: paymentMethod === 'CARD' ? 'var(--color-primary)' : 'var(--color-text-primary)',
-                display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
-              }}
-            >
-              <CreditCard size={16} /> بطاقة (F4)
-            </button>
-            <button
-              onClick={() => setPaymentMethod('INSTAPAY')}
-              className="btn-secondary"
-              style={{
-                borderColor: paymentMethod === 'INSTAPAY' ? 'var(--color-primary)' : 'var(--color-border)',
-                backgroundColor: paymentMethod === 'INSTAPAY' ? 'var(--color-primary-light)' : 'var(--color-surface)',
-                color: paymentMethod === 'INSTAPAY' ? 'var(--color-primary)' : 'var(--color-text-primary)',
-                display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
-              }}
-            >
-              <Smartphone size={16} /> إنستاباي
-            </button>
-            <button
-              onClick={() => setPaymentMethod('VODAFONE_CASH')}
-              className="btn-secondary"
-              style={{
-                borderColor: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary)' : 'var(--color-border)',
-                backgroundColor: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary-light)' : 'var(--color-surface)',
-                color: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary)' : 'var(--color-text-primary)',
-                display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
-              }}
-            >
-              <Smartphone size={16} /> فودافون كاش
-            </button>
-          </div>
+          {/* Payment Methods */}
+          <button
+            onClick={() => setSplitPaymentEnabled(!isSplitPayment)}
+            className="btn-secondary"
+            style={{
+              width: '100%',
+              marginBottom: 'var(--spacing-2)',
+              padding: '6px',
+              fontSize: 'var(--font-size-xs)',
+              borderColor: isSplitPayment ? 'var(--color-primary)' : 'var(--color-border)',
+              color: isSplitPayment ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            }}
+          >
+            {isSplitPayment ? '✕ إلغاء الدفع المقسم' : '➗ دفع مقسم (كاش + طريقة تانية)'}
+          </button>
+
+          {!isSplitPayment ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
+              <button
+                onClick={() => setPaymentMethod('CASH')}
+                className="btn-secondary"
+                style={{
+                  borderColor: paymentMethod === 'CASH' ? 'var(--color-primary)' : 'var(--color-border)',
+                  backgroundColor: paymentMethod === 'CASH' ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                  color: paymentMethod === 'CASH' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                  display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
+                }}
+              >
+                <DollarSign size={16} /> نقدي (F3)
+              </button>
+              <button
+                onClick={() => setPaymentMethod('CARD')}
+                className="btn-secondary"
+                style={{
+                  borderColor: paymentMethod === 'CARD' ? 'var(--color-primary)' : 'var(--color-border)',
+                  backgroundColor: paymentMethod === 'CARD' ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                  color: paymentMethod === 'CARD' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                  display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
+                }}
+              >
+                <CreditCard size={16} /> بطاقة (F4)
+              </button>
+              <button
+                onClick={() => setPaymentMethod('INSTAPAY')}
+                className="btn-secondary"
+                style={{
+                  borderColor: paymentMethod === 'INSTAPAY' ? 'var(--color-primary)' : 'var(--color-border)',
+                  backgroundColor: paymentMethod === 'INSTAPAY' ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                  color: paymentMethod === 'INSTAPAY' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                  display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
+                }}
+              >
+                <Smartphone size={16} /> إنستاباي
+              </button>
+              <button
+                onClick={() => setPaymentMethod('VODAFONE_CASH')}
+                className="btn-secondary"
+                style={{
+                  borderColor: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary)' : 'var(--color-border)',
+                  backgroundColor: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                  color: paymentMethod === 'VODAFONE_CASH' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                  display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px'
+                }}
+              >
+                <Smartphone size={16} /> فودافون كاش
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-4)' }}>
+              {([0, 1] as const).map((i) => {
+                const line = splitPayments[i];
+                return (
+                  <div key={i} style={{ display: 'flex', gap: '8px' }}>
+                    <select
+                      value={line?.method ?? 'CASH'}
+                      onChange={(e) => setSplitPaymentLine(i, { method: e.target.value as any })}
+                      style={{
+                        flex: 1, padding: '8px', borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)',
+                      }}
+                    >
+                      <option value="CASH">نقدي</option>
+                      <option value="CARD">بطاقة</option>
+                      <option value="INSTAPAY">إنستاباي</option>
+                      <option value="VODAFONE_CASH">فودافون كاش</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={line?.amount || ''}
+                      onChange={(e) => setSplitPaymentLine(i, { amount: parseFloat(e.target.value) || 0 })}
+                      placeholder="المبلغ"
+                      style={{
+                        flex: 1, padding: '8px', borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+              {(() => {
+                const remaining = totals.total - ((splitPayments[0]?.amount || 0) + (splitPayments[1]?.amount || 0));
+                const settled = Math.abs(remaining) <= 0.01;
+                return (
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', padding: '6px 10px',
+                    borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-sm)', fontWeight: 'bold',
+                    backgroundColor: settled ? 'var(--color-success-bg, #dcfce7)' : 'var(--color-danger-bg, #fee2e2)',
+                    color: settled ? 'var(--color-success)' : 'var(--color-danger)',
+                  }}>
+                    <span>المتبقي</span>
+                    <span>{formatMoney(remaining)}</span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Complete sale checkout button */}
           <Button
@@ -1828,14 +2194,23 @@ export const POS: React.FC = () => {
                     🖨 A4
                   </button>
                 )}
-                <button 
+                <button
                   onClick={() => {
                     addNotification('WARNINGS', 'غير متاح بعد', 'تصدير PDF غير متاح بعد.');
                   }}
-                  className="btn-secondary" 
+                  className="btn-secondary"
                   style={{ padding: '4px 6px', fontSize: '10px' }}
                 >
                   📄 PDF
+                </button>
+                <button
+                  onClick={copyReceiptAsImage}
+                  disabled={isCopyingReceiptImage}
+                  className="btn-secondary"
+                  style={{ padding: '4px 6px', fontSize: '10px', opacity: isCopyingReceiptImage ? 0.6 : 1 }}
+                  title="نسخ صورة الفاتورة للحافظة (لصقها في واتساب مثلاً)"
+                >
+                  {isCopyingReceiptImage ? '⏳ جاري النسخ...' : '📋 نسخ صورة'}
                 </button>
                 {activeReceipt.status !== 'REFUNDED' && canRefundSales && (
                   <button 
@@ -2044,6 +2419,10 @@ export const POS: React.FC = () => {
                       <span style={{ fontWeight: 'bold', color: row.value > 0 ? row.color : 'var(--color-text-secondary)' }}>{formatMoney(row.value)}</span>
                     </div>
                   ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}>
+                    <span style={{ color: 'var(--color-text-secondary)' }}>🚚 طلبات التوصيل ({shiftReport.deliveryOrdersCount})</span>
+                    <span style={{ fontWeight: 'bold', color: shiftReport.deliveryFeesTotal > 0 ? '#8B5CF6' : 'var(--color-text-secondary)' }}>{formatMoney(shiftReport.deliveryFeesTotal)}</span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-primary)', color: '#fff', fontWeight: 'bold' }}>
                     <span>🏆 إجمالي المبيعات الكلي</span>
                     <span style={{ fontSize: 'var(--font-size-sm)' }}>{formatMoney(shiftReport.totalSales)}</span>
@@ -2214,6 +2593,17 @@ export const POS: React.FC = () => {
                       const updatedStatus = result?.sale?.status || 'REFUNDED';
                       if (activeReceipt?.id === refundTarget.id) {
                         setActiveReceipt({ ...activeReceipt, status: updatedStatus, items: result?.sale?.items ?? activeReceipt.items });
+                      }
+                      const breakdown = result?.refundBreakdown;
+                      if (breakdown && breakdown.length > 1) {
+                        const methodLabel: Record<string, string> = {
+                          CASH: 'كاش', CARD: 'فيزا', INSTAPAY: 'إنستاباي', VODAFONE_CASH: 'فودافون كاش', MOBILE: 'موبايل',
+                        };
+                        const parts = breakdown
+                          .filter((b) => Math.abs(b.amount) > 0.005)
+                          .map((b) => `${formatMoney(b.amount)} ${methodLabel[b.method] || b.method}`)
+                          .join(' + ');
+                        addNotification('FINANCE', 'تفاصيل الإرجاع', `تم إرجاع: ${parts}`);
                       }
                       setRefundTarget(null);
                     },

@@ -29,7 +29,25 @@ export const keys = {
   boardingReservations: ['boardingReservations'] as const,
   purchaseInvoices: ['purchaseInvoices'] as const,
   accountsPayable: ['accountsPayable'] as const,
+  loyaltyAccount: ['loyaltyAccount'] as const,
+  loyaltyLedger: ['loyaltyLedger'] as const,
+  loyaltySettings: ['loyaltySettings'] as const,
+  loyaltyDashboard: ['loyaltyDashboard'] as const,
+  petFollowUpSummary: ['petFollowUpSummary'] as const,
+  petFollowUp: ['petFollowUp'] as const,
+  animalFollowUpDashboard: ['animalFollowUpDashboard'] as const,
+  animalFollowUpSettings: ['animalFollowUpSettings'] as const,
+  vaccinations: ['vaccinations'] as const,
+  animalReminders: ['animalReminders'] as const,
 };
+
+function invalidateAnimalFollowUp(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: keys.petFollowUpSummary });
+  queryClient.invalidateQueries({ queryKey: keys.petFollowUp });
+  queryClient.invalidateQueries({ queryKey: keys.animalFollowUpDashboard });
+  queryClient.invalidateQueries({ queryKey: keys.vaccinations });
+  queryClient.invalidateQueries({ queryKey: keys.animalReminders });
+}
 
 // HOOKS
 export function useCatalog(params: CatalogQueryParams = DEFAULT_CATALOG_PARAMS) {
@@ -115,6 +133,140 @@ export function usePets() {
   });
 }
 
+// ANIMAL FOLLOW-UP: vaccinations & general reminders
+
+export function usePetFollowUpSummary() {
+  return useQuery({
+    queryKey: keys.petFollowUpSummary,
+    queryFn: () => api.getPetFollowUpSummary(),
+  });
+}
+
+export function usePetFollowUp(petId: string | undefined) {
+  return useQuery({
+    queryKey: [...keys.petFollowUp, petId],
+    queryFn: () => api.getPetFollowUp(petId as string),
+    enabled: !!petId,
+  });
+}
+
+export function useAnimalFollowUpDashboard() {
+  return useQuery({
+    queryKey: keys.animalFollowUpDashboard,
+    queryFn: () => api.getAnimalFollowUpDashboard(),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAnimalFollowUpSettings() {
+  return useQuery({
+    queryKey: keys.animalFollowUpSettings,
+    queryFn: () => api.getAnimalFollowUpSettings(),
+  });
+}
+
+export function useUpdateAnimalFollowUpSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dueSoonThresholdDays: number) => api.updateAnimalFollowUpSettings(dueSoonThresholdDays),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.animalFollowUpSettings });
+      invalidateAnimalFollowUp(queryClient);
+    },
+  });
+}
+
+export function useAddVaccination() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof api.addVaccination>[0]) => api.addVaccination(payload),
+    onSuccess: (created) => {
+      invalidateAnimalFollowUp(queryClient);
+      addNotification('ALERTS', 'تطعيم جديد', `تم إضافة تطعيم ${created.vaccineName} لـ ${created.petName}.`);
+    },
+  });
+}
+
+export function useUpdateVaccination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; payload: Parameters<typeof api.updateVaccination>[1] }) =>
+      api.updateVaccination(args.id, args.payload),
+    onSuccess: () => invalidateAnimalFollowUp(queryClient),
+  });
+}
+
+export function useDeleteVaccination() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteVaccination(id),
+    onSuccess: () => invalidateAnimalFollowUp(queryClient),
+  });
+}
+
+export function useAdministerVaccination() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+  return useMutation({
+    mutationFn: (args: { id: string; administeredDate?: string; notes?: string }) =>
+      api.administerVaccination(args.id, args.administeredDate, args.notes),
+    onSuccess: (updated) => {
+      invalidateAnimalFollowUp(queryClient);
+      addNotification('ALERTS', 'تم تسجيل التطعيم', `${updated.vaccineName} — ${updated.petName}${updated.nextDueDate ? `، الموعد القادم ${updated.nextDueDate}` : ''}.`);
+    },
+  });
+}
+
+export function useVaccinationHistory(id: string | undefined) {
+  return useQuery({
+    queryKey: [...keys.vaccinations, 'history', id],
+    queryFn: () => api.getVaccinationHistory(id as string),
+    enabled: !!id,
+  });
+}
+
+export function useAddAnimalReminder() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof api.addAnimalReminder>[0]) => api.addAnimalReminder(payload),
+    onSuccess: (created) => {
+      invalidateAnimalFollowUp(queryClient);
+      addNotification('ALERTS', 'تذكير جديد', `تم إضافة تذكير "${created.title}" لـ ${created.petName}.`);
+    },
+  });
+}
+
+export function useUpdateAnimalReminder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; payload: Parameters<typeof api.updateAnimalReminder>[1] }) =>
+      api.updateAnimalReminder(args.id, args.payload),
+    onSuccess: () => invalidateAnimalFollowUp(queryClient),
+  });
+}
+
+export function useDeleteAnimalReminder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteAnimalReminder(id),
+    onSuccess: () => invalidateAnimalFollowUp(queryClient),
+  });
+}
+
+export function useCompleteAnimalReminder() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+  return useMutation({
+    mutationFn: (id: string) => api.completeAnimalReminder(id),
+    onSuccess: (updated) => {
+      invalidateAnimalFollowUp(queryClient);
+      addNotification('ALERTS', 'تم إتمام التذكير', `${updated.title} — ${updated.petName}.`);
+    },
+  });
+}
+
 export function useServices() {
   return useQuery({
     queryKey: keys.services,
@@ -179,7 +331,11 @@ export function useCreateSale() {
       queryClient.invalidateQueries({ queryKey: ['catalog'] });
       queryClient.invalidateQueries({ queryKey: keys.kpis });
       queryClient.invalidateQueries({ queryKey: keys.aiInsights });
-      
+      if (newSale.customerId) {
+        queryClient.invalidateQueries({ queryKey: [...keys.loyaltyAccount, newSale.customerId] });
+        queryClient.invalidateQueries({ queryKey: [...keys.loyaltyLedger, newSale.customerId] });
+      }
+
       addNotification('FINANCE', 'New POS Sale Logged', `Invoice ${newSale.saleNumber} processed successfully (${formatMoney(newSale.totalAmount)}).`);
     }
   });
@@ -472,6 +628,72 @@ export function useAuditLogs() {
   });
 }
 
+// ── LOYALTY ──────────────────────────────────────────────────────────────
+
+export function useLoyaltyAccount(customerId: string | null | undefined) {
+  return useQuery({
+    queryKey: [...keys.loyaltyAccount, customerId],
+    queryFn: () => api.getLoyaltyAccount(customerId!),
+    enabled: Boolean(customerId),
+  });
+}
+
+export function useLoyaltyLedger(customerId: string | null | undefined, page = 0, size = 20) {
+  return useQuery({
+    queryKey: [...keys.loyaltyLedger, customerId, page, size],
+    queryFn: () => api.getLoyaltyLedger(customerId!, page, size),
+    enabled: Boolean(customerId),
+  });
+}
+
+export function useLoyaltySettings() {
+  return useQuery({
+    queryKey: keys.loyaltySettings,
+    queryFn: () => api.getLoyaltySettings(),
+  });
+}
+
+export function useLoyaltyDashboard() {
+  return useQuery({
+    queryKey: keys.loyaltyDashboard,
+    queryFn: () => api.getLoyaltyDashboard(),
+  });
+}
+
+export function useUpdateLoyaltySettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: Parameters<typeof api.updateLoyaltySettings>[0]) => api.updateLoyaltySettings(settings),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.loyaltySettings });
+    }
+  });
+}
+
+export function useSetLoyaltyProgramOpen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (open: boolean) => api.setLoyaltyProgramOpen(open),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.loyaltySettings });
+    }
+  });
+}
+
+export function useAdjustLoyalty() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+  return useMutation({
+    mutationFn: (args: { customerId: string; amount: number; reason: string }) =>
+      api.adjustLoyalty(args.customerId, args.amount, args.reason),
+    onSuccess: (_entry, args) => {
+      queryClient.invalidateQueries({ queryKey: [...keys.loyaltyAccount, args.customerId] });
+      queryClient.invalidateQueries({ queryKey: [...keys.loyaltyLedger, args.customerId] });
+      addNotification('FINANCE', 'تعديل رصيد الولاء', `تم تعديل رصيد الولاء بمقدار ${formatMoney(args.amount)}.`);
+    }
+  });
+}
+
 export function useRefundSale() {
   const queryClient = useQueryClient();
   const addNotification = useUIStore(s => s.addNotification);
@@ -488,13 +710,18 @@ export function useRefundSale() {
         managerUsername: args.managerUsername,
         lines: args.lines,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: keys.sales });
       queryClient.invalidateQueries({ queryKey: keys.variants });
       queryClient.invalidateQueries({ queryKey: keys.stockMovements });
       queryClient.invalidateQueries({ queryKey: keys.kpis });
       queryClient.invalidateQueries({ queryKey: keys.aiInsights });
       queryClient.invalidateQueries({ queryKey: keys.auditLogs });
+      const customerId = result?.sale?.customerId;
+      if (customerId) {
+        queryClient.invalidateQueries({ queryKey: [...keys.loyaltyAccount, customerId] });
+        queryClient.invalidateQueries({ queryKey: [...keys.loyaltyLedger, customerId] });
+      }
       addNotification('FINANCE', 'تم استرداد وإرجاع فاتورة', 'تم إرجاع البضائع للمخازن وتسجيل المعاملة بنجاح.');
     },
     onError: (err: Error) => {
@@ -576,6 +803,42 @@ export function usePurchaseInvoices() {
   return useQuery({
     queryKey: ['purchaseInvoices'],
     queryFn: () => api.getPurchaseInvoices(),
+  });
+}
+
+export function usePurchaseInvoice(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ['purchaseInvoices', id],
+    queryFn: () => api.getPurchaseInvoice(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useReturnPurchaseInvoice() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore((s) => s.addNotification);
+
+  return useMutation({
+    mutationFn: (args: {
+      id: string;
+      lines?: Array<{ purchaseInvoiceItemId: string; quantity: number }>;
+      reason?: string;
+      amount?: number;
+    }) => api.returnPurchaseInvoice(args.id, args.lines, args.reason, args.amount),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['purchaseInvoices'] });
+      queryClient.invalidateQueries({ queryKey: keys.accountsPayable });
+      queryClient.invalidateQueries({ queryKey: keys.variants });
+      queryClient.invalidateQueries({ queryKey: keys.batches });
+      queryClient.invalidateQueries({ queryKey: keys.kpis });
+      const excess = result.excessCredit ?? 0;
+      addNotification(
+        'FINANCE',
+        result.fullReturn ? 'تم إرجاع الفاتورة بالكامل' : 'تم تسجيل إرجاع جزئي',
+        `تم إرجاع بضاعة بقيمة ${formatMoney(result.returnedAmount)} للمورد ${result.invoice.supplierName}.` +
+          (excess > 0 ? ` المبلغ الزائد (${formatMoney(excess)}) يعتبر رصيد لك عند المورد.` : '')
+      );
+    }
   });
 }
 
@@ -879,7 +1142,8 @@ export function useUploadImportSession() {
   const addNotification = useUIStore(s => s.addNotification);
 
   return useMutation({
-    mutationFn: (file: File) => api.uploadImportSession(file),
+    mutationFn: (args: { file: File; mode?: 'ADD_STOCK' | 'INVENTORY_COUNT' }) =>
+      api.uploadImportSession(args.file, args.mode),
     onError: (err: any) => {
       addNotification('WARNINGS', 'فشل رفع الملف', err?.message || 'تعذر قراءة الملف.');
     }
@@ -939,6 +1203,45 @@ export function useCommitImport() {
     },
     onError: (err: any) => {
       addNotification('WARNINGS', 'فشل تنفيذ الاستيراد', err?.message || 'تعذر إتمام عملية الاستيراد.');
+    }
+  });
+}
+
+export function useImportMappingPresets(mode: 'ADD_STOCK' | 'INVENTORY_COUNT') {
+  return useQuery({
+    queryKey: ['importMappingPresets', mode],
+    queryFn: () => api.listImportMappingPresets(mode),
+  });
+}
+
+export function useSaveImportMappingPreset() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (args: { name: string; mode: 'ADD_STOCK' | 'INVENTORY_COUNT'; mapping: Record<string, string> }) =>
+      api.saveImportMappingPreset(args.name, args.mode, args.mapping),
+    onSuccess: (_, args) => {
+      queryClient.invalidateQueries({ queryKey: ['importMappingPresets', args.mode] });
+      addNotification('INVENTORY', 'تم حفظ التخطيط', 'يمكنك إعادة استخدامه في الاستيراد القادم.');
+    },
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل حفظ التخطيط', err?.message || 'تعذر حفظ تخطيط الأعمدة.');
+    }
+  });
+}
+
+export function useDeleteImportMappingPreset() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (args: { id: string; mode: 'ADD_STOCK' | 'INVENTORY_COUNT' }) => api.deleteImportMappingPreset(args.id),
+    onSuccess: (_, args) => {
+      queryClient.invalidateQueries({ queryKey: ['importMappingPresets', args.mode] });
+    },
+    onError: (err: any) => {
+      addNotification('WARNINGS', 'فشل حذف التخطيط', err?.message || 'تعذر حذف التخطيط.');
     }
   });
 }

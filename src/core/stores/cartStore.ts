@@ -14,15 +14,31 @@ type CartLineInput = Omit<SaleItem, 'quantity' | 'id'> & {
   listPrice?: number;
 };
 
+export type PaymentMethod = 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH';
+
+export interface SplitPaymentLine {
+  method: PaymentMethod;
+  amount: number;
+}
+
 interface CartState {
   cartItems: SaleItem[];
   customerId: string;
   /** Manual discount percent applied by cashier (0–MAX_POS_DISCOUNT_PERCENT). */
   discountPercent: number;
   loyaltyPercent: number;
-  paymentMethod: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH';
+  /** Amount of the customer's loyalty balance the cashier chose to redeem on this bill. */
+  loyaltyRedeemAmount: number;
+  paymentMethod: PaymentMethod;
+  /** When true, the total is paid across the two entries in splitPayments instead of paymentMethod. */
+  isSplitPayment: boolean;
+  /** Exactly two tenders (e.g. cash + card) when isSplitPayment is true; empty otherwise. */
+  splitPayments: SplitPaymentLine[];
   /** Manager PIN captured when approving a below-minimum line price (cashier). */
   belowMinManagerPassword: string;
+  isDelivery: boolean;
+  /** Delivery fee entered by the cashier; only counted when isDelivery is true. */
+  deliveryFee: number;
 
   addItem: (item: CartLineInput) => void;
   removeItem: (itemId: string, type: SaleItem['type']) => void;
@@ -37,8 +53,13 @@ interface CartState {
   setCustomerId: (customerId: string) => void;
   setDiscountPercent: (percent: number) => void;
   setLoyaltyPercent: (loyaltyPercent: number) => void;
-  setPaymentMethod: (method: 'CASH' | 'CARD' | 'MOBILE' | 'INSTAPAY' | 'VODAFONE_CASH') => void;
+  setLoyaltyRedeemAmount: (amount: number) => void;
+  setPaymentMethod: (method: PaymentMethod) => void;
+  setSplitPaymentEnabled: (enabled: boolean) => void;
+  setSplitPaymentLine: (index: 0 | 1, patch: Partial<SplitPaymentLine>) => void;
   setBelowMinManagerPassword: (password: string) => void;
+  setIsDelivery: (isDelivery: boolean) => void;
+  setDeliveryFee: (fee: number) => void;
   clearCart: () => void;
   getUnapprovedBelowMinLines: () => SaleItem[];
   minAllowedPriceForLine: (itemId: string, type: SaleItem['type']) => number;
@@ -49,6 +70,9 @@ interface CartState {
     loyaltyDiscount: number;
     manualDiscount: number;
     discountPercent: number;
+    deliveryFee: number;
+    /** Loyalty balance redeemed, clamped so it never exceeds the amount otherwise due. */
+    loyaltyRedeemed: number;
     total: number;
   };
 }
@@ -76,8 +100,13 @@ export const useCartStore = create<CartState>((set, get) => ({
   customerId: '',
   discountPercent: 0,
   loyaltyPercent: 0,
+  loyaltyRedeemAmount: 0,
   paymentMethod: 'CASH',
+  isSplitPayment: false,
+  splitPayments: [],
   belowMinManagerPassword: '',
+  isDelivery: false,
+  deliveryFee: 0,
 
   addItem: (item) =>
     set((state) => {
@@ -186,16 +215,38 @@ export const useCartStore = create<CartState>((set, get) => ({
   setCustomerId: (customerId) => set({ customerId }),
   setDiscountPercent: (percent) => set({ discountPercent: clampDiscountPercent(percent) }),
   setLoyaltyPercent: (loyaltyPercent) => set({ loyaltyPercent }),
+  setLoyaltyRedeemAmount: (amount) => set({ loyaltyRedeemAmount: Number.isFinite(amount) && amount > 0 ? amount : 0 }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
+  setSplitPaymentEnabled: (enabled) =>
+    set({
+      isSplitPayment: enabled,
+      splitPayments: enabled
+        ? [
+            { method: 'CASH', amount: 0 },
+            { method: 'CARD', amount: 0 },
+          ]
+        : [],
+    }),
+  setSplitPaymentLine: (index, patch) =>
+    set((state) => ({
+      splitPayments: state.splitPayments.map((line, i) => (i === index ? { ...line, ...patch } : line)),
+    })),
   setBelowMinManagerPassword: (password) => set({ belowMinManagerPassword: password }),
+  setIsDelivery: (isDelivery) => set({ isDelivery, ...(isDelivery ? {} : { deliveryFee: 0 }) }),
+  setDeliveryFee: (fee) => set({ deliveryFee: Number.isFinite(fee) && fee >= 0 ? fee : 0 }),
   clearCart: () =>
     set({
       cartItems: [],
       customerId: '',
       discountPercent: 0,
       loyaltyPercent: 0,
+      loyaltyRedeemAmount: 0,
       paymentMethod: 'CASH',
+      isSplitPayment: false,
+      splitPayments: [],
       belowMinManagerPassword: '',
+      isDelivery: false,
+      deliveryFee: 0,
     }),
 
   getTotals: () => {
@@ -207,7 +258,11 @@ export const useCartStore = create<CartState>((set, get) => ({
     const manualDiscount = subtotal * (discountPercent / 100);
     const discount = Math.min(subtotal, loyaltyDiscount + manualDiscount);
     const tax = 0;
-    const total = Math.max(0, subtotal - discount) + tax;
+    const deliveryFee = get().isDelivery ? Math.max(0, get().deliveryFee) : 0;
+    const preLoyaltyTotal = Math.max(0, subtotal - discount) + tax + deliveryFee;
+    // Display-only clamp — the server is the source of truth for the actual balance/cap.
+    const loyaltyRedeemed = Math.min(Math.max(0, get().loyaltyRedeemAmount), preLoyaltyTotal);
+    const total = preLoyaltyTotal - loyaltyRedeemed;
 
     return {
       subtotal: parseFloat(subtotal.toFixed(2)),
@@ -216,6 +271,8 @@ export const useCartStore = create<CartState>((set, get) => ({
       loyaltyDiscount: parseFloat(loyaltyDiscount.toFixed(2)),
       manualDiscount: parseFloat(manualDiscount.toFixed(2)),
       discountPercent,
+      deliveryFee: parseFloat(deliveryFee.toFixed(2)),
+      loyaltyRedeemed: parseFloat(loyaltyRedeemed.toFixed(2)),
       total: parseFloat(total.toFixed(2)),
     };
   },

@@ -95,6 +95,18 @@ export const Inventory: React.FC = () => {
   const [editVariantId, setEditVariantId] = useState<string | null>(null);
   const [productForm, setProductForm] = useState<ProductForm>(emptyProductForm());
 
+  // Dashboard KPI drill-down: a KPI card navigated here asking for a specific tab
+  // (e.g. FIFO valuation). Consume once, then clear so a later manual visit to
+  // Inventory doesn't re-apply a stale tab selection.
+  const pendingInventoryTab = useUIStore((s) => s.pendingInventoryTab);
+  const setPendingInventoryTab = useUIStore((s) => s.setPendingInventoryTab);
+  useEffect(() => {
+    if (pendingInventoryTab) {
+      setActiveTab(pendingInventoryTab);
+      setPendingInventoryTab(null);
+    }
+  }, [pendingInventoryTab, setPendingInventoryTab]);
+
   useEffect(() => {
     if (!warehouses?.length) return;
     if (!transferSourceWh) setTransferSourceWh(warehouses[0].id);

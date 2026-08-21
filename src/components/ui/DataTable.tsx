@@ -1,7 +1,21 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Search, Download, Eye, FileText, CheckSquare, Square } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import Button from './Button';
 import Input from './Input';
+
+// Resolves a rendered cell (which may be a formatted JSX node, e.g. <Badge>) down to plain text/number
+// so it can be written into a real spreadsheet cell instead of exporting blank.
+function resolveCellValue(node: React.ReactNode): string | number {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'number') return node;
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(resolveCellValue).join('');
+  if (React.isValidElement(node)) {
+    return resolveCellValue((node.props as { children?: React.ReactNode }).children);
+  }
+  return '';
+}
 
 interface Column<T> {
   header: string;
@@ -144,25 +158,31 @@ export function DataTable<T extends Record<string, any>>({
     setSelectedRows(next);
   };
 
-  // Export to Excel / CSV
+  // Export to a real .xlsx workbook (resolves formatted/JSX columns to plain values,
+  // avoids the mojibake Excel shows for Arabic text in plain CSV)
   const handleExportCSV = () => {
     const visibleCols = columns.filter(c => !hiddenColumns.has(c.key));
-    const headers = visibleCols.map(c => c.header).join(',');
-    const rows = filteredData.map(row => {
-      return visibleCols.map(col => {
-        const val = typeof col.accessor === 'function' ? '' : row[col.accessor];
-        return `"${String(val || '').replace(/"/g, '""')}"`;
-      }).join(',');
+    const usedHeaders = new Set<string>();
+    const headerNames = visibleCols.map(col => {
+      let name = col.header?.trim() || col.key;
+      while (usedHeaders.has(name)) name = `${name} `;
+      usedHeaders.add(name);
+      return name;
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `erp_export_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const sheetRows = filteredData.map(row => {
+      const record: Record<string, string | number> = {};
+      visibleCols.forEach((col, i) => {
+        const raw = typeof col.accessor === 'function' ? col.accessor(row) : row[col.accessor];
+        record[headerNames[i]] = resolveCellValue(raw as React.ReactNode);
+      });
+      return record;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(sheetRows, { header: headerNames });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
+    XLSX.writeFile(workbook, `erp_export_${Date.now()}.xlsx`);
   };
 
   // Print optimized view
@@ -243,7 +263,7 @@ export function DataTable<T extends Record<string, any>>({
           )}
 
           <Button onClick={handleExportCSV} variant="secondary" size="sm">
-            <Download size={14} /> Export CSV
+            <Download size={14} /> Export Excel
           </Button>
           <Button onClick={handlePrint} variant="secondary" size="sm">
             <FileText size={14} /> Print

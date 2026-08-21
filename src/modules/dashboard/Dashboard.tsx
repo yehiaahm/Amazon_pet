@@ -29,6 +29,14 @@ import {
   trendFromPct,
 } from '../../core/utils/periodFinance';
 import Can from '../../components/ui/Can';
+import { usePermissions } from '../../core/permissions/usePermissions';
+import { hasRestrictedSalesScope } from '../../core/permissions/salesAuth';
+import { PERMISSIONS } from '../../core/permissions/permissions';
+import type {
+  InventoryDrilldownTab,
+  ReportsDrilldownPreset,
+  ReportsDrilldownTab,
+} from '../../core/stores/uiStore';
 
 function alertSeverityType(severity: string): 'danger' | 'warning' {
   const s = severity.toLowerCase();
@@ -137,6 +145,37 @@ function RankingTable({
 export const Dashboard: React.FC = () => {
   const activeModule = useUIStore(s => s.activeModule);
   const setActiveModule = useUIStore(s => s.setActiveModule);
+  const setPendingReportsFilter = useUIStore(s => s.setPendingReportsFilter);
+  const setPendingInventoryTab = useUIStore(s => s.setPendingInventoryTab);
+  const { hasPermission, canAccessModule } = usePermissions();
+  const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
+
+  // Dashboard KPI drill-down: navigates to the existing page that explains a KPI,
+  // carrying over the same date range/context the KPI card used to compute its number.
+  // Only wired up when the current user can actually access the destination module,
+  // so a card stays visually identical (non-interactive) for users without permission.
+  const goToReports = (tab: ReportsDrilldownTab, preset: ReportsDrilldownPreset) =>
+    canAccessModule('reports')
+      ? () => {
+          setPendingReportsFilter({ tab, preset });
+          setActiveModule('reports');
+        }
+      : undefined;
+
+  const goToInventory = (tab: InventoryDrilldownTab) =>
+    canAccessModule('inventory')
+      ? () => {
+          setPendingInventoryTab(tab);
+          setActiveModule('inventory');
+        }
+      : undefined;
+
+  const goToServices = () =>
+    canAccessModule('services') ? () => setActiveModule('services') : undefined;
+
+  const inventoryValueTab: InventoryDrilldownTab = hasPermission(PERMISSIONS.INVENTORY_BATCH)
+    ? 'FIFO'
+    : 'STOCK';
 
   const { data: kpis, isLoading: loadingKpis } = useKPIMetrics();
   const { data: dashboard, isLoading: loadingDashboard } = useDashboardMetrics();
@@ -337,6 +376,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.todaySales.trendPct ?? 0)}
             description={`${d?.todaySales.count ?? 0} فاتورة • مقارنة بالأمس`}
             icon={<ShoppingCart size={18} />}
+            onClick={goToReports('SALES', 'TODAY')}
           />
           <StatCard
             title="مبيعات الشهر"
@@ -344,6 +384,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.monthlySales.trendPct ?? 0)}
             description={`${d?.monthlySales.count ?? 0} فاتورة • مقارنة بالشهر السابق`}
             icon={<DollarSign size={18} />}
+            onClick={goToReports('SALES', 'THIS_MONTH')}
           />
           <StatCard
             title="صافي الربح"
@@ -351,6 +392,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.netProfit.trendPct ?? 0)}
             description="هذا الشهر (إيراد − COGS − مصاريف)"
             icon={<TrendingUp size={18} />}
+            onClick={goToReports('PL', 'THIS_MONTH')}
           />
           <StatCard
             title="المصاريف"
@@ -358,6 +400,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.expenses.trendPct ?? 0)}
             description="مصاريف تشغيلية هذا الشهر"
             icon={<FileText size={18} />}
+            onClick={goToReports('EXPENSES', 'THIS_MONTH')}
           />
           <StatCard
             title="المشتريات"
@@ -365,12 +408,14 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.purchases.trendPct ?? 0)}
             description="فواتير موردين معتمدة هذا الشهر"
             icon={<Truck size={18} />}
+            onClick={goToReports('PURCHASES', 'THIS_MONTH')}
           />
           <StatCard
             title="قيمة المخزون"
             value={formatMoney(d?.inventoryValue ?? kpis?.inventoryValue ?? 0)}
             description="تقييم FIFO للمخزون الفعلي"
             icon={<Package size={18} />}
+            onClick={goToInventory(inventoryValueTab)}
           />
         </div>
 
@@ -381,6 +426,7 @@ export const Dashboard: React.FC = () => {
             trend={executiveMetrics.posTrend}
             description="فواتير مكتملة هذا الشهر"
             icon={<ShoppingCart size={18} />}
+            onClick={goToReports('SALES', 'THIS_MONTH')}
           />
           <StatCard
             title="حجوزات الخدمات"
@@ -388,6 +434,7 @@ export const Dashboard: React.FC = () => {
             trend={executiveMetrics.appointmentsTrend}
             description="خدمات مكتملة ومجدولة"
             icon={<Scissors size={18} />}
+            onClick={goToServices()}
           />
           <StatCard
             title="تنبيهات المخزون"
@@ -395,6 +442,7 @@ export const Dashboard: React.FC = () => {
             trend={executiveMetrics.lowStockTrend}
             description="أصناف دون الحد الأدنى"
             icon={<AlertTriangle size={18} />}
+            onClick={goToInventory('STOCK')}
           />
         </div>
 
@@ -524,19 +572,25 @@ export const Dashboard: React.FC = () => {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-6)' }}>
           <Card title="آخر الفواتير الصادرة من نقاط البيع">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-              {recentSales.map(s => (
-                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
-                  <div>
-                    <span style={{ fontWeight: 'var(--font-weight-semibold)' }}>{s.saleNumber}</span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginLeft: '12px' }}>
-                      {s.paymentMethod === 'CASH' ? 'نقدي' : 'بطاقة'} • {s.items.length} أصناف
-                    </span>
+            {restrictedSalesScope ? (
+              <div style={{ padding: 'var(--spacing-3) 0', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
+                لأسباب الأمان، لا تظهر قائمة الفواتير هنا. لمراجعة أو إرجاع فاتورة، افتح شاشة "الفواتير" واكتب أو امسح رقم الفاتورة.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
+                {recentSales.map(s => (
+                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                    <div>
+                      <span style={{ fontWeight: 'var(--font-weight-semibold)' }}>{s.saleNumber}</span>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginLeft: '12px' }}>
+                        {s.paymentMethod === 'CASH' ? 'نقدي' : 'بطاقة'} • {s.items.length} أصناف
+                      </span>
+                    </div>
+                    <span style={{ fontWeight: 'bold' }}>{formatMoney(saleRevenue(s))}</span>
                   </div>
-                  <span style={{ fontWeight: 'bold' }}>{formatMoney(saleRevenue(s))}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           <Card title="آخر مواعيد وجدول الخدمات">
@@ -580,18 +634,21 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.monthlySales.trendPct ?? 0)}
             description="إيرادات مكتملة هذا الشهر"
             icon={<DollarSign size={18} />}
+            onClick={goToReports('SALES', 'THIS_MONTH')}
           />
           <StatCard
             title="هامش الربح الإجمالي"
             value={`${(d?.grossMargin ?? 0).toFixed(1)}%`}
             description="هذا الشهر"
             icon={<DollarSign size={18} />}
+            onClick={goToReports('PL', 'THIS_MONTH')}
           />
           <StatCard
             title="تكلفة البضاعة المباعة (COGS)"
             value={formatMoney(d?.cogs ?? 0)}
             description="تكلفة السلع المباعة هذا الشهر"
             icon={<TrendingUp size={18} />}
+            onClick={goToReports('PL', 'THIS_MONTH')}
           />
           <StatCard
             title="المصاريف"
@@ -599,6 +656,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.expenses.trendPct ?? 0)}
             description={`متوسط 6 أشهر: ${formatMoney(avgMonthlyExpenses)}`}
             icon={<FileText size={18} />}
+            onClick={goToReports('EXPENSES', 'THIS_MONTH')}
           />
           <StatCard
             title="المشتريات"
@@ -606,6 +664,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.purchases.trendPct ?? 0)}
             description="فواتير موردين هذا الشهر"
             icon={<Truck size={18} />}
+            onClick={goToReports('PURCHASES', 'THIS_MONTH')}
           />
           <StatCard
             title="صافي الربح"
@@ -613,6 +672,7 @@ export const Dashboard: React.FC = () => {
             trend={trendFromPct(d?.netProfit.trendPct ?? 0)}
             description="الإيراد − COGS − المصاريف"
             icon={<DollarSign size={18} />}
+            onClick={goToReports('PL', 'THIS_MONTH')}
           />
         </div>
 
@@ -681,10 +741,10 @@ export const Dashboard: React.FC = () => {
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--spacing-4)' }}>
-          <StatCard title="المنتجات المسجلة" value={products?.length || 0} description={`عدد الأقسام والتصنيفات: ${uniqueCategoryCount || '—'}`} icon={<Package size={18} />} />
-          <StatCard title="الأصناف المسجلة" value={variants?.length || 0} description="الأوزان والأحجام المسجلة" icon={<Package size={18} />} />
-          <StatCard title="قيمة المخزون" value={formatMoney(d?.inventoryValue ?? kpis?.inventoryValue ?? 0)} description="تقييم FIFO" icon={<DollarSign size={18} />} />
-          <StatCard title="المنتجات الراكدة" value={kpis?.deadStockCount || 0} description="لم تباع منذ 30 يوماً" icon={<AlertTriangle size={18} />} />
+          <StatCard title="المنتجات المسجلة" value={products?.length || 0} description={`عدد الأقسام والتصنيفات: ${uniqueCategoryCount || '—'}`} icon={<Package size={18} />} onClick={goToInventory('STOCK')} />
+          <StatCard title="الأصناف المسجلة" value={variants?.length || 0} description="الأوزان والأحجام المسجلة" icon={<Package size={18} />} onClick={goToInventory('STOCK')} />
+          <StatCard title="قيمة المخزون" value={formatMoney(d?.inventoryValue ?? kpis?.inventoryValue ?? 0)} description="تقييم FIFO" icon={<DollarSign size={18} />} onClick={goToInventory(inventoryValueTab)} />
+          <StatCard title="المنتجات الراكدة" value={kpis?.deadStockCount || 0} description="لم تباع منذ 30 يوماً" icon={<AlertTriangle size={18} />} onClick={goToInventory('STOCK')} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 'var(--spacing-6)' }}>
@@ -765,6 +825,7 @@ export const Dashboard: React.FC = () => {
             trend={operationsMetrics.averageBasketTrend}
             description="متوسط قيمة الفاتورة المكتملة هذا الشهر"
             icon={<ShoppingCart size={18} />}
+            onClick={goToReports('SALES', 'THIS_MONTH')}
           />
           <StatCard
             title="الخدمات النشطة المحجوزة"
@@ -772,6 +833,7 @@ export const Dashboard: React.FC = () => {
             trend={operationsMetrics.activeBookingsTrend}
             description="مواعيد بحالة مجدول فقط"
             icon={<CheckCircle size={18} />}
+            onClick={goToServices()}
           />
           <StatCard
             title="نسبة تكرار العملاء"

@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { 
+import React, { useState, useMemo, useEffect } from 'react';
+import {
   useSales, useExpenses, usePurchaseInvoices, useCustomers
 } from '../../core/hooks/useERPData';
+import { useUIStore } from '../../core/stores/uiStore';
 import { 
   Line, BarChart, Bar, XAxis, YAxis, 
   CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -79,6 +80,19 @@ export const Reports: React.FC = () => {
   
   // Tabs state
   const [activeTab, setActiveTab] = useState<'SALES' | 'PURCHASES' | 'EXPENSES' | 'PL'>('SALES');
+
+  // Dashboard KPI drill-down: a KPI card navigated here with a specific tab + date
+  // preset so this page explains the same number the dashboard showed. Consume once,
+  // then clear so a later manual visit to Reports doesn't re-apply a stale filter.
+  const pendingReportsFilter = useUIStore(s => s.pendingReportsFilter);
+  const setPendingReportsFilter = useUIStore(s => s.setPendingReportsFilter);
+  useEffect(() => {
+    if (pendingReportsFilter) {
+      setActiveTab(pendingReportsFilter.tab);
+      setDatePreset(pendingReportsFilter.preset);
+      setPendingReportsFilter(null);
+    }
+  }, [pendingReportsFilter, setPendingReportsFilter]);
 
   // Customer map for faster lookup
   const customerMap = useMemo(() => {

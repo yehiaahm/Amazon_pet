@@ -108,6 +108,7 @@ export const MODULE_PERMISSIONS: Record<string, PermissionCode | PermissionCode[
   'dashboard-financial': PERMISSIONS.DASHBOARD_FINANCIAL_KPIS,
   'dashboard-inventory': PERMISSIONS.INVENTORY_VIEW,
   'dashboard-operations': PERMISSIONS.DASHBOARD_CHARTS,
+  'loyalty-dashboard': PERMISSIONS.CUSTOMERS_LOYALTY,
   'pos': PERMISSIONS.SALES_CREATE,
   'invoices': PERMISSIONS.SALES_REPRINT,
   'inventory': PERMISSIONS.INVENTORY_VIEW,

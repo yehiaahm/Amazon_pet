@@ -1,6 +1,13 @@
 /** How the backend arrived at a suggestion: header aliases, the column's data, or the AI provider. */
 export type MappingSource = 'HEADER' | 'VALUES' | 'AI';
 
+/**
+ * ADD_STOCK: the Excel quantity is added on top of current stock (existing default behavior).
+ * INVENTORY_COUNT: the Excel quantity is the actual counted stock — the system computes and
+ * applies the adjustment needed to reach it, and writes an audit trail entry per product.
+ */
+export type ImportMode = 'ADD_STOCK' | 'INVENTORY_COUNT';
+
 export interface ColumnMappingSuggestion {
   header: string;
   field: string | null;
@@ -20,6 +27,8 @@ export interface ImportUploadResponse {
   aiAssisted?: boolean;
   /** Field codes with no column in the file — imported as 0 unless the user maps them. */
   unmappedFields?: string[];
+  /** Echoes back the mode chosen at upload time. */
+  importMode?: ImportMode;
 }
 
 export interface ImportMappingResponse {
@@ -36,7 +45,7 @@ export interface ImportMappingResponse {
 export interface ImportPreviewRow {
   itemId: string;
   rowNumber: number;
-  status: 'PENDING' | 'NEW' | 'UPDATE' | 'DUPLICATE' | 'ERROR' | 'IMPORTED' | 'UPDATED' | 'SKIPPED' | 'FAILED';
+  status: 'PENDING' | 'NEW' | 'UPDATE' | 'DUPLICATE' | 'COUNT_MATCHED' | 'ERROR' | 'IMPORTED' | 'UPDATED' | 'SKIPPED' | 'FAILED';
   barcode?: string;
   sku?: string;
   productName?: string;
@@ -53,6 +62,10 @@ export interface ImportPreviewRow {
   batchNumber?: string;
   duplicateMatchType?: string;
   resolution?: string;
+  /** INVENTORY_COUNT mode only. */
+  systemQuantity?: number;
+  countedQuantity?: number;
+  adjustmentQuantity?: number;
   errors: string[];
   warnings: string[];
 }
@@ -107,10 +120,20 @@ export const IMPORT_STATUS_LABELS: Record<string, string> = {
   NEW: 'جديد',
   UPDATE: 'تحديث',
   DUPLICATE: 'مكرر',
+  COUNT_MATCHED: 'جاهز للتسوية',
   ERROR: 'خطأ',
   IMPORTED: 'تم الاستيراد',
-  UPDATED: 'تم التحديث',
+  UPDATED: 'تمت التسوية',
   SKIPPED: 'تم التخطي',
   FAILED: 'فشل',
   PENDING: 'قيد الانتظار',
 };
+
+/** Saved header -> field mapping the user can reapply on a future upload. */
+export interface ImportMappingPreset {
+  id: string;
+  name: string;
+  importMode: ImportMode;
+  mapping: Record<string, string>;
+  createdAt: string;
+}

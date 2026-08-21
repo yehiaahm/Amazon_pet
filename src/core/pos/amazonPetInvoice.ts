@@ -26,6 +26,8 @@ export type AmazonPetInvoiceData = {
   changeDue?: number;
   paymentMethod?: string;
   status?: string;
+  isDelivery?: boolean;
+  deliveryFee?: number;
 };
 
 const NAVY = '#1a2b5e';
@@ -254,6 +256,7 @@ function renderInvoiceBody(data: AmazonPetInvoiceData): string {
             <div class="sum-row"><span>Total Items</span><span>${totalItems}</span></div>
             <div class="sum-row"><span>Subtotal</span><span>${fmtNum(data.subtotal)}</span></div>
             <div class="sum-row"><span>Discount</span><span>${fmtNum(data.discount)}</span></div>
+            ${data.isDelivery ? `<div class="sum-row"><span>Delivery Fee / رسوم التوصيل</span><span>${fmtNum(data.deliveryFee || 0)}</span></div>` : ''}
             <div class="sum-row highlight"><span>Total Before Payment</span><span>${fmtNum(data.total)}</span></div>
             <div class="sum-row"><span>Amount Paid</span><span>${fmtNum(amountPaid)}</span></div>
             <div class="sum-row change"><span>CHANGE DUE</span><span>${fmtNum(changeDue)}</span></div>
@@ -497,8 +500,25 @@ export function buildThermalReceiptHtml(data: AmazonPetInvoiceData): string {
 </html>`;
 }
 
+/**
+ * Windows keeps virtual printers (Print to PDF, XPS, Fax) installed alongside the real
+ * receipt printer. If one of those became the OS default, the print dialog opens on it
+ * and the receipt comes out as an A4 PDF instead of the 80mm roll. In the desktop app,
+ * point the OS default printer at the shop's real printer first so the dialog that
+ * window.print() below opens is already on the right device.
+ */
+function ensureReceiptPrinterDefault(): Promise<unknown> {
+  const electronAPI = (window as any).electronAPI;
+  if (!electronAPI?.ensureReceiptPrinterDefault) return Promise.resolve(undefined);
+  return Promise.race([
+    electronAPI.ensureReceiptPrinterDefault().catch(() => undefined),
+    new Promise((resolve) => window.setTimeout(resolve, 3000)),
+  ]);
+}
+
 export function printThermalReceipt(data: AmazonPetInvoiceData): void {
-  printInvoiceHtml(buildThermalReceiptHtml(data), 'amazon-pet-thermal-print');
+  const html = buildThermalReceiptHtml(data);
+  ensureReceiptPrinterDefault().finally(() => printInvoiceHtml(html, 'amazon-pet-thermal-print'));
 }
 
 export function printTestThermalReceipt80mm(): void {
@@ -565,6 +585,8 @@ export function saleToInvoiceData(opts: {
     discount?: number;
     paymentMethod?: string;
     status?: string;
+    delivery?: boolean;
+    deliveryFee?: number;
   };
   customerName: string;
   customerPhone?: string;
@@ -619,5 +641,7 @@ export function saleToInvoiceData(opts: {
     changeDue: 0,
     paymentMethod: sale.paymentMethod,
     status: sale.status,
+    isDelivery: sale.delivery,
+    deliveryFee: sale.deliveryFee,
   };
 }

@@ -1,17 +1,21 @@
-import { 
-  Product, ProductVariant, Warehouse, StockMovement, 
-  Customer, Pet, Service, Appointment, Expense, 
+import {
+  Product, ProductVariant, Warehouse, StockMovement,
+  Customer, Pet, Service, Appointment, Expense,
   DailyClosing, POSSession, Sale, KPIMetrics, DashboardMetrics, AIAdvisorInsight,
   PurchaseInvoice, BoardingReservation, TenantBarcodeSettings,
-  PurchaseInvoiceCreateResponse, SaleRefundResult, SaleBatchAllocationRow,
+  PurchaseInvoiceCreateResponse, PurchaseReturnResult, SaleRefundResult, SaleBatchAllocationRow,
   AccountsPayableDashboard, PurchaseInvoiceInstallment,
-  SalesQueryParams, SalesPageResult
+  SalesQueryParams, SalesPageResult,
+  LoyaltyAccount, LoyaltyLedgerPage, LoyaltyLedgerEntry, LoyaltySettings, LoyaltyDashboardResponse,
+  VaccinationRecord, VaccinationHistoryEntry, AnimalReminder,
+  AnimalFollowUpDashboard, PetFollowUpView, PetFollowUpSummary
 } from '../../types/erp';
 import { useUIStore } from '../stores/uiStore';
 import { usePermissionStore } from '../permissions/permissionStore';
 import { getBackendUrl } from './backendUrl';
 import {
   ImportUploadResponse, ImportMappingResponse, ImportPreviewPage, ImportSummary,
+  ImportMode, ImportMappingPreset,
 } from '../../modules/inventory/import/importTypes';
 
 export interface CatalogQueryParams {
@@ -577,7 +581,13 @@ export const api = {
   },
 
   async createSale(
-    sale: Omit<Sale, 'id' | 'saleNumber' | 'date'> & { managerPassword?: string; managerUsername?: string; idempotencyKey?: string }
+    sale: Omit<Sale, 'id' | 'saleNumber' | 'date'> & {
+      managerPassword?: string;
+      managerUsername?: string;
+      idempotencyKey?: string;
+      /** Amount of the customer's loyalty balance to redeem on this sale. */
+      loyaltyRedeem?: number;
+    }
   ): Promise<Sale> {
     const payload = {
       posSessionId: sale.posSessionId,
@@ -585,7 +595,11 @@ export const api = {
       tax: sale.tax,
       discount: sale.discount,
       paymentMethod: sale.paymentMethod,
+      ...(sale.payments && sale.payments.length > 0 ? { payments: sale.payments } : {}),
       customerId: sale.customerId,
+      delivery: sale.delivery ?? false,
+      deliveryFee: sale.deliveryFee ?? 0,
+      loyaltyRedeem: sale.loyaltyRedeem ?? 0,
       ...(sale.managerPassword ? { managerPassword: sale.managerPassword } : {}),
       ...(sale.managerUsername ? { managerUsername: sale.managerUsername } : {}),
       items: (sale.items || []).map((item) => ({
@@ -724,6 +738,139 @@ export const api = {
   async deleteCustomer(id: string): Promise<void> {
     await apiFetch<void>(`/v1/customers/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  // ── ANIMAL FOLLOW-UP: vaccinations & general reminders ───────────────────
+
+  async getPetFollowUpSummary(): Promise<Record<string, PetFollowUpSummary>> {
+    return await apiFetch<Record<string, PetFollowUpSummary>>('/v1/pets/follow-up-summary');
+  },
+
+  async getPetFollowUp(petId: string): Promise<PetFollowUpView> {
+    return await apiFetch<PetFollowUpView>(`/v1/pets/${petId}/follow-up`);
+  },
+
+  async getAnimalFollowUpDashboard(): Promise<AnimalFollowUpDashboard> {
+    return await apiFetch<AnimalFollowUpDashboard>('/v1/animal-follow-up/dashboard');
+  },
+
+  async getAnimalFollowUpSettings(): Promise<{ tenantId: string; dueSoonThresholdDays: number }> {
+    return await apiFetch('/v1/animal-follow-up/settings');
+  },
+
+  async updateAnimalFollowUpSettings(dueSoonThresholdDays: number): Promise<{ tenantId: string; dueSoonThresholdDays: number }> {
+    return await apiFetch('/v1/animal-follow-up/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ dueSoonThresholdDays }),
+    });
+  },
+
+  async getVaccinations(petId?: string): Promise<VaccinationRecord[]> {
+    const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
+    return await apiFetch<VaccinationRecord[]>(`/v1/vaccinations${q}`);
+  },
+
+  async addVaccination(payload: {
+    petId: string; vaccineName: string; intervalMonths?: number | null;
+    lastAdministeredDate?: string | null; nextDueDate?: string | null; notes?: string;
+  }): Promise<VaccinationRecord> {
+    return await apiFetch<VaccinationRecord>('/v1/vaccinations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateVaccination(id: string, payload: {
+    vaccineName: string; intervalMonths?: number | null;
+    lastAdministeredDate?: string | null; nextDueDate?: string | null; notes?: string;
+  }): Promise<VaccinationRecord> {
+    return await apiFetch<VaccinationRecord>(`/v1/vaccinations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteVaccination(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/vaccinations/${id}`, { method: 'DELETE' });
+  },
+
+  async administerVaccination(id: string, administeredDate?: string, notes?: string): Promise<VaccinationRecord> {
+    return await apiFetch<VaccinationRecord>(`/v1/vaccinations/${id}/administer`, {
+      method: 'POST',
+      body: JSON.stringify({ administeredDate, notes }),
+    });
+  },
+
+  async getVaccinationHistory(id: string): Promise<VaccinationHistoryEntry[]> {
+    return await apiFetch<VaccinationHistoryEntry[]>(`/v1/vaccinations/${id}/history`);
+  },
+
+  async getAnimalReminders(petId?: string): Promise<AnimalReminder[]> {
+    const q = petId ? `?petId=${encodeURIComponent(petId)}` : '';
+    return await apiFetch<AnimalReminder[]>(`/v1/animal-reminders${q}`);
+  },
+
+  async addAnimalReminder(payload: { petId: string; title: string; description?: string; dueDate: string }): Promise<AnimalReminder> {
+    return await apiFetch<AnimalReminder>('/v1/animal-reminders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateAnimalReminder(id: string, payload: { title: string; description?: string; dueDate: string }): Promise<AnimalReminder> {
+    return await apiFetch<AnimalReminder>(`/v1/animal-reminders/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteAnimalReminder(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/animal-reminders/${id}`, { method: 'DELETE' });
+  },
+
+  async completeAnimalReminder(id: string): Promise<AnimalReminder> {
+    return await apiFetch<AnimalReminder>(`/v1/animal-reminders/${id}/complete`, { method: 'POST' });
+  },
+
+  // ── LOYALTY ───────────────────────────────────────────────────────────────
+
+  async getLoyaltyAccount(customerId: string): Promise<LoyaltyAccount> {
+    return await apiFetch<LoyaltyAccount>(`/v1/loyalty/customers/${customerId}`);
+  },
+
+  async getLoyaltyLedger(customerId: string, page = 0, size = 20): Promise<LoyaltyLedgerPage> {
+    return await apiFetch<LoyaltyLedgerPage>(
+      `/v1/loyalty/customers/${customerId}/ledger?page=${page}&size=${size}`
+    );
+  },
+
+  async adjustLoyalty(customerId: string, amount: number, reason: string): Promise<LoyaltyLedgerEntry> {
+    return await apiFetch<LoyaltyLedgerEntry>(`/v1/loyalty/customers/${customerId}/adjust`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, reason }),
+    });
+  },
+
+  async getLoyaltySettings(): Promise<LoyaltySettings> {
+    return await apiFetch<LoyaltySettings>('/v1/loyalty/settings');
+  },
+
+  async updateLoyaltySettings(settings: Partial<LoyaltySettings>): Promise<LoyaltySettings> {
+    return await apiFetch<LoyaltySettings>('/v1/loyalty/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async getLoyaltyDashboard(): Promise<LoyaltyDashboardResponse> {
+    return await apiFetch<LoyaltyDashboardResponse>('/v1/loyalty/dashboard');
+  },
+
+  async setLoyaltyProgramOpen(open: boolean): Promise<LoyaltySettings> {
+    return await apiFetch<LoyaltySettings>('/v1/loyalty/settings/status', {
+      method: 'PUT',
+      body: JSON.stringify({ open }),
     });
   },
 
@@ -893,6 +1040,26 @@ export const api = {
 
   async getPurchaseInvoices(): Promise<PurchaseInvoice[]> {
     return await apiFetch<PurchaseInvoice[]>('/v1/purchase-invoices');
+  },
+
+  async getPurchaseInvoice(id: string): Promise<PurchaseInvoice> {
+    return await apiFetch<PurchaseInvoice>(`/v1/purchase-invoices/${encodeURIComponent(id)}`);
+  },
+
+  async returnPurchaseInvoice(
+    id: string,
+    lines?: Array<{ purchaseInvoiceItemId: string; quantity: number }>,
+    reason?: string,
+    amount?: number
+  ): Promise<PurchaseReturnResult> {
+    return await apiFetch<PurchaseReturnResult>(`/v1/purchase-invoices/${encodeURIComponent(id)}/return`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(lines && lines.length > 0 ? { lines } : {}),
+        ...(reason ? { reason } : {}),
+        ...(amount && amount > 0 ? { amount } : {}),
+      }),
+    });
   },
 
   async payPurchaseInvoice(id: string, amount: number): Promise<PurchaseInvoice> {
@@ -1185,9 +1352,10 @@ export const api = {
 
   // ── SMART EXCEL IMPORT ────────────────────────────────────────────────────
 
-  async uploadImportSession(file: File): Promise<ImportUploadResponse> {
+  async uploadImportSession(file: File, mode: ImportMode = 'ADD_STOCK'): Promise<ImportUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('mode', mode);
     return await apiUpload<ImportUploadResponse>('/v1/inventory/import/sessions', formData);
   },
 
@@ -1225,6 +1393,21 @@ export const api = {
     return await apiFetch<ImportSummary>(`/v1/inventory/import/sessions/${sessionId}/commit`, {
       method: 'POST',
     });
+  },
+
+  async listImportMappingPresets(mode: ImportMode): Promise<ImportMappingPreset[]> {
+    return await apiFetch<ImportMappingPreset[]>(`/v1/inventory/import/mapping-presets?mode=${mode}`);
+  },
+
+  async saveImportMappingPreset(name: string, mode: ImportMode, mapping: Record<string, string>): Promise<ImportMappingPreset> {
+    return await apiFetch<ImportMappingPreset>('/v1/inventory/import/mapping-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name, importMode: mode, mapping }),
+    });
+  },
+
+  async deleteImportMappingPreset(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/inventory/import/mapping-presets/${id}`, { method: 'DELETE' });
   },
 
   async downloadImportErrorReport(sessionId: string): Promise<Blob> {

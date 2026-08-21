@@ -1,10 +1,12 @@
 import React from 'react';
 import { useUIStore } from '../core/stores/uiStore';
 import { useSessionStore } from '../core/stores/sessionStore';
-import { ArrowLeft, Landmark, User, Clock, Sun, Moon, Scissors, Calendar } from 'lucide-react';
+import { ArrowLeft, Landmark, User, Clock, Sun, Moon, Scissors, Calendar, LogOut } from 'lucide-react';
 import Badge from '../components/ui/Badge';
 import { formatMoney } from '../core/utils/money';
 import { usePermissions } from '../core/permissions/usePermissions';
+import { usePermissionStore } from '../core/permissions/permissionStore';
+import { PERMISSIONS } from '../core/permissions/permissions';
 
 interface POSLayoutProps {
   children: React.ReactNode;
@@ -13,10 +15,14 @@ interface POSLayoutProps {
 export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
   const setActiveModule = useUIStore(s => s.setActiveModule);
   const currentEmployee = useUIStore(s => s.currentEmployee);
+  const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
+  const setAuthenticated = useUIStore(s => s.setAuthenticated);
+  const setAutoOpenCloseShiftModal = useUIStore(s => s.setAutoOpenCloseShiftModal);
+  const setLogoutAfterCloseShift = useUIStore(s => s.setLogoutAfterCloseShift);
   const theme = useUIStore(s => s.theme);
   const toggleTheme = useUIStore(s => s.toggleTheme);
   const activeSession = useSessionStore(s => s.activeSession);
-  const { canAccessModule } = usePermissions();
+  const { canAccessModule, hasPermission } = usePermissions();
 
   const cashierQuickNav = [
     { id: 'services', label: 'مواعيد', icon: <Scissors size={14} /> },
@@ -25,6 +31,19 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
 
   const visibleQuickNav = cashierQuickNav.filter((item) => canAccessModule(item.id));
   const canLeavePos = canAccessModule('dashboard-executive');
+
+  const handleLogout = () => {
+    if (activeSession && hasPermission(PERMISSIONS.SALES_CLOSE_SHIFT)) {
+      alert(`⚠️ عذراً! لا يمكنك تسجيل الخروج والوردية/درج الكاشير مفتوح.\nيرجى إغلاق الوردية أولاً.`);
+      setLogoutAfterCloseShift(true);
+      setAutoOpenCloseShiftModal(true);
+      return;
+    }
+    localStorage.removeItem('token');
+    setCurrentEmployee(null);
+    setAuthenticated(false);
+    usePermissionStore.getState().clearPermissions();
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--color-bg)' }}>
@@ -134,6 +153,28 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
               {currentEmployee?.fullName}
             </span>
           </div>
+
+          <span style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
+
+          <button
+            onClick={handleLogout}
+            className="btn-ghost"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              color: 'var(--color-danger)',
+              border: 'none',
+              padding: '4px 8px',
+              cursor: 'pointer',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 'bold'
+            }}
+            title="تسجيل الخروج"
+          >
+            <LogOut size={14} />
+            تسجيل الخروج
+          </button>
         </div>
       </header>
 

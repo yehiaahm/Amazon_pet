@@ -17,6 +17,17 @@ export interface ToastItem {
   message: string;
 }
 
+// Dashboard KPI drill-down: the KPI card sets one of these before switching
+// activeModule, and the destination page consumes + clears it on mount so the
+// same date range/context used for the KPI number carries over.
+export type ReportsDrilldownTab = 'SALES' | 'PURCHASES' | 'EXPENSES' | 'PL';
+export type ReportsDrilldownPreset = 'TODAY' | 'THIS_MONTH';
+export interface ReportsDrilldownFilter {
+  tab: ReportsDrilldownTab;
+  preset: ReportsDrilldownPreset;
+}
+export type InventoryDrilldownTab = 'STOCK' | 'FIFO';
+
 interface UIState {
   sidebarCollapsed: boolean;
   activeModule: string;
@@ -29,9 +40,13 @@ interface UIState {
   theme: 'light' | 'dark';
   autoOpenCloseShiftModal: boolean;
   logoutAfterCloseShift: boolean;
+  pendingReportsFilter: ReportsDrilldownFilter | null;
+  pendingInventoryTab: InventoryDrilldownTab | null;
 
   toggleSidebar: () => void;
   setActiveModule: (module: string) => void;
+  setPendingReportsFilter: (filter: ReportsDrilldownFilter | null) => void;
+  setPendingInventoryTab: (tab: InventoryDrilldownTab | null) => void;
   setCurrentEmployee: (employee: Employee | null) => void;
   setAuthenticated: (auth: boolean) => void;
   setCommandPaletteOpen: (open: boolean) => void;
@@ -61,9 +76,13 @@ export const useUIStore = create<UIState>((set) => ({
   toasts: [],
   autoOpenCloseShiftModal: false,
   logoutAfterCloseShift: false,
+  pendingReportsFilter: null,
+  pendingInventoryTab: null,
 
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setActiveModule: (module) => set({ activeModule: module }),
+  setPendingReportsFilter: (filter) => set({ pendingReportsFilter: filter }),
+  setPendingInventoryTab: (tab) => set({ pendingInventoryTab: tab }),
   setCurrentEmployee: (employee) => set({ currentEmployee: employee }),
   setAuthenticated: (auth) => set({ isAuthenticated: auth }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),

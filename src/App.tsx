@@ -20,7 +20,9 @@ import Boarding from './modules/boarding/Boarding';
 import Reports from './modules/reports/Reports';
 import Employees from './modules/employees/Employees';
 import RolesPermissions from './modules/roles/RolesPermissions';
+import LoyaltyDashboard from './modules/loyalty/LoyaltyDashboard';
 import { usePermissions } from './core/permissions/usePermissions';
+import { usePermissionStore } from './core/permissions/permissionStore';
 import { useMyPermissions } from './core/hooks/useERPData';
 import AccessDenied from './components/ui/AccessDenied';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -34,8 +36,17 @@ export const App: React.FC = () => {
   const setActiveModule = useUIStore(s => s.setActiveModule);
   const isAuthenticated = useUIStore(s => s.isAuthenticated);
   const theme = useUIStore(s => s.theme);
+  const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
+  const setAuthenticated = useUIStore(s => s.setAuthenticated);
   const { canAccessModule, resolveDefaultModule } = usePermissions();
   useMyPermissions();
+
+  const logout = React.useCallback(() => {
+    localStorage.removeItem('token');
+    setCurrentEmployee(null);
+    setAuthenticated(false);
+    usePermissionStore.getState().clearPermissions();
+  }, [setCurrentEmployee, setAuthenticated]);
 
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -53,12 +64,21 @@ export const App: React.FC = () => {
 
   const renderActiveModule = () => {
     if (!canAccessModule(activeModule)) {
+      const fallback = resolveDefaultModule();
       return (
         <AccessDenied
           moduleName={activeModule}
+          goHomeLabel={fallback ? undefined : 'تسجيل الخروج'}
           onGoHome={() => {
-            const fallback = resolveDefaultModule();
-            if (fallback) setActiveModule(fallback);
+            const target = resolveDefaultModule();
+            if (target) {
+              setActiveModule(target);
+            } else {
+              // No module is accessible at all for this account (e.g. a role/position
+              // with no permissions assigned) — send them back to the login screen
+              // instead of leaving them stuck on this page with a dead button.
+              logout();
+            }
           }}
         />
       );
@@ -70,6 +90,8 @@ export const App: React.FC = () => {
       case 'dashboard-inventory':
       case 'dashboard-operations':
         return withModuleBoundary('لوحة التحكم', <Dashboard />);
+      case 'loyalty-dashboard':
+        return withModuleBoundary('لوحة تحكم الولاء', <LoyaltyDashboard />);
       case 'pos':
         return withModuleBoundary('نقطة البيع', <POS />);
       case 'inventory':
