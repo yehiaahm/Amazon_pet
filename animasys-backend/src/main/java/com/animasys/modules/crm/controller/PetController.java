@@ -4,6 +4,9 @@ import com.animasys.core.response.ApiResponseWrapper;
 import com.animasys.core.security.SecurityUtils;
 import com.animasys.modules.crm.domain.Pet;
 import com.animasys.modules.crm.service.CustomerService;
+import com.animasys.modules.vaccination.dto.PetFollowUpSummary;
+import com.animasys.modules.vaccination.dto.PetFollowUpView;
+import com.animasys.modules.vaccination.service.AnimalFollowUpService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -11,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/v1/pets")
@@ -18,6 +22,7 @@ import java.util.List;
 public class PetController {
 
     private final CustomerService customerService;
+    private final AnimalFollowUpService followUpService;
 
     @GetMapping
     @PreAuthorize("@authz.has('pets.view')")
@@ -57,5 +62,21 @@ public class PetController {
         String tenantId = SecurityUtils.requireTenantId();
         customerService.deletePet(tenantId, id);
         return ResponseEntity.ok(ApiResponseWrapper.success(null, "تم حذف الحيوان الأليف"));
+    }
+
+    @GetMapping("/follow-up-summary")
+    @PreAuthorize("@authz.has('vaccinations.view')")
+    public ResponseEntity<ApiResponseWrapper<Map<String, PetFollowUpSummary>>> getFollowUpSummary() {
+        String tenantId = SecurityUtils.requireTenantId();
+        Map<String, PetFollowUpSummary> summary = followUpService.getFollowUpSummary(tenantId);
+        return ResponseEntity.ok(ApiResponseWrapper.success(summary, "تم استرجاع ملخص المتابعة للحيوانات"));
+    }
+
+    @GetMapping("/{id}/follow-up")
+    @PreAuthorize("@authz.has('vaccinations.view')")
+    public ResponseEntity<ApiResponseWrapper<PetFollowUpView>> getPetFollowUp(@PathVariable String id) {
+        String tenantId = SecurityUtils.requireTenantId();
+        PetFollowUpView view = followUpService.getPetFollowUp(tenantId, id);
+        return ResponseEntity.ok(ApiResponseWrapper.success(view, "تم استرجاع ملف متابعة الحيوان"));
     }
 }
