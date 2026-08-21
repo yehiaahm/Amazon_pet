@@ -7,9 +7,12 @@ import {
   useSales,
   usePets,
   useAppointments,
+  useLoyaltyAccount,
+  useLoyaltyLedger,
+  useAdjustLoyalty,
 } from '../../core/hooks/useERPData';
 import { useUIStore } from '../../core/stores/uiStore';
-import { PlusCircle, AlertTriangle, Pencil } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Pencil, History, ChevronDown, ChevronUp, Receipt, Wallet, Settings2 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -17,11 +20,29 @@ import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
 import DataTable from '../../components/ui/DataTable';
 import Badge from '../../components/ui/Badge';
-import type { Appointment, Customer } from '../../types/erp';
-import { isCompletedSale } from '../../core/utils/saleFinance';
+import type { Appointment, Customer, Sale } from '../../types/erp';
+import { isCompletedSale, saleRevenue, saleStatusLabel, saleStatusBadgeVariant } from '../../core/utils/saleFinance';
+import { formatMoney } from '../../core/utils/money';
 import Can from '../../components/ui/Can';
 import { usePermissions } from '../../core/permissions/usePermissions';
 import { PERMISSIONS } from '../../core/permissions/permissions';
+import LoyaltySettingsPanel from '../loyalty/LoyaltySettingsPanel';
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'نقدي',
+  CARD: 'بطاقة بنكية',
+  MOBILE: 'دفع إلكتروني',
+  INSTAPAY: 'إنستاباي',
+  VODAFONE_CASH: 'فودافون كاش',
+};
+
+const LOYALTY_LEDGER_TYPE_LABELS: Record<string, string> = {
+  EARNED: 'كسب',
+  USED: 'استخدام',
+  RETURN_REVERSAL: 'عكس مرتجع',
+  MANUAL_ADJUSTMENT: 'تعديل يدوي',
+  EXPIRED: 'انتهاء صلاحية',
+};
 
 function startOfCurrentMonth(now = new Date()) {
   return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -109,6 +130,20 @@ export const CRM: React.FC = () => {
   // Add customer form
   const [custNotes, setCustNotes] = useState('');
 
+  // Purchase history modal
+  const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
+
+  // Loyalty balance / ledger modal
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState<Customer | null>(null);
+  const [loyaltyLedgerPageIdx, setLoyaltyLedgerPageIdx] = useState(0);
+  const [showLoyaltySettings, setShowLoyaltySettings] = useState(false);
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
+  const { data: loyaltyAccount } = useLoyaltyAccount(loyaltyCustomer?.id ?? null);
+  const { data: loyaltyLedgerPage } = useLoyaltyLedger(loyaltyCustomer?.id ?? null, loyaltyLedgerPageIdx, 10);
+  const { mutate: adjustLoyalty, isPending: adjustingLoyalty } = useAdjustLoyalty();
+
   const customerIdByPetId = useMemo(() => {
     const map = new Map<string, string>();
     (pets ?? []).forEach(p => {
@@ -188,6 +223,59 @@ export const CRM: React.FC = () => {
     (customerId: string): LoyaltyMetrics => loyaltyByCustomer.get(customerId) ?? EMPTY_LOYALTY,
     [loyaltyByCustomer]
   );
+
+  const historySales = useMemo<Sale[]>(() => {
+    if (!historyCustomer) return [];
+    return (sales ?? []).filter(s => s.customerId === historyCustomer.id);
+  }, [sales, historyCustomer]);
+
+  const historyStats = useMemo(() => {
+    const totalSpent = historySales.reduce((sum, s) => sum + saleRevenue(s), 0);
+    return { invoiceCount: historySales.length, totalSpent };
+  }, [historySales]);
+
+  const openPurchaseHistory = (customer: Customer) => {
+    setExpandedSaleId(null);
+    setHistoryCustomer(customer);
+  };
+
+  const closePurchaseHistory = () => {
+    setHistoryCustomer(null);
+    setExpandedSaleId(null);
+  };
+
+  const openLoyalty = (customer: Customer) => {
+    setLoyaltyLedgerPageIdx(0);
+    setAdjustAmount('');
+    setAdjustReason('');
+    setLoyaltyCustomer(customer);
+  };
+
+  const closeLoyalty = () => {
+    setLoyaltyCustomer(null);
+  };
+
+  const handleAdjustLoyalty = () => {
+    if (!loyaltyCustomer) return;
+    const amount = parseFloat(adjustAmount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      addNotification('WARNINGS', 'قيمة غير صالحة', 'أدخل قيمة تعديل صحيحة لا تساوي صفر.');
+      return;
+    }
+    if (!adjustReason.trim()) {
+      addNotification('WARNINGS', 'السبب مطلوب', 'يرجى إدخال سبب التعديل.');
+      return;
+    }
+    adjustLoyalty(
+      { customerId: loyaltyCustomer.id, amount, reason: adjustReason.trim() },
+      {
+        onSuccess: () => {
+          setAdjustAmount('');
+          setAdjustReason('');
+        },
+      }
+    );
+  };
 
   useEffect(() => {
     if (!customers) return;
@@ -372,17 +460,41 @@ export const CRM: React.FC = () => {
     {
       header: 'إجراءات',
       accessor: (row: Customer) => (
-        <Can permission={PERMISSIONS.CUSTOMERS_EDIT}>
-          <Button
-            onClick={() => openEditCustomer(row)}
-            variant="secondary"
-            size="sm"
-            style={{ padding: '2px 8px' }}
-            title="تعديل بيانات العميل"
-          >
-            <Pencil size={14} /> تعديل
-          </Button>
-        </Can>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <Can permission={PERMISSIONS.CUSTOMERS_HISTORY}>
+            <Button
+              onClick={() => openPurchaseHistory(row)}
+              variant="secondary"
+              size="sm"
+              style={{ padding: '2px 8px' }}
+              title="سجل المشتريات والفواتير"
+            >
+              <History size={14} /> سجل المشتريات
+            </Button>
+          </Can>
+          <Can permission={PERMISSIONS.CUSTOMERS_HISTORY}>
+            <Button
+              onClick={() => openLoyalty(row)}
+              variant="secondary"
+              size="sm"
+              style={{ padding: '2px 8px' }}
+              title="رصيد وتاريخ حركات الولاء"
+            >
+              <Wallet size={14} /> الولاء
+            </Button>
+          </Can>
+          <Can permission={PERMISSIONS.CUSTOMERS_EDIT}>
+            <Button
+              onClick={() => openEditCustomer(row)}
+              variant="secondary"
+              size="sm"
+              style={{ padding: '2px 8px' }}
+              title="تعديل بيانات العميل"
+            >
+              <Pencil size={14} /> تعديل
+            </Button>
+          </Can>
+        </div>
       ),
       key: 'actions'
     }
@@ -457,11 +569,18 @@ export const CRM: React.FC = () => {
         title="دليل وحسابات العملاء (CRM)"
         subtitle="إدارة ملفات العملاء، سجلات الاتصال، وتخصيص بيانات الحيوانات الأليفة"
         actions={
-          <Can permission={PERMISSIONS.CUSTOMERS_ADD}>
-            <Button onClick={() => setShowAddModal(true)} variant="primary" size="sm">
-              <PlusCircle size={14} /> إضافة عميل جديد
-            </Button>
-          </Can>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Can permission={PERMISSIONS.CUSTOMERS_LOYALTY}>
+              <Button onClick={() => setShowLoyaltySettings(true)} variant="secondary" size="sm">
+                <Settings2 size={14} /> إعدادات الولاء
+              </Button>
+            </Can>
+            <Can permission={PERMISSIONS.CUSTOMERS_ADD}>
+              <Button onClick={() => setShowAddModal(true)} variant="primary" size="sm">
+                <PlusCircle size={14} /> إضافة عميل جديد
+              </Button>
+            </Can>
+          </div>
         }
       />
 
@@ -689,6 +808,271 @@ export const CRM: React.FC = () => {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* PURCHASE HISTORY MODAL */}
+      <Modal
+        isOpen={Boolean(historyCustomer)}
+        onClose={closePurchaseHistory}
+        title={`سجل مشتريات: ${historyCustomer?.name ?? ''}`}
+        maxWidth="800px"
+      >
+        {historyCustomer && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+            {/* Summary bar */}
+            <div style={{
+              display: 'flex',
+              gap: 'var(--spacing-4)',
+              flexWrap: 'wrap',
+              padding: 'var(--spacing-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+            }}>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>عدد الفواتير</div>
+                <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-base)' }}>{historyStats.invoiceCount}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>إجمالي المشتريات</div>
+                <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-base)' }}>{formatMoney(historyStats.totalSpent)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>آخر زيارة</div>
+                <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-base)' }}>
+                  {getCustomerLoyalty(historyCustomer.id).lastVisitDate?.toLocaleDateString('ar-EG') ?? 'لا يوجد'}
+                </div>
+              </div>
+            </div>
+
+            {/* Invoice list */}
+            {historySales.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 'var(--spacing-8)', color: 'var(--color-text-secondary)' }}>
+                لا توجد فواتير مسجلة لهذا العميل حتى الآن.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '55vh', overflowY: 'auto' }}>
+                {historySales.map(sale => {
+                  const isExpanded = expandedSaleId === sale.id;
+                  return (
+                    <div
+                      key={sale.id}
+                      style={{
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-md)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        onClick={() => setExpandedSaleId(isExpanded ? null : sale.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 'var(--spacing-3)',
+                          padding: 'var(--spacing-2) var(--spacing-3)',
+                          cursor: 'pointer',
+                          backgroundColor: isExpanded ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                          <Receipt size={15} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 'bold', fontSize: 'var(--font-size-sm)' }}>{sale.saleNumber}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                              {new Date(sale.date).toLocaleString('ar-EG')}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                          <Badge variant="gray" style={{ fontSize: '10px', padding: '2px 6px' }}>
+                            {PAYMENT_METHOD_LABELS[sale.paymentMethod] ?? sale.paymentMethod}
+                          </Badge>
+                          <Badge variant={saleStatusBadgeVariant(sale.status)}>
+                            {saleStatusLabel(sale.status)}
+                          </Badge>
+                          <span style={{ fontWeight: 'bold', minWidth: '70px', textAlign: 'left' }}>
+                            {formatMoney(saleRevenue(sale))}
+                          </span>
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div style={{ padding: 'var(--spacing-2) var(--spacing-3)', borderTop: '1px solid var(--color-border)' }}>
+                          <table style={{ width: '100%', fontSize: 'var(--font-size-xs)' }}>
+                            <thead>
+                              <tr style={{ color: 'var(--color-text-secondary)' }}>
+                                <th style={{ textAlign: 'right', fontWeight: 'normal', padding: '4px' }}>الصنف</th>
+                                <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>الكمية</th>
+                                <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>سعر الوحدة</th>
+                                <th style={{ textAlign: 'left', fontWeight: 'normal', padding: '4px' }}>الإجمالي</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(sale.items ?? []).map(item => (
+                                <tr key={item.id}>
+                                  <td style={{ padding: '4px' }}>
+                                    {item.name}
+                                    {(item.quantityReturned ?? 0) > 0 && (
+                                      <Badge variant="warning" style={{ fontSize: '9px', padding: '1px 4px', marginRight: '6px' }}>
+                                        مرتجع {item.quantityReturned}
+                                      </Badge>
+                                    )}
+                                  </td>
+                                  <td style={{ textAlign: 'center', padding: '4px' }}>{item.quantity}</td>
+                                  <td style={{ textAlign: 'center', padding: '4px' }}>{formatMoney(item.price)}</td>
+                                  <td style={{ textAlign: 'left', padding: '4px', fontWeight: 'bold' }}>
+                                    {formatMoney(item.price * item.quantity)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* LOYALTY BALANCE / LEDGER MODAL */}
+      <Modal
+        isOpen={Boolean(loyaltyCustomer)}
+        onClose={closeLoyalty}
+        title={`رصيد الولاء: ${loyaltyCustomer?.name ?? ''}`}
+        maxWidth="700px"
+      >
+        {loyaltyCustomer && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: 'var(--spacing-3)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+            }}>
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>الرصيد الحالي</span>
+              <span style={{ fontWeight: 'bold', fontSize: 'var(--font-size-lg)' }}>
+                {formatMoney(loyaltyAccount?.balance ?? 0)}
+              </span>
+            </div>
+
+            <Can permission={PERMISSIONS.CUSTOMERS_LOYALTY}>
+              <div style={{
+                display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end', flexWrap: 'wrap',
+                padding: 'var(--spacing-2)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)',
+              }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
+                    قيمة التعديل (+/-)
+                  </div>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={adjustAmount}
+                    onChange={(e) => setAdjustAmount(e.target.value)}
+                    placeholder="مثال: 50 أو -20"
+                    style={{ maxWidth: '140px' }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: '180px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
+                    السبب
+                  </div>
+                  <Input
+                    value={adjustReason}
+                    onChange={(e) => setAdjustReason(e.target.value)}
+                    placeholder="سبب التعديل"
+                  />
+                </div>
+                <Button onClick={handleAdjustLoyalty} disabled={adjustingLoyalty} variant="primary" size="sm">
+                  تطبيق التعديل
+                </Button>
+              </div>
+            </Can>
+
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>سجل الحركات</div>
+              {(!loyaltyLedgerPage || loyaltyLedgerPage.content.length === 0) ? (
+                <div style={{ textAlign: 'center', padding: 'var(--spacing-6)', color: 'var(--color-text-secondary)' }}>
+                  لا توجد حركات ولاء مسجلة لهذا العميل حتى الآن.
+                </div>
+              ) : (
+                <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                        <th style={{ textAlign: 'right', padding: '4px', fontWeight: 'normal' }}>التاريخ</th>
+                        <th style={{ textAlign: 'right', padding: '4px', fontWeight: 'normal' }}>النوع</th>
+                        <th style={{ textAlign: 'right', padding: '4px', fontWeight: 'normal' }}>الفاتورة</th>
+                        <th style={{ textAlign: 'right', padding: '4px', fontWeight: 'normal' }}>الكاشير</th>
+                        <th style={{ textAlign: 'left', padding: '4px', fontWeight: 'normal' }}>القيمة</th>
+                        <th style={{ textAlign: 'left', padding: '4px', fontWeight: 'normal' }}>الرصيد بعد</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loyaltyLedgerPage.content.map(entry => (
+                        <tr key={entry.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                          <td style={{ padding: '4px' }}>{new Date(entry.createdAt).toLocaleString('ar-EG')}</td>
+                          <td style={{ padding: '4px' }}>{LOYALTY_LEDGER_TYPE_LABELS[entry.type] ?? entry.type}</td>
+                          <td style={{ padding: '4px' }}>{entry.saleNumber ?? '-'}</td>
+                          <td style={{ padding: '4px' }}>{entry.employeeName ?? '-'}</td>
+                          <td style={{
+                            padding: '4px', textAlign: 'left', fontWeight: 'bold',
+                            color: entry.amount >= 0 ? '#059669' : '#dc2626',
+                          }}>
+                            {entry.amount >= 0 ? '+' : ''}{formatMoney(entry.amount)}
+                          </td>
+                          <td style={{ padding: '4px', textAlign: 'left' }}>{formatMoney(entry.balanceAfter)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {loyaltyLedgerPage && loyaltyLedgerPage.totalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={loyaltyLedgerPageIdx <= 0}
+                    onClick={() => setLoyaltyLedgerPageIdx(p => Math.max(0, p - 1))}
+                  >
+                    السابق
+                  </Button>
+                  <span style={{ fontSize: '11px' }}>
+                    {loyaltyLedgerPageIdx + 1} / {loyaltyLedgerPage.totalPages}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={loyaltyLedgerPageIdx >= loyaltyLedgerPage.totalPages - 1}
+                    onClick={() => setLoyaltyLedgerPageIdx(p => p + 1)}
+                  >
+                    التالي
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* LOYALTY SETTINGS MODAL */}
+      <Modal
+        isOpen={showLoyaltySettings}
+        onClose={() => setShowLoyaltySettings(false)}
+        title="إعدادات برنامج الولاء"
+        maxWidth="700px"
+      >
+        <LoyaltySettingsPanel />
       </Modal>
     </div>
   );
