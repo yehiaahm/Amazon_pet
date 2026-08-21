@@ -17,3 +17,6 @@ animasys-backend/logs/
 animasys-backend/.data-smoketest/
 .claude/settings.local.json
 .claude/worktrees/
+*.log
+*.tsx.backup
+*.ts.backup
