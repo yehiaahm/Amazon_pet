@@ -4,6 +4,7 @@ import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
 import com.animasys.core.security.SecurityUtils;
 import com.animasys.core.security.UserPrincipal;
+import com.animasys.core.util.BusinessTimeZone;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.sales.domain.Sale;
 import com.animasys.modules.sales.domain.SaleItem;
@@ -49,7 +50,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SaleController {
 
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Africa/Cairo");
+    private static final ZoneId BUSINESS_ZONE = BusinessTimeZone.ZONE;
 
     private final SaleService saleService;
     private final SaleQueryService saleQueryService;

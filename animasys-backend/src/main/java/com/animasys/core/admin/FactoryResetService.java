@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,10 +23,28 @@ public class FactoryResetService {
     private static final Logger log = LoggerFactory.getLogger(FactoryResetService.class);
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
+    @Transactional
     public Map<String, Object> resetToFirstUse(String tenantId) {
         Map<String, Long> cleared = new LinkedHashMap<>();
 
         // Standard SQL DELETE with IN subqueries for H2 and MySQL compatibility
+
+        // Loyalty ledger/accounts reference customers, sales and employees without
+        // ON DELETE CASCADE, so they must be cleared before those tables or the
+        // reset aborts with a foreign-key violation.
+        cleared.put("loyalty_ledger_entries", delete(
+                "DELETE FROM loyalty_ledger_entries WHERE tenant_id = :tenantId", tenantId));
+
+        cleared.put("loyalty_accounts", delete(
+                "DELETE FROM loyalty_accounts WHERE tenant_id = :tenantId", tenantId));
+
+        cleared.put("sale_payments", delete("""
+                DELETE FROM sale_payments WHERE sale_id IN (
+                    SELECT s.id FROM sales s
+                    INNER JOIN employees e ON s.employee_id = e.id
+                    WHERE e.tenant_id = :tenantId
+                )
+                """, tenantId));
 
         cleared.put("sale_item_batch_allocations", delete("""
                 DELETE FROM sale_item_batch_allocations WHERE sale_item_id IN (

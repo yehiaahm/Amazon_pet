@@ -155,6 +155,7 @@ public class ExecutiveAssessmentTest extends IntegrationTestBase {
 
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger conflictOrFailCount = new AtomicInteger(0);
+        String runSuffix = UUID.randomUUID().toString().substring(0, 8);
 
         for (int i = 0; i < totalThreads; i++) {
             final int index = i;
@@ -164,7 +165,7 @@ public class ExecutiveAssessmentTest extends IntegrationTestBase {
                     transactionTemplate.executeWithoutResult(status -> {
                         Sale sale = Sale.builder()
                                 .id(UUID.randomUUID().toString())
-                                .saleNumber("CONC-INV-" + index)
+                                .saleNumber("CONC-INV-" + runSuffix + "-" + index)
                                 .posSession(posSession)
                                 .employee(manager)
                                 .totalAmount(new BigDecimal("100.00"))
@@ -183,6 +184,7 @@ public class ExecutiveAssessmentTest extends IntegrationTestBase {
                                 .itemId(variant.getId())
                                 .quantity(1)
                                 .price(new BigDecimal("100.00"))
+                                .listPrice(new BigDecimal("100.00"))
                                 .cost(BigDecimal.ZERO)
                                 .build();
                         saleItemRepository.save(item);

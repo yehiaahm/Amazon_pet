@@ -49,4 +49,8 @@ public interface SaleRepository extends JpaRepository<Sale, String>, JpaSpecific
     List<Sale> findByCustomerIdAndTenantId(
             @Param("customerId") String customerId,
             @Param("tenantId") String tenantId);
+
+    /** Legacy sales (created before the sale_payments table existed) that still have no tender row. */
+    @Query("SELECT s FROM Sale s WHERE NOT EXISTS (SELECT 1 FROM SalePayment sp WHERE sp.sale = s)")
+    List<Sale> findSalesMissingPayments();
 }

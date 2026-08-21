@@ -1,11 +1,15 @@
 package com.animasys.modules.inventory.importer.controller;
 
+import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
 import com.animasys.core.security.SecurityUtils;
+import com.animasys.modules.inventory.importer.domain.ImportMode;
 import com.animasys.modules.inventory.importer.dto.*;
 import com.animasys.modules.inventory.importer.service.ImportCommitService;
 import com.animasys.modules.inventory.importer.service.ImportErrorReportService;
+import com.animasys.modules.inventory.importer.service.ImportMappingPresetService;
 import com.animasys.modules.inventory.importer.service.ImportSessionService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -16,6 +20,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/v1/inventory/import")
 @RequiredArgsConstructor
@@ -24,11 +30,21 @@ public class ImportController {
     private final ImportSessionService importSessionService;
     private final ImportCommitService importCommitService;
     private final ImportErrorReportService importErrorReportService;
+    private final ImportMappingPresetService importMappingPresetService;
 
     @PostMapping(value = "/sessions", consumes = "multipart/form-data")
     @PreAuthorize("@authz.has('products.import')")
-    public ApiResponseWrapper<ImportUploadResponse> upload(@RequestParam("file") MultipartFile file) {
-        ImportUploadResponse response = importSessionService.upload(file, SecurityUtils.requireTenantId(), SecurityUtils.requireEmployeeId());
+    public ApiResponseWrapper<ImportUploadResponse> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "mode", required = false, defaultValue = "ADD_STOCK") String mode) {
+        ImportMode importMode;
+        try {
+            importMode = ImportMode.valueOf(mode);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessRuleException("وضع الاستيراد غير صالح: " + mode);
+        }
+        ImportUploadResponse response = importSessionService.upload(
+                file, SecurityUtils.requireTenantId(), SecurityUtils.requireEmployeeId(), importMode);
         return ApiResponseWrapper.success(response, "تم رفع الملف بنجاح");
     }
 
@@ -75,5 +91,29 @@ public class ImportController {
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"import-errors-" + sessionId + ".xlsx\"")
                 .body(workbook);
+    }
+
+    // ── SAVED COLUMN MAPPINGS ────────────────────────────────────────────────
+
+    @GetMapping("/mapping-presets")
+    @PreAuthorize("@authz.has('products.import')")
+    public ApiResponseWrapper<List<ImportMappingPresetDTO>> listMappingPresets(
+            @RequestParam(value = "mode", required = false, defaultValue = "ADD_STOCK") String mode) {
+        return ApiResponseWrapper.success(importMappingPresetService.list(SecurityUtils.requireTenantId(), mode));
+    }
+
+    @PostMapping("/mapping-presets")
+    @PreAuthorize("@authz.has('products.import')")
+    public ApiResponseWrapper<ImportMappingPresetDTO> saveMappingPreset(@Valid @RequestBody SaveImportMappingPresetRequest request) {
+        ImportMappingPresetDTO saved = importMappingPresetService.save(
+                SecurityUtils.requireTenantId(), SecurityUtils.requireEmployeeId(), request);
+        return ApiResponseWrapper.success(saved, "تم حفظ التخطيط بنجاح");
+    }
+
+    @DeleteMapping("/mapping-presets/{id}")
+    @PreAuthorize("@authz.has('products.import')")
+    public ApiResponseWrapper<Void> deleteMappingPreset(@PathVariable("id") String presetId) {
+        importMappingPresetService.delete(SecurityUtils.requireTenantId(), presetId);
+        return ApiResponseWrapper.success(null, "تم حذف التخطيط");
     }
 }

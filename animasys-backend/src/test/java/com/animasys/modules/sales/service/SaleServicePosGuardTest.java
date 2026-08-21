@@ -42,6 +42,7 @@ class SaleServicePosGuardTest {
     @Mock private POSSessionRepository sessionRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private CustomerRepository customerRepository;
+    @Mock private com.animasys.modules.inventory.repository.WarehouseRepository warehouseRepository;
     @Mock private ProductVariantRepository variantRepository;
     @Mock private GroomingServiceRepository groomingServiceRepository;
     @Mock private StockService stockService;

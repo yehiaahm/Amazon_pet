@@ -86,6 +86,20 @@ public interface FifoCostingService {
     );
 
     /**
+     * Handles a supplier return by deducting stock from the batch(es) that this specific
+     * purchase invoice created for this product variant (not arbitrary tenant-wide FIFO stock).
+     * @param quantity return quantity in batch/individual units (already multiplied by conversionFactor)
+     * @return total cost value reversed for the returned quantity
+     */
+    BigDecimal processSupplierReturn(
+        String tenantId,
+        String purchaseInvoiceId,
+        String productVariantId,
+        int quantity,
+        String employeeId
+    );
+
+    /**
      * Handles stock adjustment (shrinkage/damaged/expired write-off).
      */
     void processInventoryWriteOff(

@@ -1,19 +1,23 @@
 package com.animasys.modules.inventory.importer.service;
 
 import com.animasys.core.exception.BusinessRuleException;
+import com.animasys.modules.inventory.domain.InventoryAdjustment;
+import com.animasys.modules.inventory.domain.InventoryAdjustmentItem;
 import com.animasys.modules.inventory.domain.Product;
-import com.animasys.modules.inventory.domain.Warehouse;
+import com.animasys.modules.inventory.domain.ProductVariant;
 import com.animasys.modules.inventory.dto.CreateProductRequest;
 import com.animasys.modules.inventory.importer.domain.DuplicateResolution;
+import com.animasys.modules.inventory.importer.domain.ImportMode;
 import com.animasys.modules.inventory.importer.domain.ImportRowStatus;
 import com.animasys.modules.inventory.importer.domain.ImportSessionItem;
 import com.animasys.modules.inventory.importer.repository.ImportSessionItemRepository;
+import com.animasys.modules.inventory.repository.InventoryAdjustmentItemRepository;
+import com.animasys.modules.inventory.repository.InventoryAdjustmentRepository;
 import com.animasys.modules.inventory.repository.ProductRepository;
-import com.animasys.modules.inventory.repository.WarehouseRepository;
+import com.animasys.modules.inventory.repository.ProductVariantRepository;
 import com.animasys.modules.inventory.service.FifoCostingService;
 import com.animasys.modules.inventory.service.ProductService;
 import com.animasys.modules.inventory.service.SkuCatalogService;
-import com.animasys.modules.inventory.service.StockService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +29,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -37,6 +42,10 @@ import java.util.UUID;
  * row — the rest of the batch still commits. Reuses {@link ProductService#createProductFromRequest}
  * (the same upsert-by-SKU logic the manual "Add Product" form uses) so import never
  * diverges from normal product creation/update behavior.
+ *
+ * <p>Handles two independent import modes (see {@link ImportMode}): ADD_STOCK treats the
+ * Excel quantity as stock to add on top of whatever exists; INVENTORY_COUNT treats it as
+ * the actual counted quantity and reconciles current stock to match it.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -45,10 +54,13 @@ public class ImportBatchExecutor {
 
     private final ProductService productService;
     private final ProductRepository productRepository;
-    private final WarehouseRepository warehouseRepository;
+    private final ProductVariantRepository productVariantRepository;
     private final FifoCostingService fifoCostingService;
     private final SkuCatalogService skuCatalogService;
     private final ImportSessionItemRepository importSessionItemRepository;
+    private final InventoryAdjustmentRepository inventoryAdjustmentRepository;
+    private final InventoryAdjustmentItemRepository inventoryAdjustmentItemRepository;
+    private final ImportWarehouseResolver importWarehouseResolver;
     private final ObjectMapper objectMapper;
 
     // Self-injected proxy so processSingleItem's own @Transactional(REQUIRES_NEW) actually
@@ -62,13 +74,14 @@ public class ImportBatchExecutor {
      * One row failing (duplicate name, bad SKU, whatever) must not take the other 99 rows
      * in this commit batch down with it — each row commits or rolls back independently.
      */
-    public BatchOutcome processBatch(List<String> itemIds, String tenantId, String employeeId) {
+    public BatchOutcome processBatch(List<String> itemIds, String tenantId, String employeeId,
+                                      String sessionId, ImportMode mode) {
         List<ImportSessionItem> items = importSessionItemRepository.findAllById(itemIds);
         int imported = 0, updated = 0, skipped = 0, failed = 0;
 
         for (ImportSessionItem item : items) {
             try {
-                ImportRowStatus outcome = self.processSingleItem(tenantId, employeeId, item);
+                ImportRowStatus outcome = self.processSingleItem(tenantId, employeeId, sessionId, mode, item);
                 switch (outcome) {
                     case IMPORTED -> imported++;
                     case UPDATED -> updated++;
@@ -87,7 +100,12 @@ public class ImportBatchExecutor {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public ImportRowStatus processSingleItem(String tenantId, String employeeId, ImportSessionItem item) {
+    public ImportRowStatus processSingleItem(String tenantId, String employeeId, String sessionId,
+                                              ImportMode mode, ImportSessionItem item) {
+        if (mode == ImportMode.INVENTORY_COUNT) {
+            return processInventoryCountItem(tenantId, employeeId, sessionId, item);
+        }
+
         Map<ImportField, String> mapped = MappedDataCodec.fromStringKeyed(readJsonMap(item.getMappedData()));
 
         if (item.getStatus() == ImportRowStatus.ERROR) {
@@ -133,6 +151,98 @@ public class ImportBatchExecutor {
         item.setResultMessage("حالة صف غير معروفة: " + item.getStatus());
         importSessionItemRepository.save(item);
         return ImportRowStatus.FAILED;
+    }
+
+    /**
+     * Reconciles one row in INVENTORY_COUNT mode: the mapped quantity is the counted quantity,
+     * not a delta. Re-reads current stock live (not the mapping-time preview snapshot) so a
+     * sale or purchase that happened between preview and commit is respected rather than
+     * silently clobbered, then adjusts batches to land exactly on the counted quantity and
+     * writes an {@link InventoryAdjustment} audit record for the change (even when it is zero).
+     */
+    private ImportRowStatus processInventoryCountItem(String tenantId, String employeeId, String sessionId,
+                                                        ImportSessionItem item) {
+        if (item.getStatus() == ImportRowStatus.ERROR) {
+            item.setStatus(ImportRowStatus.FAILED);
+            item.setResultMessage("لم يتم الاستيراد بسبب أخطاء في التحقق من صحة البيانات");
+            importSessionItemRepository.save(item);
+            return ImportRowStatus.FAILED;
+        }
+        if (item.getStatus() != ImportRowStatus.COUNT_MATCHED) {
+            item.setStatus(ImportRowStatus.FAILED);
+            item.setResultMessage("حالة صف غير معروفة: " + item.getStatus());
+            importSessionItemRepository.save(item);
+            return ImportRowStatus.FAILED;
+        }
+
+        String variantId = item.getResolvedVariantId();
+        String warehouseId = item.getResolvedWarehouseId();
+        ProductVariant variant = productVariantRepository.findById(variantId).orElse(null);
+        if (variant == null || !tenantId.equals(variant.getTenantId())) {
+            item.setStatus(ImportRowStatus.FAILED);
+            item.setResultMessage("المنتج لم يعد موجودًا في النظام");
+            importSessionItemRepository.save(item);
+            return ImportRowStatus.FAILED;
+        }
+
+        int liveSystemQty = fifoCostingService.getAvailableBatchQuantity(tenantId, warehouseId, variantId);
+        int countedQty = item.getCountedQuantity() != null ? item.getCountedQuantity() : 0;
+        int diff = countedQty - liveSystemQty;
+
+        if (diff > 0) {
+            BigDecimal unitCost = variant.getCost() != null ? variant.getCost() : BigDecimal.ZERO;
+            fifoCostingService.createOpeningBatch(
+                    tenantId, warehouseId, variantId, unitCost, diff, null,
+                    "RECON-" + item.getId(), employeeId);
+        } else if (diff < 0) {
+            fifoCostingService.deductBatchesForAdjustment(
+                    tenantId, warehouseId, variantId, -diff, "COUNT_DISCREPANCY", employeeId);
+        }
+
+        recordAdjustmentAudit(tenantId, employeeId, sessionId, item, variant, warehouseId, liveSystemQty, countedQty, diff);
+
+        item.setStatus(ImportRowStatus.UPDATED);
+        item.setSystemQuantity(liveSystemQty);
+        item.setAdjustmentQuantity(diff);
+        item.setResultMessage("تمت تسوية المخزون: من " + liveSystemQty + " إلى " + countedQty
+                + " (فرق " + (diff > 0 ? "+" + diff : diff) + ")");
+        importSessionItemRepository.save(item);
+        return ImportRowStatus.UPDATED;
+    }
+
+    private void recordAdjustmentAudit(String tenantId, String employeeId, String sessionId, ImportSessionItem item,
+                                        ProductVariant variant, String warehouseId, int systemQty, int countedQty, int diff) {
+        BigDecimal unitCost = variant.getCost() != null ? variant.getCost() : BigDecimal.ZERO;
+        Instant now = Instant.now();
+        InventoryAdjustment adjustment = InventoryAdjustment.builder()
+                .id(UUID.randomUUID().toString())
+                .tenantId(tenantId)
+                .warehouseId(warehouseId)
+                .adjustmentNumber("RECON-" + item.getId())
+                .reason(InventoryAdjustment.AdjustmentReason.COUNT_DISCREPANCY)
+                .status(InventoryAdjustment.AdjustmentStatus.APPROVED)
+                .requestedById(employeeId)
+                .approvedById(employeeId)
+                .notes("جرد مخزون عبر استيراد Excel — " + variant.getName())
+                .source(InventoryAdjustment.AdjustmentSource.IMPORT)
+                .importSessionId(sessionId)
+                .importSessionItemId(item.getId())
+                .createdAt(now)
+                .approvedAt(now)
+                .build();
+        inventoryAdjustmentRepository.save(adjustment);
+
+        InventoryAdjustmentItem adjustmentItem = InventoryAdjustmentItem.builder()
+                .id(UUID.randomUUID().toString())
+                .inventoryAdjustment(adjustment)
+                .productVariant(variant)
+                .systemQuantity(systemQty)
+                .countedQuantity(countedQty)
+                .quantityDifference(diff)
+                .unitCost(unitCost)
+                .totalVarianceCost(unitCost.multiply(BigDecimal.valueOf(diff)))
+                .build();
+        inventoryAdjustmentItemRepository.save(adjustmentItem);
     }
 
     private void createOrUpdate(String tenantId, String employeeId, Map<ImportField, String> mapped,
@@ -195,7 +305,7 @@ public class ImportBatchExecutor {
         if (quantity == null || quantity <= 0) {
             return;
         }
-        String warehouseId = resolveWarehouseId(tenantId, text(mapped, ImportField.WAREHOUSE));
+        String warehouseId = importWarehouseResolver.resolve(tenantId, text(mapped, ImportField.WAREHOUSE));
         BigDecimal cost = parseDecimal(text(mapped, ImportField.COST_PRICE));
         String batchNumber = text(mapped, ImportField.BATCH_NUMBER);
         if (batchNumber.isEmpty()) {
@@ -207,19 +317,6 @@ public class ImportBatchExecutor {
             expiry = ImportRowValidator.parseDate(expiryRaw);
         }
         fifoCostingService.createOpeningBatch(tenantId, warehouseId, variantId, cost, quantity, expiry, batchNumber, employeeId);
-    }
-
-    private String resolveWarehouseId(String tenantId, String warehouseName) {
-        if (warehouseName.isEmpty()) {
-            return StockService.DEFAULT_SALES_WAREHOUSE;
-        }
-        String normalized = HeaderNormalizer.normalize(warehouseName);
-        for (Warehouse warehouse : warehouseRepository.findByTenantId(tenantId)) {
-            if (HeaderNormalizer.normalize(warehouse.getName()).equals(normalized)) {
-                return warehouse.getId();
-            }
-        }
-        return StockService.DEFAULT_SALES_WAREHOUSE;
     }
 
     private String text(Map<ImportField, String> mapped, ImportField field) {

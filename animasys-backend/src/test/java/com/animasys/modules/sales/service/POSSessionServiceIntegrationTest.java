@@ -13,7 +13,9 @@ import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.iam.repository.TenantRepository;
 import com.animasys.modules.sales.domain.POSSession;
 import com.animasys.modules.sales.domain.Sale;
+import com.animasys.modules.sales.domain.SalePayment;
 import com.animasys.modules.sales.repository.POSSessionRepository;
+import com.animasys.modules.sales.repository.SalePaymentRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
 import com.animasys.support.IntegrationTestBase;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +49,9 @@ public class POSSessionServiceIntegrationTest extends IntegrationTestBase {
     private SaleRepository saleRepository;
 
     @Autowired
+    private SalePaymentRepository salePaymentRepository;
+
+    @Autowired
     private ExpenseRepository expenseRepository;
 
     @Autowired
@@ -75,11 +80,14 @@ public class POSSessionServiceIntegrationTest extends IntegrationTestBase {
         branch = Branch.builder().id(UUID.randomUUID().toString()).tenant(tenant).name("POS Branch").build();
         branchRepository.save(branch);
 
+        String employeeSuffix = UUID.randomUUID().toString().substring(0, 8);
         employee = Employee.builder()
                 .id(UUID.randomUUID().toString())
                 .tenant(tenant)
                 .branch(branch)
-                .username("cashier-" + UUID.randomUUID().toString().substring(0, 8))
+                .username("cashier-" + employeeSuffix)
+                .fullName("Cashier User")
+                .email("cashier-" + employeeSuffix + "@test.com")
                 .passwordHash("hash")
                 .role("CASHIER")
                 .active(true)
@@ -104,31 +112,49 @@ public class POSSessionServiceIntegrationTest extends IntegrationTestBase {
                 .build();
         sessionRepository.save(session);
 
+        String saleSuffix = UUID.randomUUID().toString().substring(0, 8);
+
         // 1. Create a CASH sale (500)
         Sale sale1 = Sale.builder()
                 .id(UUID.randomUUID().toString())
-                .saleNumber("INV-POS-1")
+                .saleNumber("INV-POS-1-" + saleSuffix)
                 .posSession(session)
                 .employee(employee)
                 .totalAmount(new BigDecimal("500.00"))
+                .tax(BigDecimal.ZERO)
+                .discount(BigDecimal.ZERO)
                 .paymentMethod("CASH")
                 .status("COMPLETED")
                 .date(Instant.now())
                 .build();
         saleRepository.save(sale1);
+        salePaymentRepository.save(SalePayment.builder()
+                .id(UUID.randomUUID().toString())
+                .sale(sale1)
+                .method("CASH")
+                .amount(new BigDecimal("500.00"))
+                .build());
 
         // 2. Create a CARD sale (300) - Should not affect cash drawer
         Sale sale2 = Sale.builder()
                 .id(UUID.randomUUID().toString())
-                .saleNumber("INV-POS-2")
+                .saleNumber("INV-POS-2-" + saleSuffix)
                 .posSession(session)
                 .employee(employee)
                 .totalAmount(new BigDecimal("300.00"))
+                .tax(BigDecimal.ZERO)
+                .discount(BigDecimal.ZERO)
                 .paymentMethod("CARD")
                 .status("COMPLETED")
                 .date(Instant.now())
                 .build();
         saleRepository.save(sale2);
+        salePaymentRepository.save(SalePayment.builder()
+                .id(UUID.randomUUID().toString())
+                .sale(sale2)
+                .method("CARD")
+                .amount(new BigDecimal("300.00"))
+                .build());
 
         // 3. Create a CASH Expense yesterday (inside session window)
         Expense expense1 = Expense.builder()

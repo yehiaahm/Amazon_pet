@@ -72,7 +72,40 @@ public class Sale {
     @Builder.Default
     private List<SaleItem> items = new ArrayList<>();
 
+    /** One row per tender: a single row for a normal sale, two rows for a split (e.g. cash + card) sale. */
+    @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<SalePayment> payments = new ArrayList<>();
+
     @Builder.Default
     @Column(nullable = true)
     private String status = "COMPLETED";
+
+    @Builder.Default
+    @Column(name = "is_delivery", nullable = false)
+    private boolean delivery = false;
+
+    @Builder.Default
+    @Column(name = "delivery_fee", nullable = false)
+    private BigDecimal deliveryFee = BigDecimal.ZERO;
+
+    /** Loyalty balance credited from this sale (written post-commit once earning is computed). */
+    @Builder.Default
+    @Column(name = "loyalty_earned", nullable = false)
+    private BigDecimal loyaltyEarned = BigDecimal.ZERO;
+
+    /** Loyalty balance spent as payment on this sale. */
+    @Builder.Default
+    @Column(name = "loyalty_redeemed", nullable = false)
+    private BigDecimal loyaltyRedeemed = BigDecimal.ZERO;
+
+    /** Cumulative loyaltyEarned already clawed back by returns on this sale (so repeat partial returns don't double-reverse). */
+    @Builder.Default
+    @Column(name = "loyalty_earned_reversed", nullable = false)
+    private BigDecimal loyaltyEarnedReversed = BigDecimal.ZERO;
+
+    /** Cumulative loyaltyRedeemed already refunded back by returns on this sale. */
+    @Builder.Default
+    @Column(name = "loyalty_redeemed_reversed", nullable = false)
+    private BigDecimal loyaltyRedeemedReversed = BigDecimal.ZERO;
 }

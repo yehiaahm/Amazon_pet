@@ -105,6 +105,9 @@ public class EndpointPermissionRegistry {
         map("PATCH",  "/v1/inventory/import/sessions/{id}/duplicates", "products.import");
         map("POST",   "/v1/inventory/import/sessions/{id}/commit",     "products.import");
         map("GET",    "/v1/inventory/import/sessions/{id}/error-report", "products.import");
+        map("GET",    "/v1/inventory/import/mapping-presets",       "products.import");
+        map("POST",   "/v1/inventory/import/mapping-presets",       "products.import");
+        map("DELETE", "/v1/inventory/import/mapping-presets/{id}",  "products.import");
 
         // Inventory — stock views & operations
         map("GET",    "/v1/inventory/warehouses",                   "inventory.view");
@@ -165,6 +168,7 @@ public class EndpointPermissionRegistry {
         map("GET",    "/v1/purchase-invoices",                        "purchases.view");
         map("POST",   "/v1/purchase-invoices",                        "purchases.create_invoice");
         map("GET",    "/v1/purchase-invoices/{id}",                   "purchases.view");
+        map("POST",   "/v1/purchase-invoices/{id}/return",           "purchases.return");
 
         // POS / Sales
         map("GET",    "/v1/pos-sessions",                             "sales.open_shift");
@@ -189,6 +193,33 @@ public class EndpointPermissionRegistry {
         map("POST",   "/v1/pets",                                     "pets.add");
         map("PUT",    "/v1/pets/{id}",                                "pets.edit");
         map("DELETE", "/v1/pets/{id}",                                "pets.delete");
+        map("GET",    "/v1/pets/follow-up-summary",                   "vaccinations.view");
+        map("GET",    "/v1/pets/{id}/follow-up",                      "vaccinations.view");
+
+        // Vaccinations & animal reminders
+        map("GET",    "/v1/vaccinations",                             "vaccinations.view");
+        map("POST",   "/v1/vaccinations",                             "vaccinations.manage");
+        map("PUT",    "/v1/vaccinations/{id}",                        "vaccinations.manage");
+        map("DELETE", "/v1/vaccinations/{id}",                        "vaccinations.manage");
+        map("POST",   "/v1/vaccinations/{id}/administer",             "vaccinations.manage");
+        map("GET",    "/v1/vaccinations/{id}/history",                "vaccinations.view");
+        map("GET",    "/v1/animal-reminders",                         "animal_reminders.view");
+        map("POST",   "/v1/animal-reminders",                         "animal_reminders.manage");
+        map("PUT",    "/v1/animal-reminders/{id}",                    "animal_reminders.manage");
+        map("DELETE", "/v1/animal-reminders/{id}",                    "animal_reminders.manage");
+        map("POST",   "/v1/animal-reminders/{id}/complete",           "animal_reminders.manage");
+        map("GET",    "/v1/animal-follow-up/dashboard",                "vaccinations.view");
+        map("GET",    "/v1/animal-follow-up/settings",                 "vaccinations.view");
+        map("PUT",    "/v1/animal-follow-up/settings",                 "vaccinations.manage");
+
+        // Loyalty
+        map("GET",    "/v1/loyalty/dashboard",                        "customers.manage_loyalty");
+        map("GET",    "/v1/loyalty/settings",                         "customers.view");
+        map("PUT",    "/v1/loyalty/settings",                         "customers.manage_loyalty");
+        map("PUT",    "/v1/loyalty/settings/status",                  "customers.manage_loyalty");
+        map("GET",    "/v1/loyalty/customers/{customerId}",           "customers.view");
+        map("GET",    "/v1/loyalty/customers/{customerId}/ledger",    "customers.view");
+        map("POST",   "/v1/loyalty/customers/{customerId}/adjust",    "customers.manage_loyalty");
 
         // Grooming services & appointments
         map("GET",    "/v1/services",                                 "grooming.view_appointments");

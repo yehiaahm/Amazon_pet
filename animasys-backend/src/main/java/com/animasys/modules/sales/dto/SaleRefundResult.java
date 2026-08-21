@@ -22,4 +22,8 @@ public class SaleRefundResult {
 
     @Builder.Default
     private List<SaleRefundLineRequest> linesProcessed = new ArrayList<>();
+
+    /** How much of this refund goes back to each original tender (cash/card/...). */
+    @Builder.Default
+    private List<SalePaymentSummaryDTO> refundBreakdown = new ArrayList<>();
 }

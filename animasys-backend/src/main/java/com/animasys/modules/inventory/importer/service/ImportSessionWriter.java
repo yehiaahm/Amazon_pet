@@ -6,6 +6,7 @@ import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.iam.repository.TenantRepository;
+import com.animasys.modules.inventory.importer.domain.ImportMode;
 import com.animasys.modules.inventory.importer.domain.ImportRowStatus;
 import com.animasys.modules.inventory.importer.domain.ImportSession;
 import com.animasys.modules.inventory.importer.domain.ImportSessionItem;
@@ -40,7 +41,7 @@ public class ImportSessionWriter {
 
     @Transactional
     public ImportSession createSession(String tenantId, String employeeId, MultipartFile file,
-                                       String fileType, ParsedFile parsed, String columnHeadersJson) {
+                                       String fileType, ParsedFile parsed, String columnHeadersJson, ImportMode mode) {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
         Employee employee = employeeRepository.findById(employeeId)
@@ -55,6 +56,7 @@ public class ImportSessionWriter {
                 .fileType(fileType)
                 .status(ImportSessionStatus.PENDING_MAPPING)
                 .columnHeaders(columnHeadersJson)
+                .importMode(mode != null ? mode : ImportMode.ADD_STOCK)
                 .totalRows(parsed.rows().size())
                 .build();
         importSessionRepository.save(session);

@@ -9,6 +9,7 @@ import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -97,7 +98,17 @@ public class EmployeeController {
             throw new BusinessRuleException("غير مصرح لك بحذف هذا الموظف");
         }
 
-        employeeRepository.delete(target);
+        try {
+            employeeRepository.delete(target);
+        } catch (DataIntegrityViolationException ex) {
+            // Employee is still referenced by historical records (sales, appointments,
+            // POS sessions, audit logs, ...) that must not be orphaned/lost. Deactivating
+            // keeps that history intact while blocking the account from logging in.
+            throw new BusinessRuleException(
+                    "لا يمكن حذف الموظف \"" + target.getFullName() + "\" لأن لديه سجلات مرتبطة بالنظام "
+                            + "(مثل فواتير مبيعات أو مواعيد أو ورديات سابقة)، وحذفها قد يفقد بيانات تاريخية مهمة. "
+                            + "بدلاً من الحذف، عدّل بيانات الموظف وقم بإلغاء تفعيل \"نشط\" لمنعه من الدخول إلى النظام مع الاحتفاظ بسجله.");
+        }
         return ResponseEntity.ok(ApiResponseWrapper.success(null, "تم حذف الموظف بنجاح"));
     }
 

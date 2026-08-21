@@ -16,6 +16,7 @@ import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.modules.inventory.service.FifoCostingService;
 import com.animasys.modules.inventory.service.InventoryIntegrityService;
 import com.animasys.modules.inventory.service.StockService;
+import com.animasys.modules.loyalty.service.LoyaltyService;
 import com.animasys.modules.sales.domain.POSSession;
 import com.animasys.modules.sales.domain.Sale;
 import com.animasys.modules.sales.domain.SaleItem;
@@ -25,9 +26,13 @@ import com.animasys.modules.sales.events.SaleRefundedEvent;
 import com.animasys.modules.sales.dto.SaleRefundFinancials;
 import com.animasys.modules.sales.dto.SaleRefundLineRequest;
 import com.animasys.modules.sales.dto.SaleRefundResult;
+import com.animasys.modules.sales.dto.SalePaymentRequest;
+import com.animasys.modules.sales.dto.SalePaymentSummaryDTO;
+import com.animasys.modules.sales.domain.SalePayment;
 import com.animasys.modules.sales.repository.POSSessionRepository;
 import com.animasys.modules.sales.repository.SaleItemBatchAllocationRepository;
 import com.animasys.modules.sales.repository.SaleItemRepository;
+import com.animasys.modules.sales.repository.SalePaymentRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
 import com.animasys.modules.services.domain.GroomingService;
 import com.animasys.modules.services.repository.GroomingServiceRepository;
@@ -54,8 +59,17 @@ public class SaleService {
     /** Cashier may lower unit price by at most this percent vs catalog price. */
     private static final BigDecimal MAX_PRICE_DISCOUNT_PERCENT = new BigDecimal("20");
 
+    private static final Set<String> ALLOWED_PAYMENT_METHODS =
+            Set.of("CASH", "CARD", "MOBILE", "INSTAPAY", "VODAFONE_CASH");
+
+    /** Value stored on Sale.paymentMethod when a sale is paid via two tenders (see #payments). */
+    private static final String SPLIT_PAYMENT_METHOD = "SPLIT";
+
+    private static final BigDecimal PAYMENT_SUM_TOLERANCE = new BigDecimal("0.01");
+
     private final SaleRepository saleRepository;
     private final SaleItemRepository itemRepository;
+    private final SalePaymentRepository paymentRepository;
     private final POSSessionRepository sessionRepository;
     private final EmployeeRepository employeeRepository;
     private final CustomerRepository customerRepository;
@@ -69,18 +83,48 @@ public class SaleService {
     private final ApplicationEventPublisher eventPublisher;
     private final SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
     private final AuthenticationManager authenticationManager;
+    private final LoyaltyService loyaltyService;
 
     public Sale createSale(String posSessionId, String employeeId, String customerId,
                            BigDecimal clientTotal, BigDecimal clientTax, BigDecimal clientDiscount,
                            String paymentMethod, List<SaleItem> clientItems) {
         return createSale(posSessionId, employeeId, customerId, clientTotal, clientTax, clientDiscount,
-                paymentMethod, clientItems, null, null);
+                paymentMethod, clientItems, null, null, false, null, null);
     }
 
     public Sale createSale(String posSessionId, String employeeId, String customerId,
                            BigDecimal clientTotal, BigDecimal clientTax, BigDecimal clientDiscount,
                            String paymentMethod, List<SaleItem> clientItems,
                            String managerUsername, String managerPassword) {
+        return createSale(posSessionId, employeeId, customerId, clientTotal, clientTax, clientDiscount,
+                paymentMethod, clientItems, managerUsername, managerPassword, false, null, null);
+    }
+
+    public Sale createSale(String posSessionId, String employeeId, String customerId,
+                           BigDecimal clientTotal, BigDecimal clientTax, BigDecimal clientDiscount,
+                           String paymentMethod, List<SaleItem> clientItems,
+                           String managerUsername, String managerPassword,
+                           boolean isDelivery, BigDecimal clientDeliveryFee) {
+        return createSale(posSessionId, employeeId, customerId, clientTotal, clientTax, clientDiscount,
+                paymentMethod, clientItems, managerUsername, managerPassword, isDelivery, clientDeliveryFee, null);
+    }
+
+    public Sale createSale(String posSessionId, String employeeId, String customerId,
+                           BigDecimal clientTotal, BigDecimal clientTax, BigDecimal clientDiscount,
+                           String paymentMethod, List<SaleItem> clientItems,
+                           String managerUsername, String managerPassword,
+                           boolean isDelivery, BigDecimal clientDeliveryFee, BigDecimal loyaltyRedeemRequested) {
+        return createSale(posSessionId, employeeId, customerId, clientTotal, clientTax, clientDiscount,
+                paymentMethod, clientItems, managerUsername, managerPassword, isDelivery, clientDeliveryFee,
+                loyaltyRedeemRequested, null);
+    }
+
+    public Sale createSale(String posSessionId, String employeeId, String customerId,
+                           BigDecimal clientTotal, BigDecimal clientTax, BigDecimal clientDiscount,
+                           String paymentMethod, List<SaleItem> clientItems,
+                           String managerUsername, String managerPassword,
+                           boolean isDelivery, BigDecimal clientDeliveryFee, BigDecimal loyaltyRedeemRequested,
+                           List<SalePaymentRequest> payments) {
         if (clientItems == null || clientItems.isEmpty()) {
             throw new BusinessRuleException("لا يمكن إتمام البيع بدون أصناف");
         }
@@ -214,7 +258,19 @@ public class SaleService {
         BigDecimal discount = loyaltyDiscount.add(requestedManual).min(subtotal).setScale(2, RoundingMode.HALF_UP);
 
         BigDecimal tax = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        BigDecimal total = subtotal.subtract(discount).add(tax).setScale(2, RoundingMode.HALF_UP);
+        // Delivery fee only counts when the order is actually flagged as delivery,
+        // even if a stray fee value was sent alongside isDelivery=false.
+        BigDecimal deliveryFee = isDelivery && clientDeliveryFee != null
+                ? clientDeliveryFee.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        BigDecimal preLoyaltyTotal = subtotal.subtract(discount).add(tax).add(deliveryFee).setScale(2, RoundingMode.HALF_UP);
+
+        // Loyalty balance redemption (the real points/ledger system) is independent from the
+        // flat customer.discount% above — it's an additional deduction applied last, clamped
+        // to the account balance and configured caps by LoyaltyService.resolveRedemption, which
+        // also locks the loyalty account for the rest of this transaction.
+        BigDecimal loyaltyRedeemed = loyaltyService.resolveRedemption(tenantId, customer, preLoyaltyTotal, loyaltyRedeemRequested);
+        BigDecimal total = preLoyaltyTotal.subtract(loyaltyRedeemed).setScale(2, RoundingMode.HALF_UP);
 
         if (clientTotal != null
                 && clientTotal.subtract(total).abs().compareTo(new BigDecimal("2.00")) > 0) {
@@ -222,9 +278,43 @@ public class SaleService {
                     "إجمالي الفاتورة غير متطابق مع أسعار النظام. المتوقع: " + total + "، المُرسل: " + clientTotal);
         }
 
-        String payMethod = paymentMethod != null ? paymentMethod.toUpperCase(Locale.ROOT) : "CASH";
-        if (!Set.of("CASH", "CARD", "MOBILE", "INSTAPAY", "VODAFONE_CASH").contains(payMethod)) {
-            throw new BusinessRuleException("طريقة دفع غير مدعومة: " + paymentMethod);
+        List<SalePayment> tenders = new ArrayList<>();
+        String payMethod;
+        if (payments != null && !payments.isEmpty()) {
+            if (payments.size() != 2) {
+                throw new BusinessRuleException("الدفع المقسم يجب أن يكون على طريقتين بالضبط.");
+            }
+            BigDecimal tenderSum = BigDecimal.ZERO;
+            Set<String> distinctMethods = new HashSet<>();
+            for (SalePaymentRequest tender : payments) {
+                String tenderMethod = tender.getMethod() != null ? tender.getMethod().toUpperCase(Locale.ROOT) : "";
+                if (!ALLOWED_PAYMENT_METHODS.contains(tenderMethod)) {
+                    throw new BusinessRuleException("طريقة دفع غير مدعومة: " + tender.getMethod());
+                }
+                if (tender.getAmount() == null || tender.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessRuleException("مبلغ كل طريقة دفع يجب أن يكون أكبر من صفر.");
+                }
+                distinctMethods.add(tenderMethod);
+                tenderSum = tenderSum.add(tender.getAmount());
+                tenders.add(SalePayment.builder().method(tenderMethod).amount(tender.getAmount()).build());
+            }
+            if (distinctMethods.size() != 2) {
+                throw new BusinessRuleException("الدفع المقسم يجب أن يكون بطريقتين مختلفتين.");
+            }
+            if (tenderSum.subtract(total).abs().compareTo(PAYMENT_SUM_TOLERANCE) > 0) {
+                throw new BusinessRuleException(
+                        "مجموع طرق الدفع (" + tenderSum + ") لا يساوي إجمالي الفاتورة (" + total + ").");
+            }
+            payMethod = SPLIT_PAYMENT_METHOD;
+        } else {
+            if (paymentMethod == null || paymentMethod.isBlank()) {
+                throw new BusinessRuleException("طريقة الدفع مطلوبة.");
+            }
+            payMethod = paymentMethod.toUpperCase(Locale.ROOT);
+            if (!ALLOWED_PAYMENT_METHODS.contains(payMethod)) {
+                throw new BusinessRuleException("طريقة دفع غير مدعومة: " + paymentMethod);
+            }
+            tenders.add(SalePayment.builder().method(payMethod).amount(total).build());
         }
 
         Sale sale = Sale.builder()
@@ -239,9 +329,19 @@ public class SaleService {
                 .customer(customer)
                 .date(Instant.now())
                 .status("COMPLETED")
+                .delivery(isDelivery)
+                .deliveryFee(deliveryFee)
+                .loyaltyRedeemed(loyaltyRedeemed)
                 .build();
 
         sale = saleRepository.save(sale);
+
+        // Ledger write happens synchronously, in this same transaction: if checkout rolls
+        // back for any reason (including an idempotency-retry failure), the redemption rolls
+        // back with it. Earning is handled separately, post-commit (see LoyaltyEarnListener).
+        if (customer != null && loyaltyRedeemed.compareTo(BigDecimal.ZERO) > 0) {
+            loyaltyService.recordRedemption(sale, customer, loyaltyRedeemed, employee);
+        }
 
         List<SaleItem> savedItems = new ArrayList<>();
         for (SaleItem item : validatedItems) {
@@ -250,6 +350,14 @@ public class SaleService {
             savedItems.add(itemRepository.save(item));
         }
         sale.setItems(savedItems);
+
+        List<SalePayment> savedPayments = new ArrayList<>();
+        for (SalePayment tender : tenders) {
+            tender.setId(UUID.randomUUID().toString());
+            tender.setSale(sale);
+            savedPayments.add(paymentRepository.save(tender));
+        }
+        sale.setPayments(savedPayments);
 
         // Batch FIFO/FEFO allocation updates stock mirrors via InventoryStockSyncService
         for (SaleItem item : savedItems) {
@@ -411,6 +519,12 @@ public class SaleService {
         BigDecimal refundAmount = returnLineSubtotal.subtract(discountReversed).add(taxReversed)
                 .setScale(2, RoundingMode.HALF_UP);
 
+        List<SalePaymentSummaryDTO> refundBreakdown = buildRefundBreakdown(sale, refundAmount);
+
+        BigDecimal loyaltyRatio = saleSubtotal.compareTo(BigDecimal.ZERO) > 0
+                ? returnLineSubtotal.divide(saleSubtotal, 6, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
         boolean fullRefund = isFullyRefunded(sale);
         sale.setStatus(fullRefund ? "REFUNDED" : "PARTIALLY_REFUNDED");
         sale = saleRepository.saveAndFlush(sale);
@@ -435,6 +549,7 @@ public class SaleService {
                 .taxReversed(taxReversed)
                 .cogsReversed(totalCogsReversed)
                 .fullRefund(fullRefund)
+                .loyaltyRatio(loyaltyRatio)
                 .build();
 
         eventPublisher.publishEvent(new SaleRefundedEvent(this, sale, employeeId, financials));
@@ -445,7 +560,31 @@ public class SaleService {
                 .cogsReversed(totalCogsReversed)
                 .fullRefund(fullRefund)
                 .linesProcessed(processed)
+                .refundBreakdown(refundBreakdown)
                 .build();
+    }
+
+    /**
+     * Prorates a refund amount across a sale's original tenders by each tender's share of the
+     * sale total (same proportional-reversal approach already used above for discount/tax), so a
+     * refund on a split (e.g. cash + card) sale tells the cashier how much of each tender to return.
+     */
+    private List<SalePaymentSummaryDTO> buildRefundBreakdown(Sale sale, BigDecimal refundAmount) {
+        List<SalePayment> tenders = sale.getPayments();
+        if (tenders == null || tenders.isEmpty() || sale.getTotalAmount() == null
+                || sale.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            return List.of(SalePaymentSummaryDTO.builder()
+                    .method(sale.getPaymentMethod())
+                    .amount(refundAmount)
+                    .build());
+        }
+        List<SalePaymentSummaryDTO> breakdown = new ArrayList<>();
+        for (SalePayment tender : tenders) {
+            BigDecimal share = refundAmount.multiply(tender.getAmount())
+                    .divide(sale.getTotalAmount(), 2, RoundingMode.HALF_UP);
+            breakdown.add(SalePaymentSummaryDTO.builder().method(tender.getMethod()).amount(share).build());
+        }
+        return breakdown;
     }
 
     private int returnableQuantity(SaleItem item) {

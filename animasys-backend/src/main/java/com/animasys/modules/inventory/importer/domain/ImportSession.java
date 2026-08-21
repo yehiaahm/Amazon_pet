@@ -41,6 +41,11 @@ public class ImportSession {
     @Column(nullable = false)
     private ImportSessionStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "import_mode", nullable = false)
+    @Builder.Default
+    private ImportMode importMode = ImportMode.ADD_STOCK;
+
     @Column(name = "column_headers", columnDefinition = "TEXT")
     private String columnHeaders;
 

@@ -4,6 +4,8 @@ import com.animasys.core.response.ApiResponseWrapper;
 import com.animasys.core.security.SecurityUtils;
 import com.animasys.modules.inventory.domain.PurchaseInvoice;
 import com.animasys.modules.inventory.dto.PurchaseInvoiceCreateResult;
+import com.animasys.modules.inventory.dto.PurchaseReturnRequest;
+import com.animasys.modules.inventory.dto.PurchaseReturnResult;
 import com.animasys.modules.inventory.service.PurchaseInvoiceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +48,17 @@ public class PurchaseInvoiceController {
         String tenantId = SecurityUtils.requireTenantId();
         PurchaseInvoice invoice = purchaseInvoiceService.getInvoiceById(tenantId, id);
         return ResponseEntity.ok(ApiResponseWrapper.success(invoice, "تم استرجاع تفاصيل فاتورة الشراء"));
+    }
+
+    @PostMapping("/{id}/return")
+    @PreAuthorize("@authz.has('purchases.return')")
+    public ResponseEntity<ApiResponseWrapper<PurchaseReturnResult>> returnInvoice(
+            @PathVariable String id,
+            @RequestBody(required = false) PurchaseReturnRequest body) {
+        String employeeId = SecurityUtils.requireEmployeeId();
+        String tenantId = SecurityUtils.requireTenantId();
+        PurchaseReturnResult result = purchaseInvoiceService.returnInvoice(tenantId, employeeId, id, body);
+        return ResponseEntity.ok(ApiResponseWrapper.success(result, "تم إرجاع البضاعة للمورد وتحديث المخزون والحساب بنجاح"));
     }
 
 }

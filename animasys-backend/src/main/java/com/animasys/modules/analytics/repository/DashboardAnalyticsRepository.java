@@ -1,5 +1,6 @@
 package com.animasys.modules.analytics.repository;
 
+import com.animasys.core.util.BusinessTimeZone;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
@@ -19,7 +20,7 @@ import java.util.Map;
 @Repository
 public class DashboardAnalyticsRepository {
 
-    private static final ZoneId ZONE = ZoneId.systemDefault();
+    private static final ZoneId ZONE = BusinessTimeZone.ZONE;
     private static final String COUNTABLE_SALE =
             "(s.status IS NULL OR TRIM(s.status) = '' OR UPPER(s.status) IN ('COMPLETED', 'PARTIALLY_REFUNDED'))";
 

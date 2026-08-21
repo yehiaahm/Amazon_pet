@@ -111,6 +111,42 @@ public class ImportRowValidator {
         return result;
     }
 
+    /**
+     * INVENTORY_COUNT mode rules, deliberately separate from {@link #validate}: a stock count
+     * only needs a product identifier and the counted quantity — cost/price/supplier/category
+     * columns are irrelevant here and must not generate noise, and unlike ADD_STOCK a missing
+     * quantity cannot default to 0 (that would silently zero out the product's stock).
+     */
+    public RowValidationResult validateCountRow(Map<ImportField, String> row) {
+        RowValidationResult result = RowValidationResult.builder().build();
+
+        boolean hasIdentifier = !text(row, ImportField.SKU).isEmpty() || !text(row, ImportField.BARCODE).isEmpty();
+        boolean hasName = !text(row, ImportField.PRODUCT_NAME).isEmpty();
+        if (!hasIdentifier && !hasName) {
+            result.getErrors().add(ValidationIssue.of(ImportField.PRODUCT_NAME,
+                    "الصف لا يحتوي على اسم منتج ولا SKU ولا باركود"));
+        }
+
+        String rawQuantity = text(row, ImportField.QUANTITY);
+        if (rawQuantity.isEmpty()) {
+            result.getErrors().add(ValidationIssue.of(ImportField.QUANTITY,
+                    "الكمية المجرودة مطلوبة لكل صف في وضع الجرد"));
+        } else {
+            try {
+                BigDecimal quantity = new BigDecimal(rawQuantity);
+                if (quantity.compareTo(BigDecimal.ZERO) < 0) {
+                    result.getErrors().add(ValidationIssue.of(ImportField.QUANTITY, "الكمية المجرودة يجب ألا تكون سالبة"));
+                } else if (quantity.stripTrailingZeros().scale() > 0) {
+                    result.getWarnings().add(ValidationIssue.of(ImportField.QUANTITY, "الكمية المجرودة ليست رقمًا صحيحًا — سيتم تقريبها"));
+                }
+            } catch (NumberFormatException e) {
+                result.getErrors().add(ValidationIssue.of(ImportField.QUANTITY, "الكمية المجرودة يجب أن تكون رقمًا: " + rawQuantity));
+            }
+        }
+
+        return result;
+    }
+
     public static LocalDate parseDate(String raw) {
         for (DateTimeFormatter fmt : DATE_FORMATS) {
             try {

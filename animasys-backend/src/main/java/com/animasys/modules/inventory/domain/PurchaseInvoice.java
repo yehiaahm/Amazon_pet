@@ -65,7 +65,7 @@ public class PurchaseInvoice {
     private String imageUrl;
 
     @Column(name = "status", nullable = false)
-    private String status; // DRAFT, COMPLETED
+    private String status; // DRAFT, COMPLETED, PARTIALLY_RETURNED, RETURNED
 
     @Column(name = "due_date")
     private String dueDate;

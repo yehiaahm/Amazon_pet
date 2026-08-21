@@ -1,5 +1,7 @@
 package com.animasys.core.admin;
 
+import com.animasys.modules.crm.domain.Customer;
+import com.animasys.modules.crm.repository.CustomerRepository;
 import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
@@ -16,7 +18,13 @@ import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.modules.inventory.service.FifoCostingService;
 import com.animasys.modules.inventory.service.SkuCatalogService;
 import com.animasys.modules.inventory.service.StockService;
+import com.animasys.modules.loyalty.domain.LoyaltyAccount;
+import com.animasys.modules.loyalty.domain.LoyaltyLedgerEntry;
+import com.animasys.modules.loyalty.domain.LoyaltyLedgerType;
+import com.animasys.modules.loyalty.repository.LoyaltyAccountRepository;
+import com.animasys.modules.loyalty.repository.LoyaltyLedgerEntryRepository;
 import com.animasys.modules.sales.domain.POSSession;
+import com.animasys.modules.sales.domain.Sale;
 import com.animasys.modules.sales.domain.SaleItem;
 import com.animasys.modules.sales.repository.POSSessionRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
@@ -52,11 +60,16 @@ class FactoryResetServiceIntegrationTest extends IntegrationTestBase {
     @Autowired private ProductRepository productRepository;
     @Autowired private POSSessionRepository posSessionRepository;
     @Autowired private SaleRepository saleRepository;
+    @Autowired private CustomerRepository customerRepository;
+    @Autowired private LoyaltyAccountRepository loyaltyAccountRepository;
+    @Autowired private LoyaltyLedgerEntryRepository loyaltyLedgerEntryRepository;
     @Autowired private DataSource dataSource;
 
     private Employee employee;
     private Tenant tenant;
     private Branch branch;
+    private Customer customer;
+    private Sale sale;
 
     @BeforeEach
     void seedTenantWithCatalogAndSale() {
@@ -119,6 +132,55 @@ class FactoryResetServiceIntegrationTest extends IntegrationTestBase {
         assertEquals(employeesBefore, employeeRepository.findByTenantId(tenant.getId()).size());
     }
 
+    @Test
+    void resetToFirstUseClearsLoyaltyLedgerBeforeDeletingSalesAndCustomers() throws Exception {
+        // Regression test: loyalty_ledger_entries/loyalty_accounts reference customers,
+        // sales and employees without ON DELETE CASCADE. Before this fix, resetToFirstUse
+        // threw a foreign-key violation for any tenant with loyalty activity.
+        assumeMySqlDatabase();
+        seedLoyaltyActivity();
+
+        assertTrue(loyaltyLedgerEntryRepository.findAll().stream()
+                .anyMatch(e -> e.getTenantId().equals(tenant.getId())));
+
+        Map<String, Object> summary = assertDoesNotThrow(() -> factoryResetService.resetToFirstUse(tenant.getId()));
+
+        assertEquals(tenant.getId(), summary.get("tenantId"));
+        assertTrue(loyaltyAccountRepository.findAll().stream()
+                .noneMatch(a -> a.getTenantId().equals(tenant.getId())));
+        assertTrue(loyaltyLedgerEntryRepository.findAll().stream()
+                .noneMatch(e -> e.getTenantId().equals(tenant.getId())));
+        assertTrue(saleRepository.findByTenantId(tenant.getId()).isEmpty());
+    }
+
+    private void seedLoyaltyActivity() {
+        customer = customerRepository.save(Customer.builder()
+                .id("cust-reset-" + UUID.randomUUID().toString().substring(0, 8))
+                .tenant(tenant)
+                .name("Reset Customer")
+                .build());
+
+        loyaltyAccountRepository.save(LoyaltyAccount.builder()
+                .customerId(customer.getId())
+                .customer(customer)
+                .tenantId(tenant.getId())
+                .balance(new BigDecimal("5.00"))
+                .updatedAt(Instant.now())
+                .build());
+
+        loyaltyLedgerEntryRepository.save(LoyaltyLedgerEntry.builder()
+                .id("loy-reset-" + UUID.randomUUID().toString().substring(0, 8))
+                .tenantId(tenant.getId())
+                .customer(customer)
+                .sale(sale)
+                .employee(employee)
+                .type(LoyaltyLedgerType.EARNED)
+                .amount(new BigDecimal("5.00"))
+                .balanceBefore(BigDecimal.ZERO)
+                .balanceAfter(new BigDecimal("5.00"))
+                .build());
+    }
+
     private void assumeMySqlDatabase() throws Exception {
         try (var connection = dataSource.getConnection()) {
             String productName = connection.getMetaData().getDatabaseProductName();
@@ -160,7 +222,7 @@ class FactoryResetServiceIntegrationTest extends IntegrationTestBase {
                 .openedAt(Instant.now())
                 .build());
 
-        saleService.createSale(
+        sale = saleService.createSale(
                 session.getId(),
                 employee.getId(),
                 null,

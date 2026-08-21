@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder
@@ -26,4 +27,10 @@ public class SaleSummaryDTO {
     private String customerName;
     private Instant date;
     private String status;
+    private boolean delivery;
+    private BigDecimal deliveryFee;
+    private BigDecimal loyaltyEarned;
+    private BigDecimal loyaltyRedeemed;
+    private List<SaleItemSummaryDTO> items;
+    private List<SalePaymentSummaryDTO> payments;
 }

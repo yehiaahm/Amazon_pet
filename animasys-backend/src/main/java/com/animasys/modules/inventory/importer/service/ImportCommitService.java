@@ -55,6 +55,7 @@ public class ImportCommitService {
         List<String> eligibleIds = importSessionItemRepository.findBySessionIdOrderByRowNumberAsc(sessionId).stream()
                 .filter(i -> i.getStatus() == ImportRowStatus.NEW
                         || i.getStatus() == ImportRowStatus.DUPLICATE
+                        || i.getStatus() == ImportRowStatus.COUNT_MATCHED
                         || i.getStatus() == ImportRowStatus.ERROR)
                 .map(ImportSessionItem::getId)
                 .collect(Collectors.toList());
@@ -62,7 +63,8 @@ public class ImportCommitService {
         int imported = 0, updated = 0, skipped = 0, failed = 0;
         for (List<String> batch : partition(eligibleIds, BATCH_SIZE)) {
             try {
-                ImportBatchExecutor.BatchOutcome outcome = importBatchExecutor.processBatch(batch, tenantId, employeeId);
+                ImportBatchExecutor.BatchOutcome outcome =
+                        importBatchExecutor.processBatch(batch, tenantId, employeeId, sessionId, session.getImportMode());
                 imported += outcome.imported();
                 updated += outcome.updated();
                 skipped += outcome.skipped();

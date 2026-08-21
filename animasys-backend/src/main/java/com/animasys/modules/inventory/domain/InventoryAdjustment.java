@@ -32,6 +32,11 @@ public class InventoryAdjustment {
         REJECTED
     }
 
+    public enum AdjustmentSource {
+        MANUAL,
+        IMPORT
+    }
+
     @Id
     private String id;
 
@@ -60,6 +65,18 @@ public class InventoryAdjustment {
 
     @Column(name = "notes")
     private String notes;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false)
+    @Builder.Default
+    private AdjustmentSource source = AdjustmentSource.MANUAL;
+
+    /** Set when {@link #source} is IMPORT — traces this adjustment back to the Excel reconciliation batch. */
+    @Column(name = "import_session_id")
+    private String importSessionId;
+
+    @Column(name = "import_session_item_id")
+    private String importSessionItemId;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

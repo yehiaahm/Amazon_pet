@@ -8,6 +8,7 @@ import com.animasys.modules.inventory.domain.ProductVariant;
 import com.animasys.modules.inventory.repository.ProductVariantRepository;
 import com.animasys.modules.inventory.service.FifoCostingService;
 import com.animasys.modules.inventory.service.StockService;
+import com.animasys.modules.loyalty.service.LoyaltyService;
 import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
@@ -48,6 +49,8 @@ public class SaleServiceTest {
     @Mock private SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
     @Mock private AuthenticationManager authenticationManager;
     @Mock private com.animasys.modules.inventory.repository.WarehouseRepository warehouseRepository;
+    @Mock private LoyaltyService loyaltyService;
+    @Mock private SalePaymentRepository paymentRepository;
 
     @InjectMocks
     private SaleService saleService;
@@ -70,6 +73,9 @@ public class SaleServiceTest {
                 .price(BigDecimal.TEN).cost(BigDecimal.ONE).build();
         variant = ProductVariant.builder().id("v-1").name("Grooming Brush")
                 .price(BigDecimal.TEN).cost(BigDecimal.ONE).stockQuantity(5).build();
+
+        when(loyaltyService.resolveRedemption(any(), any(), any(), any())).thenReturn(BigDecimal.ZERO);
+        when(paymentRepository.save(any(SalePayment.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -81,9 +87,9 @@ public class SaleServiceTest {
         when(itemRepository.save(any(SaleItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(auditLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         doNothing().when(stockService).ensureMirrored(anyString());
-        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("v-1"))).thenReturn(5);
+        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("wh-1"), eq("v-1"))).thenReturn(5);
         when(fifoCostingService.allocateSaleItemFifo(eq("t-1"), anyString(), any(), eq("e-1"))).thenReturn(List.of());
-        
+
         com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
         when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
 
@@ -104,5 +110,133 @@ public class SaleServiceTest {
         assertEquals(0, BigDecimal.TEN.compareTo(sale.getTotalAmount()));
         verify(fifoCostingService).allocateSaleItemFifo(eq("t-1"), anyString(), any(), eq("e-1"));
         verify(eventPublisher, times(1)).publishEvent(any());
+    }
+
+    @Test
+    public void testCreateSaleWithDeliveryFee() {
+        when(sessionRepository.findById("s-1")).thenReturn(Optional.of(session));
+        when(employeeRepository.findById("e-1")).thenReturn(Optional.of(employee));
+        when(variantRepository.findByIdWithProduct("v-1")).thenReturn(Optional.of(variant));
+        when(saleRepository.save(any(Sale.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.save(any(SaleItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auditLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        doNothing().when(stockService).ensureMirrored(anyString());
+        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("wh-1"), eq("v-1"))).thenReturn(5);
+        when(fifoCostingService.allocateSaleItemFifo(eq("t-1"), anyString(), any(), eq("e-1"))).thenReturn(List.of());
+
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
+
+        // subtotal 10 (1 x item @10) + delivery fee 15 = total 25
+        Sale sale = saleService.createSale(
+                "s-1",
+                "e-1",
+                null,
+                BigDecimal.valueOf(25),
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                "CASH",
+                Collections.singletonList(saleItem),
+                null,
+                null,
+                true,
+                BigDecimal.valueOf(15)
+        );
+
+        assertNotNull(sale);
+        assertTrue(sale.isDelivery());
+        assertEquals(0, BigDecimal.valueOf(15).setScale(2).compareTo(sale.getDeliveryFee()));
+        assertEquals(0, BigDecimal.valueOf(25).setScale(2).compareTo(sale.getTotalAmount()));
+    }
+
+    @Test
+    public void testCreateSaleIgnoresFeeWhenNotFlaggedAsDelivery() {
+        when(sessionRepository.findById("s-1")).thenReturn(Optional.of(session));
+        when(employeeRepository.findById("e-1")).thenReturn(Optional.of(employee));
+        when(variantRepository.findByIdWithProduct("v-1")).thenReturn(Optional.of(variant));
+        when(saleRepository.save(any(Sale.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.save(any(SaleItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auditLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        doNothing().when(stockService).ensureMirrored(anyString());
+        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("wh-1"), eq("v-1"))).thenReturn(5);
+        when(fifoCostingService.allocateSaleItemFifo(eq("t-1"), anyString(), any(), eq("e-1"))).thenReturn(List.of());
+
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
+
+        // A stray fee sent without the delivery flag must not affect the total.
+        Sale sale = saleService.createSale(
+                "s-1",
+                "e-1",
+                null,
+                BigDecimal.TEN,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                "CASH",
+                Collections.singletonList(saleItem),
+                null,
+                null,
+                false,
+                BigDecimal.valueOf(15)
+        );
+
+        assertFalse(sale.isDelivery());
+        assertEquals(0, BigDecimal.ZERO.setScale(2).compareTo(sale.getDeliveryFee()));
+        assertEquals(0, BigDecimal.TEN.compareTo(sale.getTotalAmount()));
+    }
+
+    /**
+     * Regression for a fixed bug: a checkout request with neither a single-tender
+     * paymentMethod nor a split-tender payments list used to silently record CASH
+     * instead of being rejected, corrupting cash-drawer reconciliation.
+     */
+    @Test
+    public void testCreateSaleRejectsMissingPaymentMethod() {
+        when(sessionRepository.findById("s-1")).thenReturn(Optional.of(session));
+        when(employeeRepository.findById("e-1")).thenReturn(Optional.of(employee));
+        when(variantRepository.findByIdWithProduct("v-1")).thenReturn(Optional.of(variant));
+        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("wh-1"), eq("v-1"))).thenReturn(5);
+
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
+
+        assertThrows(com.animasys.core.exception.BusinessRuleException.class, () -> saleService.createSale(
+                "s-1",
+                "e-1",
+                null,
+                BigDecimal.TEN,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                null,
+                Collections.singletonList(saleItem)
+        ));
+
+        verify(saleRepository, never()).save(any(Sale.class));
+        verify(itemRepository, never()).save(any(SaleItem.class));
+        verify(paymentRepository, never()).save(any(SalePayment.class));
+    }
+
+    @Test
+    public void testCreateSaleRejectsBlankPaymentMethod() {
+        when(sessionRepository.findById("s-1")).thenReturn(Optional.of(session));
+        when(employeeRepository.findById("e-1")).thenReturn(Optional.of(employee));
+        when(variantRepository.findByIdWithProduct("v-1")).thenReturn(Optional.of(variant));
+        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("wh-1"), eq("v-1"))).thenReturn(5);
+
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
+
+        assertThrows(com.animasys.core.exception.BusinessRuleException.class, () -> saleService.createSale(
+                "s-1",
+                "e-1",
+                null,
+                BigDecimal.TEN,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                "   ",
+                Collections.singletonList(saleItem)
+        ));
+
+        verify(saleRepository, never()).save(any(Sale.class));
     }
 }

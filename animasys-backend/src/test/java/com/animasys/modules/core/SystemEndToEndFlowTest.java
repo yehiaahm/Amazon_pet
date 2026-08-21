@@ -16,8 +16,10 @@ import com.animasys.modules.inventory.service.FifoCostingService;
 import com.animasys.modules.sales.domain.POSSession;
 import com.animasys.modules.sales.domain.Sale;
 import com.animasys.modules.sales.domain.SaleItem;
+import com.animasys.modules.sales.domain.SalePayment;
 import com.animasys.modules.sales.repository.POSSessionRepository;
 import com.animasys.modules.sales.repository.SaleItemRepository;
+import com.animasys.modules.sales.repository.SalePaymentRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
 import com.animasys.modules.sales.service.POSSessionService;
 import com.animasys.support.IntegrationTestBase;
@@ -54,6 +56,7 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
     @Autowired private ExpenseRepository expenseRepository;
     @Autowired private SaleRepository saleRepository;
     @Autowired private SaleItemRepository saleItemRepository;
+    @Autowired private SalePaymentRepository salePaymentRepository;
     @Autowired private DailyClosingRepository dailyClosingRepository;
     @Autowired private InventoryBatchRepository batchRepository;
 
@@ -65,7 +68,8 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
 
     @BeforeEach
     void setUp() {
-        tenant = Tenant.builder().id(UUID.randomUUID().toString()).name("E2E Tenant").active(true).build();
+        tenant = Tenant.builder().id(UUID.randomUUID().toString()).name("E2E Tenant")
+                .subdomain("e2e-" + UUID.randomUUID().toString().substring(0, 8)).active(true).build();
         tenantRepository.save(tenant);
         bootstrapTenantRoles(tenant);
 
@@ -75,12 +79,15 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
         warehouse = Warehouse.builder().id(UUID.randomUUID().toString()).branch(branch).name("E2E Store").code("E2E").build();
         warehouseRepository.save(warehouse);
 
+        String employeeSuffix = UUID.randomUUID().toString().substring(0, 8);
         employee = Employee.builder()
                 .id(UUID.randomUUID().toString())
                 .tenant(tenant)
                 .branch(branch)
-                .username("e2e-user")
+                .username("e2e-user-" + employeeSuffix)
                 .passwordHash("hash")
+                .fullName("E2E Manager")
+                .email("e2e-" + employeeSuffix + "@test.com")
                 .role("MANAGER")
                 .active(true)
                 .build();
@@ -90,14 +97,16 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
         Category category = Category.builder().id(UUID.randomUUID().toString()).tenant(tenant).name("Cat").build();
         categoryRepository.save(category);
 
-        Product product = Product.builder().id(UUID.randomUUID().toString()).tenant(tenant).sku("SKU-E2E").name("Prod").category(category).build();
+        String skuSuffix = UUID.randomUUID().toString().substring(0, 8);
+        Product product = Product.builder().id(UUID.randomUUID().toString()).tenant(tenant).sku("SKU-E2E-" + skuSuffix).name("Prod").category(category).build();
         productRepository.save(product);
 
         variant = ProductVariant.builder()
                 .id(UUID.randomUUID().toString())
                 .product(product)
                 .tenantId(tenant.getId())
-                .sku("SKU-E2E")
+                .sku("SKU-E2E-" + skuSuffix)
+                .name("E2E Variant")
                 .price(new BigDecimal("150.00"))
                 .cost(new BigDecimal("50.00"))
                 .stockQuantity(0)
@@ -137,10 +146,12 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
         // 4. Create Sale (Buy 3 units for 450 EGP)
         Sale sale = Sale.builder()
                 .id(UUID.randomUUID().toString())
-                .saleNumber("INV-001")
+                .saleNumber("INV-E2E-" + UUID.randomUUID().toString().substring(0, 8))
                 .posSession(session)
                 .employee(employee)
                 .totalAmount(new BigDecimal("450.00")) // 3 * 150
+                .tax(BigDecimal.ZERO)
+                .discount(BigDecimal.ZERO)
                 .paymentMethod("CASH")
                 .status("COMPLETED")
                 .date(Instant.now())
@@ -150,9 +161,13 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
         SaleItem item = SaleItem.builder()
                 .id(UUID.randomUUID().toString())
                 .sale(sale)
+                .type("PRODUCT")
                 .itemId(variant.getId())
+                .name(variant.getName())
                 .quantity(3)
                 .price(new BigDecimal("150.00"))
+                .listPrice(new BigDecimal("150.00"))
+                .cost(variant.getCost())
                 .build();
         saleItemRepository.save(item);
         
@@ -170,6 +185,12 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
         item.setQuantityReturned(1);
         saleRepository.save(sale);
         saleItemRepository.save(item);
+        salePaymentRepository.save(SalePayment.builder()
+                .id(UUID.randomUUID().toString())
+                .sale(sale)
+                .method("CASH")
+                .amount(new BigDecimal("450.00"))
+                .build());
 
         // Verify remaining stock is 8
         updatedBatch = batchRepository.findById(batch.getId()).orElseThrow();
@@ -188,7 +209,7 @@ public class SystemEndToEndFlowTest extends IntegrationTestBase {
         );
         assertEquals("CLOSED", closedSession.getStatus());
 
-        List<DailyClosing> closings = dailyClosingRepository.findAll();
+        List<DailyClosing> closings = dailyClosingRepository.findByBranchId(branch.getId());
         DailyClosing report = closings.get(closings.size() - 1);
         
         assertEquals(0, new BigDecimal("100.00").compareTo(report.getOpeningBalance()));

@@ -127,7 +127,7 @@ public class AccountsPayableService {
                     .id("inst-" + UUID.randomUUID().toString().substring(0, 8))
                     .purchaseInvoice(invoice)
                     .installmentNumber(1)
-                    .dueDate(invoice.getDueDate() != null ? invoice.getDueDate() : invoice.getInvoiceDate())
+                    .dueDate(invoice.getDueDate())
                     .amount(invoice.getGrandTotal())
                     .paidAmount(paid)
                     .status(resolveInstallmentStatus(paid, invoice.getGrandTotal()))
@@ -205,7 +205,9 @@ public class AccountsPayableService {
                 .id("inst-" + UUID.randomUUID().toString().substring(0, 8))
                 .purchaseInvoice(invoice)
                 .installmentNumber(1)
-                .dueDate(invoice.getDueDate() != null ? invoice.getDueDate() : invoice.getInvoiceDate())
+                // No forced deadline unless the invoice itself carries one — open
+                // credit is payable any time and must never auto-flag as overdue.
+                .dueDate(invoice.getDueDate())
                 .amount(invoice.getGrandTotal())
                 .paidAmount(paid)
                 .status(resolveInstallmentStatus(paid, invoice.getGrandTotal()))
@@ -214,6 +216,44 @@ public class AccountsPayableService {
             inst.setPaidAt(Instant.now());
         }
         return inst;
+    }
+
+    /**
+     * Applies a purchase-return credit against an invoice: reduces the invoice total and
+     * unwinds it from the latest/future installments first, never below what's already paid.
+     * @return any leftover credit the invoice balance couldn't absorb — money the supplier owes back.
+     */
+    public BigDecimal applyReturnCredit(PurchaseInvoice invoice, BigDecimal returnedValue) {
+        if (returnedValue == null || returnedValue.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal grandTotal = invoice.getGrandTotal() != null ? invoice.getGrandTotal() : BigDecimal.ZERO;
+        BigDecimal netTotal = invoice.getNetTotal() != null ? invoice.getNetTotal() : grandTotal;
+        invoice.setGrandTotal(grandTotal.subtract(returnedValue).max(BigDecimal.ZERO));
+        invoice.setNetTotal(netTotal.subtract(returnedValue).max(BigDecimal.ZERO));
+
+        List<PurchaseInvoiceInstallment> installments = installmentRepository
+                .findByPurchaseInvoiceIdOrderByInstallmentNumberAsc(invoice.getId());
+
+        BigDecimal remainingCredit = returnedValue;
+        for (int i = installments.size() - 1; i >= 0 && remainingCredit.compareTo(BigDecimal.ZERO) > 0; i--) {
+            PurchaseInvoiceInstallment inst = installments.get(i);
+            BigDecimal paid = inst.getPaidAmount() != null ? inst.getPaidAmount() : BigDecimal.ZERO;
+            BigDecimal reducible = inst.getAmount().subtract(paid).max(BigDecimal.ZERO);
+            BigDecimal reduceBy = reducible.min(remainingCredit);
+            if (reduceBy.compareTo(BigDecimal.ZERO) > 0) {
+                inst.setAmount(inst.getAmount().subtract(reduceBy));
+                inst.setStatus(resolveInstallmentStatus(paid, inst.getAmount()));
+                installmentRepository.save(inst);
+                remainingCredit = remainingCredit.subtract(reduceBy);
+            }
+        }
+
+        syncInvoicePaymentStatus(invoice);
+        invoiceRepository.save(invoice);
+
+        return remainingCredit;
     }
 
     private void syncInvoicePaymentStatus(PurchaseInvoice invoice) {
@@ -236,6 +276,7 @@ public class AccountsPayableService {
         installments.stream()
                 .filter(i -> !"PAID".equals(i.getStatus()))
                 .map(PurchaseInvoiceInstallment::getDueDate)
+                .filter(Objects::nonNull)
                 .min(String::compareTo)
                 .ifPresent(invoice::setDueDate);
     }
@@ -301,9 +342,12 @@ public class AccountsPayableService {
         PurchaseInvoice invoice = inst.getPurchaseInvoice();
         BigDecimal paid = inst.getPaidAmount() != null ? inst.getPaidAmount() : BigDecimal.ZERO;
         BigDecimal remaining = inst.getAmount().subtract(paid);
-        int daysUntilDue = computeDaysUntilDue(inst.getDueDate());
-        boolean overdue = daysUntilDue < 0 && !"PAID".equals(inst.getStatus());
-        boolean dueSoon = !overdue && daysUntilDue <= reminderDays && daysUntilDue >= 0 && !"PAID".equals(inst.getStatus());
+        boolean hasDueDate = inst.getDueDate() != null && !inst.getDueDate().isBlank();
+        // Open-ended installments (no due date) are never overdue or "due soon" —
+        // they're payable any time, by design, so they must not get an urgency badge.
+        int daysUntilDue = hasDueDate ? computeDaysUntilDue(inst.getDueDate()) : 0;
+        boolean overdue = hasDueDate && daysUntilDue < 0 && !"PAID".equals(inst.getStatus());
+        boolean dueSoon = hasDueDate && !overdue && daysUntilDue <= reminderDays && daysUntilDue >= 0 && !"PAID".equals(inst.getStatus());
 
         return InstallmentResponse.builder()
                 .id(inst.getId())

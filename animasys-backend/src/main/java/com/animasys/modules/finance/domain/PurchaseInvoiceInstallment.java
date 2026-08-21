@@ -30,7 +30,8 @@ public class PurchaseInvoiceInstallment {
     @Column(name = "installment_number", nullable = false)
     private int installmentNumber;
 
-    @Column(name = "due_date", nullable = false)
+    /** Null means open-ended — payable any time, no forced due date. */
+    @Column(name = "due_date")
     private String dueDate;
 
     @Column(nullable = false)

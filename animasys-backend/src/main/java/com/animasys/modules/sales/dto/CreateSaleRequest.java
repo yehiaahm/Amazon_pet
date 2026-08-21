@@ -26,8 +26,12 @@ public class CreateSaleRequest {
     @NotNull
     private BigDecimal discount;
 
-    @NotBlank
+    /** Single-tender payment method. Ignored when {@link #payments} carries a split (2-tender) payment. */
     private String paymentMethod;
+
+    /** Optional split payment (exactly 2 tenders, e.g. cash + card). Null/empty ⇒ use {@link #paymentMethod}. */
+    @Valid
+    private List<SalePaymentRequest> payments;
 
     @NotEmpty
     @Valid
@@ -35,4 +39,10 @@ public class CreateSaleRequest {
 
     private String managerUsername;
     private String managerPassword;
+
+    private boolean delivery;
+    private BigDecimal deliveryFee;
+
+    /** Amount of the customer's loyalty balance the cashier asked to redeem on this sale. Clamped server-side. */
+    private BigDecimal loyaltyRedeem;
 }

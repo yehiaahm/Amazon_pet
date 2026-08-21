@@ -12,6 +12,7 @@ import com.animasys.modules.inventory.importer.repository.ImportSessionItemRepos
 import com.animasys.modules.inventory.importer.repository.ImportSessionRepository;
 import com.animasys.modules.inventory.repository.SupplierRepository;
 import com.animasys.modules.inventory.repository.WarehouseRepository;
+import com.animasys.modules.inventory.service.FifoCostingService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -47,7 +48,14 @@ public class ImportSessionService {
     private final WarehouseRepository warehouseRepository;
     private final SupplierRepository supplierRepository;
     private final CategoryRepository categoryRepository;
+    private final FifoCostingService fifoCostingService;
+    private final ImportWarehouseResolver importWarehouseResolver;
     private final ObjectMapper objectMapper;
+
+    /** Backward-compatible default: existing callers get the original add-stock behavior unchanged. */
+    public ImportUploadResponse upload(MultipartFile file, String tenantId, String employeeId) {
+        return upload(file, tenantId, employeeId, ImportMode.ADD_STOCK);
+    }
 
     /**
      * Deliberately not transactional: auto-mapping may call out to the AI provider, and
@@ -55,7 +63,7 @@ public class ImportSessionService {
      * connection for the whole timeout. Persistence happens afterwards, atomically, in
      * {@link ImportSessionWriter}.
      */
-    public ImportUploadResponse upload(MultipartFile file, String tenantId, String employeeId) {
+    public ImportUploadResponse upload(MultipartFile file, String tenantId, String employeeId, ImportMode mode) {
         if (file == null || file.isEmpty()) {
             throw new BusinessRuleException("لم يتم إرفاق ملف");
         }
@@ -76,7 +84,7 @@ public class ImportSessionService {
         }
 
         ImportSession session = importSessionWriter.createSession(
-                tenantId, employeeId, file, fileType, parsed, writeJson(parsed.headers()));
+                tenantId, employeeId, file, fileType, parsed, writeJson(parsed.headers()), mode);
 
         return ImportUploadResponse.builder()
                 .sessionId(session.getId())
@@ -86,6 +94,7 @@ public class ImportSessionService {
                 .headers(parsed.headers())
                 .suggestedMapping(suggestions)
                 .aiAssisted(aiAssisted)
+                .importMode(mode.name())
                 .unmappedFields(unmappedEssentials(suggestions).stream().map(ImportField::code).toList())
                 .build();
     }
@@ -139,6 +148,18 @@ public class ImportSessionService {
                     "تعذر التعرف على عمود يحدد المنتج (اسم المنتج أو SKU أو الباركود) — افتح شاشة ربط الأعمدة لاختياره يدويًا");
         }
 
+        List<ImportSessionItem> items = importSessionItemRepository.findBySessionIdOrderByRowNumberAsc(sessionId);
+        List<Map<ImportField, String>> mappedRows = new ArrayList<>();
+        for (ImportSessionItem item : items) {
+            mappedRows.add(importRowNormalizer.normalize(mapRow(readJsonMap(item.getRawData()), headerToField)));
+        }
+
+        session.setColumnMapping(writeJson(request.getMapping()));
+
+        if (session.getImportMode() == ImportMode.INVENTORY_COUNT) {
+            return confirmMappingInventoryCount(session, tenantId, items, mappedRows);
+        }
+
         ImportValidationContext ctx = ImportValidationContext.builder()
                 .existingWarehouseNamesNormalized(warehouseRepository.findByTenantId(tenantId).stream()
                         .map(Warehouse::getName).filter(Objects::nonNull)
@@ -156,12 +177,6 @@ public class ImportSessionService {
 
         DuplicateDetectionService.CatalogIndex catalogIndex = duplicateDetectionService.buildIndex(tenantId);
 
-        List<ImportSessionItem> items = importSessionItemRepository.findBySessionIdOrderByRowNumberAsc(sessionId);
-
-        List<Map<ImportField, String>> mappedRows = new ArrayList<>();
-        for (ImportSessionItem item : items) {
-            mappedRows.add(importRowNormalizer.normalize(mapRow(readJsonMap(item.getRawData()), headerToField)));
-        }
         Map<Integer, String> barcodeConflicts = duplicateDetectionService.findIntraFileBarcodeConflicts(mappedRows);
         Map<Integer, String> skuConflicts = duplicateDetectionService.findIntraFileDuplicateSkus(mappedRows);
 
@@ -221,6 +236,103 @@ public class ImportSessionService {
                 .errorRows(errorRows)
                 .warningRows(warningRows)
                 .build();
+    }
+
+    /**
+     * INVENTORY_COUNT mode: every row must match an existing product (a count can't create
+     * new products) and must not repeat a product already counted earlier in the same file
+     * (ambiguous — which count wins?). For rows that pass, the current stock is read now and
+     * snapshotted alongside the counted quantity for the preview; {@link ImportBatchExecutor}
+     * re-reads it live at commit time before applying the adjustment.
+     */
+    private ImportMappingResponse confirmMappingInventoryCount(ImportSession session, String tenantId,
+                                                                 List<ImportSessionItem> items,
+                                                                 List<Map<ImportField, String>> mappedRows) {
+        DuplicateDetectionService.CatalogIndex catalogIndex = duplicateDetectionService.buildIndex(tenantId);
+        Map<String, Integer> variantFirstRow = new HashMap<>();
+
+        int matchedRows = 0, errorRows = 0, warningRows = 0;
+        for (int i = 0; i < items.size(); i++) {
+            ImportSessionItem item = items.get(i);
+            Map<ImportField, String> mapped = mappedRows.get(i);
+
+            RowValidationResult validation = importRowValidator.validateCountRow(mapped);
+
+            if (!validation.hasErrors()) {
+                DuplicateMatch match = duplicateDetectionService.findMatch(catalogIndex, mapped);
+                if (match == null) {
+                    validation.getErrors().add(ValidationIssue.of(ImportField.PRODUCT_NAME,
+                            "المنتج غير موجود في النظام — لا يمكن جرد منتج غير مسجل مسبقًا"));
+                } else {
+                    Integer firstRow = variantFirstRow.putIfAbsent(match.getVariantId(), i);
+                    if (firstRow != null) {
+                        validation.getErrors().add(ValidationIssue.of(ImportField.PRODUCT_NAME,
+                                "هذا المنتج مكرر في نفس ملف الجرد (الصف " + (firstRow + 1) + ") — يجب أن يظهر مرة واحدة فقط"));
+                    } else {
+                        String warehouseId = importWarehouseResolver.resolve(tenantId, nullToEmpty(mapped.get(ImportField.WAREHOUSE)));
+                        int systemQty = fifoCostingService.getAvailableBatchQuantity(tenantId, warehouseId, match.getVariantId());
+                        int countedQty = parseQuantity(nullToEmpty(mapped.get(ImportField.QUANTITY)));
+                        item.setResolvedVariantId(match.getVariantId());
+                        item.setResolvedWarehouseId(warehouseId);
+                        item.setSystemQuantity(systemQty);
+                        item.setCountedQuantity(countedQty);
+                        item.setAdjustmentQuantity(countedQty - systemQty);
+                        item.setDuplicateMatchType(match.getMatchType());
+                        item.setDuplicateProductId(match.getProductId());
+                    }
+                }
+            }
+
+            item.setMappedData(writeJson(MappedDataCodec.toStringKeyed(mapped)));
+            item.setValidationErrors(writeJson(validation.getErrors()));
+            item.setWarnings(writeJson(validation.getWarnings()));
+            if (!validation.getWarnings().isEmpty()) {
+                warningRows++;
+            }
+
+            if (validation.hasErrors()) {
+                item.setStatus(ImportRowStatus.ERROR);
+                errorRows++;
+            } else {
+                item.setStatus(ImportRowStatus.COUNT_MATCHED);
+                matchedRows++;
+            }
+        }
+        importSessionItemRepository.saveAll(items);
+
+        session.setStatus(ImportSessionStatus.MAPPED);
+        session.setNewRows(0);
+        session.setUpdateRows(matchedRows);
+        session.setDuplicateRows(0);
+        session.setErrorRows(errorRows);
+        importSessionRepository.save(session);
+
+        return ImportMappingResponse.builder()
+                .sessionId(session.getId())
+                .totalRows(session.getTotalRows())
+                .newRows(0)
+                .updateRows(matchedRows)
+                .duplicateRows(0)
+                .errorRows(errorRows)
+                .warningRows(warningRows)
+                .build();
+    }
+
+    // Package-private (not private) so ImportSessionServiceQuantityTest can exercise it directly
+    // without standing up this service's full file-parsing/product-matching dependency graph.
+    int parseQuantity(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            return (int) Math.round(Double.parseDouble(raw.trim().replace(",", "")));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private String nullToEmpty(String s) {
+        return s == null ? "" : s.trim();
     }
 
     @Transactional(readOnly = true)
@@ -304,6 +416,9 @@ public class ImportSessionService {
                 .batchNumber(mapped.get(ImportField.BATCH_NUMBER.code()))
                 .duplicateMatchType(item.getDuplicateMatchType() != null ? item.getDuplicateMatchType().name() : null)
                 .resolution(item.getResolution() != null ? item.getResolution().name() : null)
+                .systemQuantity(item.getSystemQuantity())
+                .countedQuantity(item.getCountedQuantity())
+                .adjustmentQuantity(item.getAdjustmentQuantity())
                 .errors(errors.stream().map(ValidationIssue::getMessage).collect(Collectors.toList()))
                 .warnings(warnings.stream().map(ValidationIssue::getMessage).collect(Collectors.toList()))
                 .build();

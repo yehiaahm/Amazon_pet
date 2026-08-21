@@ -1,9 +1,11 @@
 package com.animasys.modules.inventory.service;
 
+import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.exception.InsufficientStockException;
 import com.animasys.modules.inventory.domain.InventoryBatch;
 import com.animasys.modules.inventory.domain.InventoryLedgerTransaction;
 import com.animasys.modules.inventory.domain.ProductVariant;
+import com.animasys.modules.inventory.domain.Warehouse;
 import com.animasys.modules.inventory.repository.InventoryBatchRepository;
 import com.animasys.modules.inventory.repository.InventoryLedgerTransactionRepository;
 import com.animasys.modules.inventory.repository.ProductVariantRepository;
@@ -195,8 +197,63 @@ class FifoCostingServiceImplTest {
         when(batchRepository.findActiveBatchesForUpdate(tenantId, warehouseId, dogFoodVariant.getId()))
                 .thenReturn(List.of(batch));
 
-        assertThrows(InsufficientStockException.class, () -> 
+        assertThrows(InsufficientStockException.class, () ->
                 fifoCostingService.allocateSaleItemFifo(tenantId, warehouseId, item, employeeId)
         );
+    }
+
+    @Test
+    @DisplayName("Supplier return deducts stock only from the batch(es) that purchase invoice created")
+    void testSupplierReturnDeductsFromInvoiceBatch() {
+        Warehouse warehouse = Warehouse.builder().id(warehouseId).build();
+        InventoryBatch batch = InventoryBatch.builder()
+                .id("batch-pi-1")
+                .tenantId(tenantId)
+                .warehouse(warehouse)
+                .productVariant(dogFoodVariant)
+                .unitCost(new BigDecimal("700.0000"))
+                .initialQuantity(10)
+                .remainingQuantity(10)
+                .status(InventoryBatch.BatchStatus.ACTIVE)
+                .build();
+
+        when(batchRepository.findActiveBatchesForPurchaseReturn(tenantId, "pi-1", dogFoodVariant.getId()))
+                .thenReturn(List.of(batch));
+
+        BigDecimal reversed = fifoCostingService.processSupplierReturn(
+                tenantId, "pi-1", dogFoodVariant.getId(), 4, employeeId);
+
+        assertEquals(0, new BigDecimal("2800.0000").compareTo(reversed));
+        assertEquals(6, batch.getRemainingQuantity());
+        verify(ledgerRepository).save(argThat(tx ->
+                tx.getTransactionType() == InventoryLedgerTransaction.TransactionType.SUPPLIER_RETURN
+                        && tx.getQuantityChange() == -4
+                        && "PURCHASE_RETURN".equals(tx.getReferenceType())
+                        && "pi-1".equals(tx.getReferenceId())));
+    }
+
+    @Test
+    @DisplayName("Supplier return rejects a quantity larger than what's left from that invoice (already sold)")
+    void testSupplierReturnRejectsWhenAlreadySold() {
+        Warehouse warehouse = Warehouse.builder().id(warehouseId).build();
+        InventoryBatch batch = InventoryBatch.builder()
+                .id("batch-pi-2")
+                .tenantId(tenantId)
+                .warehouse(warehouse)
+                .productVariant(dogFoodVariant)
+                .unitCost(new BigDecimal("700.0000"))
+                .initialQuantity(10)
+                .remainingQuantity(2) // 8 of the original 10 were already sold
+                .status(InventoryBatch.BatchStatus.ACTIVE)
+                .build();
+
+        when(batchRepository.findActiveBatchesForPurchaseReturn(tenantId, "pi-2", dogFoodVariant.getId()))
+                .thenReturn(List.of(batch));
+
+        assertThrows(BusinessRuleException.class, () ->
+                fifoCostingService.processSupplierReturn(tenantId, "pi-2", dogFoodVariant.getId(), 5, employeeId));
+
+        assertEquals(2, batch.getRemainingQuantity());
+        verify(ledgerRepository, never()).save(any());
     }
 }

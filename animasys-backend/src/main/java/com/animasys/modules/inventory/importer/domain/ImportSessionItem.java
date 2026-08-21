@@ -52,4 +52,21 @@ public class ImportSessionItem {
 
     @Column(name = "result_message")
     private String resultMessage;
+
+    // INVENTORY_COUNT mode only — snapshotted at mapping time for the preview, and
+    // re-verified live against current stock at commit time (see ImportBatchExecutor).
+    @Column(name = "resolved_variant_id")
+    private String resolvedVariantId;
+
+    @Column(name = "resolved_warehouse_id")
+    private String resolvedWarehouseId;
+
+    @Column(name = "system_quantity")
+    private Integer systemQuantity;
+
+    @Column(name = "counted_quantity")
+    private Integer countedQuantity;
+
+    @Column(name = "adjustment_quantity")
+    private Integer adjustmentQuantity;
 }

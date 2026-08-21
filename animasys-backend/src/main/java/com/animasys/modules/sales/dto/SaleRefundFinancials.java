@@ -19,4 +19,6 @@ public class SaleRefundFinancials {
     private BigDecimal taxReversed;
     private BigDecimal cogsReversed;
     private boolean fullRefund;
+    /** returnedLineSubtotal / saleSubtotal — reused by LoyaltyReturnListener to proportionally reverse loyalty. */
+    private BigDecimal loyaltyRatio;
 }

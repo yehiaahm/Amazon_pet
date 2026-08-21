@@ -31,6 +31,10 @@ public class ImportPreviewRow {
     private String batchNumber;
     private String duplicateMatchType;
     private String resolution;
+    // INVENTORY_COUNT mode only.
+    private Integer systemQuantity;
+    private Integer countedQuantity;
+    private Integer adjustmentQuantity;
     private List<String> errors;
     private List<String> warnings;
 }

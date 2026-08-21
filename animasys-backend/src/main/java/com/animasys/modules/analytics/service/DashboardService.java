@@ -1,5 +1,6 @@
 package com.animasys.modules.analytics.service;
 
+import com.animasys.core.util.BusinessTimeZone;
 import com.animasys.modules.analytics.bre.BusinessRulesEngine;
 import com.animasys.modules.analytics.repository.DashboardAnalyticsRepository;
 import com.animasys.modules.analytics.repository.DashboardAnalyticsRepository.PeriodMetrics;
@@ -19,7 +20,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DashboardService {
 
-    private static final ZoneId ZONE = ZoneId.systemDefault();
+    private static final ZoneId ZONE = BusinessTimeZone.ZONE;
 
     private final DashboardAnalyticsRepository analyticsRepository;
     private final FifoCostingService fifoCostingService;

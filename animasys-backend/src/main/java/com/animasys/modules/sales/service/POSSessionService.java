@@ -2,13 +2,16 @@ package com.animasys.modules.sales.service;
 
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.exception.ResourceNotFoundException;
+import com.animasys.core.util.BusinessTimeZone;
 import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.repository.BranchRepository;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.sales.domain.POSSession;
 import com.animasys.modules.sales.domain.Sale;
+import com.animasys.modules.sales.domain.SalePayment;
 import com.animasys.modules.sales.repository.POSSessionRepository;
+import com.animasys.modules.sales.repository.SalePaymentRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
 import com.animasys.modules.finance.domain.DailyClosing;
 import com.animasys.modules.finance.repository.DailyClosingRepository;
@@ -18,11 +21,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +39,7 @@ public class POSSessionService {
     private final BranchRepository branchRepository;
     private final EmployeeRepository employeeRepository;
     private final SaleRepository saleRepository;
+    private final SalePaymentRepository salePaymentRepository;
     private final DailyClosingRepository dailyClosingRepository;
     private final ExpenseRepository expenseRepository;
 
@@ -94,30 +102,60 @@ public class POSSessionService {
             branch = branchRepository.findAll().stream().findFirst().orElse(null);
         }
 
-        // 1. Calculate the actual expected cash drawer balance on the backend
+        // 1. Calculate the actual expected cash drawer balance on the backend.
+        // Bucketed per-tender (not per-sale): a split sale's cash portion lands in cashSalesTotal
+        // and its card portion in cardSalesTotal, via each sale's SalePayment rows rather than a
+        // single sales.payment_method string match.
         List<Sale> sessionSales = saleRepository.findByPosSession_Id(sessionId);
-        BigDecimal cashSalesTotal = sessionSales.stream()
-                .filter(s -> "CASH".equalsIgnoreCase(s.getPaymentMethod()) && !"REFUNDED".equalsIgnoreCase(s.getStatus()))
-                .map(this::getNetSaleAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal cardSalesTotal = sessionSales.stream()
-                .filter(s -> "CARD".equalsIgnoreCase(s.getPaymentMethod()) && !"REFUNDED".equalsIgnoreCase(s.getStatus()))
-                .map(this::getNetSaleAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal instapaySalesTotal = sessionSales.stream()
-                .filter(s -> "INSTAPAY".equalsIgnoreCase(s.getPaymentMethod()) && !"REFUNDED".equalsIgnoreCase(s.getStatus()))
-                .map(this::getNetSaleAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal vodafoneSalesTotal = sessionSales.stream()
-                .filter(s -> "VODAFONE_CASH".equalsIgnoreCase(s.getPaymentMethod()) && !"REFUNDED".equalsIgnoreCase(s.getStatus()))
-                .map(this::getNetSaleAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalSales = sessionSales.stream()
-                .filter(s -> !"REFUNDED".equalsIgnoreCase(s.getStatus()))
-                .map(this::getNetSaleAmount)
+        List<String> sessionSaleIds = sessionSales.stream().map(Sale::getId).toList();
+        Map<String, List<SalePayment>> paymentsBySaleId = sessionSaleIds.isEmpty()
+                ? Map.of()
+                : salePaymentRepository.findBySale_IdIn(sessionSaleIds).stream()
+                        .collect(Collectors.groupingBy(p -> p.getSale().getId()));
+
+        BigDecimal cashSalesTotal = BigDecimal.ZERO;
+        BigDecimal cardSalesTotal = BigDecimal.ZERO;
+        BigDecimal instapaySalesTotal = BigDecimal.ZERO;
+        BigDecimal vodafoneSalesTotal = BigDecimal.ZERO;
+        BigDecimal totalSales = BigDecimal.ZERO;
+
+        for (Sale sale : sessionSales) {
+            if ("REFUNDED".equalsIgnoreCase(sale.getStatus())) {
+                continue;
+            }
+            BigDecimal netAmount = getNetSaleAmount(sale);
+            totalSales = totalSales.add(netAmount);
+
+            BigDecimal saleTotal = sale.getTotalAmount();
+            if (saleTotal == null || saleTotal.compareTo(BigDecimal.ZERO) == 0) {
+                continue;
+            }
+            BigDecimal retainedRatio = netAmount.divide(saleTotal, 6, RoundingMode.HALF_UP);
+
+            for (SalePayment tender : paymentsBySaleId.getOrDefault(sale.getId(), List.of())) {
+                BigDecimal netTenderAmount = tender.getAmount().multiply(retainedRatio)
+                        .setScale(2, RoundingMode.HALF_UP);
+                String method = tender.getMethod() != null ? tender.getMethod().toUpperCase(Locale.ROOT) : "";
+                switch (method) {
+                    case "CASH" -> cashSalesTotal = cashSalesTotal.add(netTenderAmount);
+                    case "CARD" -> cardSalesTotal = cardSalesTotal.add(netTenderAmount);
+                    case "INSTAPAY" -> instapaySalesTotal = instapaySalesTotal.add(netTenderAmount);
+                    case "VODAFONE_CASH" -> vodafoneSalesTotal = vodafoneSalesTotal.add(netTenderAmount);
+                    default -> { /* e.g. MOBILE — not bucketed into a drawer total, same as before */ }
+                }
+            }
+        }
+
+        List<Sale> deliverySales = sessionSales.stream()
+                .filter(s -> s.isDelivery() && !"REFUNDED".equalsIgnoreCase(s.getStatus()))
+                .toList();
+        int deliveryOrdersCount = deliverySales.size();
+        BigDecimal deliveryFeesTotal = deliverySales.stream()
+                .map(Sale::getDeliveryFee)
+                .filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        java.time.ZoneId zone = java.time.ZoneId.of("Africa/Cairo");
+        java.time.ZoneId zone = BusinessTimeZone.ZONE;
         Instant openedAtInstant = session.getOpenedAt() != null ? session.getOpenedAt() : Instant.now();
         LocalDate sessionStartDay = LocalDate.ofInstant(openedAtInstant, zone);
         
@@ -158,6 +196,8 @@ public class POSSessionService {
                         .vodafoneSalesTotal(vodafoneSalesTotal)
                         .totalSales(totalSales)
                         .cashExpensesTotal(cashExpensesTotal)
+                        .deliveryOrdersCount(deliveryOrdersCount)
+                        .deliveryFeesTotal(deliveryFeesTotal)
                         .build();
                 dailyClosingRepository.save(dailyClosing);
             } catch (Exception ex) {

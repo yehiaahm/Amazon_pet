@@ -482,6 +482,72 @@ public class FifoCostingServiceImpl implements FifoCostingService {
         return totalCogsReversed;
     }
 
+    /**
+     * Handles a supplier return by deducting stock from the batch(es) this specific purchase
+     * invoice created for this variant, oldest first — not arbitrary tenant-wide FIFO stock.
+     * If part of that receipt was already sold, only the still-remaining portion can be returned.
+     */
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public BigDecimal processSupplierReturn(
+            String tenantId,
+            String purchaseInvoiceId,
+            String productVariantId,
+            int quantity,
+            String employeeId
+    ) {
+        if (quantity <= 0) {
+            throw new BusinessRuleException("Return quantity must be greater than zero");
+        }
+
+        log.info("Processing supplier return for PurchaseInvoice [{}] ProductVariant [{}] Qty [{}]",
+                purchaseInvoiceId, productVariantId, quantity);
+
+        List<InventoryBatch> batches = batchRepository.findActiveBatchesForPurchaseReturn(
+                tenantId, purchaseInvoiceId, productVariantId);
+
+        int totalAvailable = batches.stream().mapToInt(InventoryBatch::getRemainingQuantity).sum();
+        if (totalAvailable < quantity) {
+            throw new BusinessRuleException(
+                    "جزء من هذه الكمية اتباع بالفعل — الكمية المتاحة للإرجاع من هذه الفاتورة ("
+                            + totalAvailable + ") أقل من المطلوب (" + quantity + ")");
+        }
+
+        int remaining = quantity;
+        BigDecimal totalCostReversed = BigDecimal.ZERO;
+
+        for (InventoryBatch batch : batches) {
+            if (remaining <= 0) break;
+            int deductQty = Math.min(batch.getRemainingQuantity(), remaining);
+            batch.deductQuantity(deductQty);
+            batchRepository.save(batch);
+            remaining -= deductQty;
+
+            BigDecimal cost = batch.getUnitCost().multiply(BigDecimal.valueOf(deductQty));
+            totalCostReversed = totalCostReversed.add(cost);
+
+            InventoryLedgerTransaction ledgerTx = InventoryLedgerTransaction.builder()
+                    .id(UUID.randomUUID().toString())
+                    .tenantId(tenantId)
+                    .warehouseId(batch.getWarehouse().getId())
+                    .productVariant(batch.getProductVariant())
+                    .inventoryBatch(batch)
+                    .transactionType(InventoryLedgerTransaction.TransactionType.SUPPLIER_RETURN)
+                    .referenceType("PURCHASE_RETURN")
+                    .referenceId(purchaseInvoiceId)
+                    .quantityChange(-deductQty)
+                    .unitCost(batch.getUnitCost())
+                    .totalCost(cost)
+                    .employeeId(employeeId)
+                    .createdAt(Instant.now())
+                    .build();
+            ledgerRepository.save(ledgerTx);
+        }
+
+        stockSyncService.syncVariantFromBatches(tenantId, productVariantId);
+        return totalCostReversed;
+    }
+
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void processInventoryWriteOff(

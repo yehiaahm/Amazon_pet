@@ -161,6 +161,87 @@ class AccountsPayableServiceTest {
         assertEquals(14, updated.getReminderDaysBeforeDue());
     }
 
+    @Test
+    void applyReturnCredit_reducesUnpaidLumpSumInstallment() {
+        PurchaseInvoiceInstallment installment = PurchaseInvoiceInstallment.builder()
+                .id("inst-1")
+                .purchaseInvoice(invoice)
+                .installmentNumber(1)
+                .amount(BigDecimal.valueOf(100))
+                .paidAmount(BigDecimal.ZERO)
+                .status("PENDING")
+                .build();
+        invoice.setNetTotal(BigDecimal.valueOf(100));
+
+        when(installmentRepository.findByPurchaseInvoiceIdOrderByInstallmentNumberAsc("inv-1"))
+                .thenReturn(List.of(installment));
+        when(installmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(invoiceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        BigDecimal excess = accountsPayableService.applyReturnCredit(invoice, BigDecimal.valueOf(30));
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(excess));
+        assertEquals(0, BigDecimal.valueOf(70).compareTo(invoice.getGrandTotal()));
+        assertEquals(0, BigDecimal.valueOf(70).compareTo(installment.getAmount()));
+        assertEquals("PENDING", installment.getStatus());
+    }
+
+    @Test
+    void applyReturnCredit_reducesLatestInstallmentFirst() {
+        PurchaseInvoiceInstallment paidFirst = PurchaseInvoiceInstallment.builder()
+                .id("inst-1")
+                .purchaseInvoice(invoice)
+                .installmentNumber(1)
+                .amount(BigDecimal.valueOf(50))
+                .paidAmount(BigDecimal.valueOf(50))
+                .status("PAID")
+                .build();
+        PurchaseInvoiceInstallment unpaidSecond = PurchaseInvoiceInstallment.builder()
+                .id("inst-2")
+                .purchaseInvoice(invoice)
+                .installmentNumber(2)
+                .amount(BigDecimal.valueOf(50))
+                .paidAmount(BigDecimal.ZERO)
+                .status("PENDING")
+                .build();
+        invoice.setNetTotal(BigDecimal.valueOf(100));
+
+        when(installmentRepository.findByPurchaseInvoiceIdOrderByInstallmentNumberAsc("inv-1"))
+                .thenReturn(List.of(paidFirst, unpaidSecond));
+        when(installmentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(invoiceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        BigDecimal excess = accountsPayableService.applyReturnCredit(invoice, BigDecimal.valueOf(30));
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(excess));
+        assertEquals(0, BigDecimal.valueOf(50).compareTo(paidFirst.getAmount()), "already-paid installment must stay untouched");
+        assertEquals(0, BigDecimal.valueOf(20).compareTo(unpaidSecond.getAmount()));
+    }
+
+    @Test
+    void applyReturnCredit_returnsExcessWhenInvoiceAlreadyPaid() {
+        PurchaseInvoiceInstallment fullyPaid = PurchaseInvoiceInstallment.builder()
+                .id("inst-1")
+                .purchaseInvoice(invoice)
+                .installmentNumber(1)
+                .amount(BigDecimal.valueOf(100))
+                .paidAmount(BigDecimal.valueOf(100))
+                .status("PAID")
+                .build();
+        invoice.setPaymentStatus("PAID");
+        invoice.setNetTotal(BigDecimal.valueOf(100));
+
+        when(installmentRepository.findByPurchaseInvoiceIdOrderByInstallmentNumberAsc("inv-1"))
+                .thenReturn(List.of(fullyPaid));
+        when(invoiceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        BigDecimal excess = accountsPayableService.applyReturnCredit(invoice, BigDecimal.valueOf(40));
+
+        assertEquals(0, BigDecimal.valueOf(40).compareTo(excess));
+        assertEquals(0, BigDecimal.valueOf(60).compareTo(invoice.getGrandTotal()));
+        assertEquals(0, BigDecimal.valueOf(100).compareTo(fullyPaid.getAmount()), "paid installment amount must never drop below what was actually paid");
+    }
+
     private static InstallmentRequest installmentReq(BigDecimal amount) {
         InstallmentRequest req = new InstallmentRequest();
         req.setAmount(amount);

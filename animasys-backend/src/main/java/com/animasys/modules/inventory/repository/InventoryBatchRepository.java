@@ -51,12 +51,32 @@ public interface InventoryBatchRepository extends JpaRepository<InventoryBatch, 
         @Param("productVariantId") String productVariantId
     );
 
+    /**
+     * Active batches this specific purchase invoice created for this variant, locked for update.
+     * Used for supplier returns — scoped to the invoice being returned, not tenant-wide FIFO order.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-        SELECT COALESCE(SUM(b.remainingQuantity), 0) 
-        FROM InventoryBatch b 
-        WHERE b.tenantId = :tenantId 
-          AND b.productVariant.id = :productVariantId 
-          AND b.status = :status 
+        SELECT b FROM InventoryBatch b
+        WHERE b.tenantId = :tenantId
+          AND b.purchaseInvoice.id = :purchaseInvoiceId
+          AND b.productVariant.id = :productVariantId
+          AND b.remainingQuantity > 0
+          AND b.status = 'ACTIVE'
+        ORDER BY b.purchaseDate ASC, b.id ASC
+    """)
+    List<InventoryBatch> findActiveBatchesForPurchaseReturn(
+        @Param("tenantId") String tenantId,
+        @Param("purchaseInvoiceId") String purchaseInvoiceId,
+        @Param("productVariantId") String productVariantId
+    );
+
+    @Query("""
+        SELECT COALESCE(SUM(b.remainingQuantity), 0)
+        FROM InventoryBatch b
+        WHERE b.tenantId = :tenantId
+          AND b.productVariant.id = :productVariantId
+          AND b.status = :status
           AND b.remainingQuantity > 0
     """)
     int sumRemainingQuantityByTenantAndVariantAndStatus(

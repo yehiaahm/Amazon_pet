@@ -145,6 +145,50 @@ class SaleQueryServiceIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    void searchResultsIncludeLineItemCogsForFinancialReports() {
+        SaleItem item = SaleItem.builder()
+                .id(UUID.randomUUID().toString())
+                .type("PRODUCT")
+                .itemId("v-cogs")
+                .name("Cogs Item")
+                .quantity(3)
+                .price(BigDecimal.valueOf(50))
+                .listPrice(BigDecimal.valueOf(50))
+                .cost(BigDecimal.valueOf(20))
+                .cogs(BigDecimal.valueOf(60))
+                .unitCogs(BigDecimal.valueOf(20))
+                .grossProfit(BigDecimal.valueOf(90))
+                .build();
+        Sale sale = Sale.builder()
+                .id(UUID.randomUUID().toString())
+                .saleNumber("INV-SP-" + UUID.randomUUID())
+                .posSession(posSession)
+                .totalAmount(BigDecimal.valueOf(150))
+                .tax(BigDecimal.ZERO)
+                .discount(BigDecimal.ZERO)
+                .paymentMethod("CASH")
+                .employee(owner)
+                .date(Instant.now())
+                .status("COMPLETED")
+                .items(new ArrayList<>(List.of(item)))
+                .build();
+        item.setSale(sale);
+        saleRepository.save(sale);
+
+        SalePageResponse page = saleQueryService.search(
+                tenant.getId(),
+                owner,
+                SaleSearchCriteria.builder().page(0).size(20).sort("date,desc").build()
+        );
+
+        assertThat(page.getContent()).anySatisfy(dto -> {
+            if (!sale.getId().equals(dto.getId())) return;
+            assertThat(dto.getItems()).hasSize(1);
+            assertThat(dto.getItems().get(0).getCogs()).isEqualByComparingTo(BigDecimal.valueOf(60));
+        });
+    }
+
+    @Test
     void filtersBySearchInSql() {
         String uniqueSuffix = UUID.randomUUID().toString().substring(0, 8);
         Sale match = Sale.builder()
@@ -217,5 +261,77 @@ class SaleQueryServiceIntegrationTest extends IntegrationTestBase {
         assertThat(page.getTotalElements()).isEqualTo(rowCount);
         assertThat(page.getContent()).hasSize(rowCount);
         assertThat(page.getSize()).isEqualTo(5000);
+    }
+
+    @Test
+    void cashierMustSupplyExactInvoiceNumberToFindASale() {
+        Employee cashier = Employee.builder()
+                .id(UUID.randomUUID().toString())
+                .tenant(tenant)
+                .branch(owner.getBranch())
+                .username("cashier_sp_" + UUID.randomUUID().toString().substring(0, 8))
+                .passwordHash("hash")
+                .fullName("Cashier SP")
+                .email("cashier_sp_" + UUID.randomUUID() + "@test.com")
+                .role("CASHIER")
+                .active(true)
+                .build();
+        employeeRepository.save(cashier);
+
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Sale target = Sale.builder()
+                .id(UUID.randomUUID().toString())
+                .saleNumber("INV-TARGET-" + suffix)
+                .posSession(posSession)
+                .totalAmount(BigDecimal.TEN)
+                .tax(BigDecimal.ONE)
+                .discount(BigDecimal.ZERO)
+                .paymentMethod("CASH")
+                .employee(cashier)
+                .customer(null)
+                .date(Instant.now())
+                .status("COMPLETED")
+                .items(new ArrayList<>())
+                .build();
+        Sale other = Sale.builder()
+                .id(UUID.randomUUID().toString())
+                .saleNumber("INV-OTHER-" + suffix)
+                .posSession(posSession)
+                .totalAmount(BigDecimal.TEN)
+                .tax(BigDecimal.ONE)
+                .discount(BigDecimal.ZERO)
+                .paymentMethod("CASH")
+                .employee(cashier)
+                .customer(null)
+                .date(Instant.now())
+                .status("COMPLETED")
+                .items(new ArrayList<>())
+                .build();
+        saleRepository.saveAll(List.of(target, other));
+
+        // A partial/fuzzy term (e.g. matching on the shared suffix, which would hit both
+        // sales under the old employee/customer/item-wide LIKE search) must return nothing.
+        SalePageResponse fuzzy = saleQueryService.search(
+                tenant.getId(), cashier,
+                SaleSearchCriteria.builder().page(0).size(20).search(suffix).build()
+        );
+        assertThat(fuzzy.getTotalElements()).isZero();
+
+        // Searching by the cashier's own display name (previously a valid match field) must
+        // no longer surface any invoices - only the exact invoice number may.
+        SalePageResponse byName = saleQueryService.search(
+                tenant.getId(), cashier,
+                SaleSearchCriteria.builder().page(0).size(20).search("Cashier SP").build()
+        );
+        assertThat(byName.getTotalElements()).isZero();
+
+        // The exact invoice number (as typed or QR-scanned off the receipt) must return
+        // exactly that one invoice, case-insensitively.
+        SalePageResponse exact = saleQueryService.search(
+                tenant.getId(), cashier,
+                SaleSearchCriteria.builder().page(0).size(20).search(target.getSaleNumber().toLowerCase()).build()
+        );
+        assertThat(exact.getTotalElements()).isEqualTo(1);
+        assertThat(exact.getContent().get(0).getSaleNumber()).isEqualTo(target.getSaleNumber());
     }
 }

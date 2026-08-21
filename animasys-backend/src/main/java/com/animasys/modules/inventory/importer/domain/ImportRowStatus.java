@@ -5,6 +5,8 @@ public enum ImportRowStatus {
     NEW,
     UPDATE,
     DUPLICATE,
+    /** INVENTORY_COUNT mode only: row matched an existing product and is ready to reconcile. */
+    COUNT_MATCHED,
     ERROR,
     IMPORTED,
     UPDATED,

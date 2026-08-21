@@ -1,5 +1,6 @@
 package com.animasys.modules.ai.engine;
 
+import com.animasys.core.util.BusinessTimeZone;
 import com.animasys.modules.ai.config.AiPromptLimits;
 import com.animasys.modules.ai.context.AiClientContextSanitizer;
 import com.animasys.modules.ai.context.AiContextRepository;
@@ -25,7 +26,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BusinessContextBuilder {
 
-    private static final ZoneId ZONE = ZoneId.systemDefault();
+    private static final ZoneId ZONE = BusinessTimeZone.ZONE;
 
     private final KPIEngine kpiEngine;
     private final BusinessRulesEngine rulesEngine;

@@ -64,4 +64,8 @@ public class PurchaseInvoiceItem {
 
     @Column(name = "expiry_date")
     private LocalDate expiryDate;
+
+    @Column(name = "quantity_returned")
+    @Builder.Default
+    private Integer quantityReturned = 0;
 }

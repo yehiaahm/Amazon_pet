@@ -19,7 +19,7 @@ public interface PurchaseInvoiceInstallmentRepository extends JpaRepository<Purc
             JOIN pi.uploadedBy e
             WHERE e.tenant.id = :tenantId
             AND inst.status IN ('PENDING', 'PARTIALLY_PAID')
-            ORDER BY inst.dueDate ASC
+            ORDER BY CASE WHEN inst.dueDate IS NULL THEN 1 ELSE 0 END, inst.dueDate ASC
             """)
     List<PurchaseInvoiceInstallment> findOpenByTenantOrderByDueDate(@Param("tenantId") String tenantId);
 

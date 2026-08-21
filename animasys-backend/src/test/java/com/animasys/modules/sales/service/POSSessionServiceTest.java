@@ -3,6 +3,7 @@ package com.animasys.modules.sales.service;
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.exception.ResourceNotFoundException;
 import com.animasys.modules.finance.repository.DailyClosingRepository;
+import com.animasys.modules.finance.repository.ExpenseRepository;
 import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
@@ -10,9 +11,12 @@ import com.animasys.modules.iam.repository.BranchRepository;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.sales.domain.POSSession;
 import com.animasys.modules.sales.domain.Sale;
+import com.animasys.modules.sales.domain.SalePayment;
 import com.animasys.modules.sales.repository.POSSessionRepository;
+import com.animasys.modules.sales.repository.SalePaymentRepository;
 import com.animasys.modules.sales.repository.SaleRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -34,7 +38,9 @@ class POSSessionServiceTest {
     @Mock private BranchRepository branchRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private SaleRepository saleRepository;
+    @Mock private SalePaymentRepository salePaymentRepository;
     @Mock private DailyClosingRepository dailyClosingRepository;
+    @Mock private ExpenseRepository expenseRepository;
 
     @InjectMocks private POSSessionService posSessionService;
 
@@ -94,13 +100,17 @@ class POSSessionServiceTest {
                 .status("OPEN")
                 .build();
 
-        Sale cashSale = Sale.builder().totalAmount(BigDecimal.valueOf(50)).paymentMethod("CASH").status("COMPLETED").build();
-        Sale cardSale = Sale.builder().totalAmount(BigDecimal.valueOf(30)).paymentMethod("CARD").status("COMPLETED").build();
-        Sale refunded = Sale.builder().totalAmount(BigDecimal.valueOf(20)).paymentMethod("CASH").status("REFUNDED").build();
+        Sale cashSale = Sale.builder().id("sale-cash").totalAmount(BigDecimal.valueOf(50)).paymentMethod("CASH").status("COMPLETED").build();
+        Sale cardSale = Sale.builder().id("sale-card").totalAmount(BigDecimal.valueOf(30)).paymentMethod("CARD").status("COMPLETED").build();
+        Sale refunded = Sale.builder().id("sale-refunded").totalAmount(BigDecimal.valueOf(20)).paymentMethod("CASH").status("REFUNDED").build();
 
         when(sessionRepository.findById("s-close")).thenReturn(Optional.of(session));
         when(employeeRepository.findById("e-pos")).thenReturn(Optional.of(employee));
         when(saleRepository.findByPosSession_Id("s-close")).thenReturn(List.of(cashSale, cardSale, refunded));
+        when(salePaymentRepository.findBySale_IdIn(any())).thenReturn(List.of(
+                SalePayment.builder().sale(cashSale).method("CASH").amount(BigDecimal.valueOf(50)).build(),
+                SalePayment.builder().sale(cardSale).method("CARD").amount(BigDecimal.valueOf(30)).build()
+        ));
         when(sessionRepository.save(any(POSSession.class))).thenAnswer(inv -> inv.getArgument(0));
         when(dailyClosingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -114,12 +124,15 @@ class POSSessionServiceTest {
     }
 
     @Test
-    void closeSession_rejectsAlreadyClosedSession() {
+    @DisplayName("Closing an already-closed session is a no-op (idempotent) rather than an error")
+    void closeSession_alreadyClosedSessionIsNoOp() {
         POSSession session = POSSession.builder().id("s-closed").branch(branch).status("CLOSED").build();
         when(sessionRepository.findById("s-closed")).thenReturn(Optional.of(session));
 
-        assertThrows(BusinessRuleException.class,
-                () -> posSessionService.closeSession("s-closed", BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN, "e-pos"));
+        POSSession result = posSessionService.closeSession("s-closed", BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN, "e-pos");
+
+        assertEquals("CLOSED", result.getStatus());
+        verify(sessionRepository, never()).save(any());
     }
 
     @Test

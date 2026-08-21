@@ -23,4 +23,6 @@ public class ImportUploadResponse {
     private boolean aiAssisted;
     /** Field codes with no column at all — the UI warns before they silently default to 0. */
     private List<String> unmappedFields;
+    /** ADD_STOCK or INVENTORY_COUNT — echoes back the mode the caller chose at upload time. */
+    private String importMode;
 }

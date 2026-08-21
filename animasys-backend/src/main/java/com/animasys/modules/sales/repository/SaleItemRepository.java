@@ -9,4 +9,6 @@ import java.util.List;
 @Repository
 public interface SaleItemRepository extends JpaRepository<SaleItem, String> {
     List<SaleItem> findByItemId(String itemId);
+
+    List<SaleItem> findBySale_IdIn(List<String> saleIds);
 }

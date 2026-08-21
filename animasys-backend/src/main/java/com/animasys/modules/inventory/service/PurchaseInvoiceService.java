@@ -1,8 +1,11 @@
 package com.animasys.modules.inventory.service;
 
+import com.animasys.core.audit.AuditLog;
+import com.animasys.core.audit.AuditLogRepository;
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.exception.ResourceNotFoundException;
 import com.animasys.core.security.SecurityUtils;
+import com.animasys.core.util.BusinessTimeZone;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
 import com.animasys.modules.iam.repository.EmployeeRepository;
@@ -10,8 +13,12 @@ import com.animasys.modules.iam.repository.TenantRepository;
 import com.animasys.modules.inventory.domain.*;
 import com.animasys.modules.finance.domain.PurchaseInvoiceInstallment;
 import com.animasys.modules.finance.service.AccountsPayableService;
+import com.animasys.modules.inventory.dto.CreateProductRequest;
 import com.animasys.modules.inventory.dto.PurchaseInvoiceCreateResult;
 import com.animasys.modules.inventory.dto.PurchaseInvoiceLineReceiptWarning;
+import com.animasys.modules.inventory.dto.PurchaseReturnLineRequest;
+import com.animasys.modules.inventory.dto.PurchaseReturnRequest;
+import com.animasys.modules.inventory.dto.PurchaseReturnResult;
 import com.animasys.modules.inventory.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,9 +27,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,8 +52,12 @@ public class PurchaseInvoiceService {
     private final SkuCatalogService skuCatalogService;
     private final CatalogPersistenceService catalogPersistenceService;
     private final AccountsPayableService accountsPayableService;
+    private final ProductService productService;
+    private final AuditLogRepository auditLogRepository;
 
     public PurchaseInvoiceCreateResult createInvoice(PurchaseInvoice dto, String employeeId, String tenantId) {
+        validateInvoiceDateNotInFuture(dto.getInvoiceDate());
+
         String rawFingerprint = (dto.getSupplierName() + "_" + dto.getInvoiceNumber() + "_" + dto.getInvoiceDate() + "_" + dto.getGrandTotal())
                 .replaceAll("\\s+", "").toLowerCase();
 
@@ -56,8 +69,10 @@ public class PurchaseInvoiceService {
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new ResourceNotFoundException("الموظف غير موجود"));
 
-        String resolvedTenantId = tenantId != null && !tenantId.isBlank() ? tenantId : "t-1";
-        Tenant tenant = tenantRepository.findById(resolvedTenantId)
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessRuleException("لا يمكن تحديد الشركة الحالية.");
+        }
+        Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("الشركة غير موجودة"));
 
         Supplier supplier = resolveSupplier(dto, tenant);
@@ -79,7 +94,9 @@ public class PurchaseInvoiceService {
                 .uploadedBy(employee)
                 .imageUrl(dto.getImageUrl())
                 .status("COMPLETED")
-                .dueDate(dto.getDueDate() != null ? dto.getDueDate() : dto.getInvoiceDate())
+                // No forced deadline when the caller doesn't specify one — an unset
+                // due date means "open", payable any time (see AccountsPayableService).
+                .dueDate(dto.getDueDate())
                 .paymentType(dto.getPaymentType() != null ? dto.getPaymentType() : "LUMP_SUM")
                 .paymentStatus(dto.getPaymentStatus() != null ? dto.getPaymentStatus() : "UNPAID")
                 .paidAmount(dto.getPaidAmount() != null ? dto.getPaidAmount() : BigDecimal.ZERO)
@@ -158,7 +175,7 @@ public class PurchaseInvoiceService {
         if (invoice.getInvoiceDate() != null && !invoice.getInvoiceDate().isBlank()) {
             try {
                 purchaseInstant = LocalDate.parse(invoice.getInvoiceDate().substring(0, Math.min(10, invoice.getInvoiceDate().length())))
-                        .atStartOfDay(ZoneId.systemDefault()).toInstant();
+                        .atStartOfDay(BusinessTimeZone.ZONE).toInstant();
             } catch (Exception ignored) {
                 purchaseInstant = Instant.now();
             }
@@ -200,9 +217,48 @@ public class PurchaseInvoiceService {
                                 item.getPrice(),
                                 finalUnitCost
                         ));
+            } else if (item.getProductName() != null && !item.getProductName().isBlank()) {
+                // Unknown SKU but a product name was typed in — this is a brand-new
+                // product entered straight from the purchase invoice line, not a typo.
+                // Create it on the fly (same path the Products screen uses) instead of
+                // skipping the line, so the user never has to leave this screen.
+                Map<String, Object> productMap = new HashMap<>();
+                productMap.put("sku", sku);
+                productMap.put("name", item.getProductName());
+                if (supplierId != null) {
+                    productMap.put("supplierId", supplierId);
+                }
+                Map<String, Object> variantMap = new HashMap<>();
+                variantMap.put("price", item.getPrice());
+                variantMap.put("cost", finalUnitCost);
+
+                CreateProductRequest newProductReq = new CreateProductRequest();
+                newProductReq.setProduct(productMap);
+                newProductReq.setVariant(variantMap);
+
+                Product created;
+                try {
+                    Map<String, Object> createdResult = productService.createProductFromRequest(currentTenantId, newProductReq);
+                    String resolvedSku = String.valueOf(createdResult.get("sku"));
+                    item.setSku(resolvedSku);
+                    created = productRepository.findBySkuIgnoreCaseAndTenantId(resolvedSku, currentTenantId)
+                            .orElseThrow(() -> new IllegalStateException("تعذر العثور على المنتج بعد إنشائه"));
+                } catch (Exception ex) {
+                    String detail = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+                    warnings.add(lineWarning(lineIndex, item, "PRODUCT_CREATE_FAILED",
+                            "السطر " + lineIndex + " (SKU: " + sku + "): فشل إنشاء المنتج الجديد تلقائيًا — " + detail));
+                    continue;
+                }
+                variant = skuCatalogService.findCanonicalVariant(created)
+                        .orElseGet(() -> skuCatalogService.updateOrCreateSingleVariant(
+                                created,
+                                item.getProductName(),
+                                item.getPrice(),
+                                finalUnitCost
+                        ));
             } else {
                 warnings.add(lineWarning(lineIndex, item, "SKU_NOT_FOUND",
-                        "السطر " + lineIndex + " (SKU: " + sku + "): الرمز غير مسجل في النظام."));
+                        "السطر " + lineIndex + " (SKU: " + sku + "): الرمز غير مسجل ومفيش اسم منتج لإنشائه تلقائيًا."));
                 continue;
             }
 
@@ -241,6 +297,21 @@ public class PurchaseInvoiceService {
         }
 
         return warnings;
+    }
+
+    private void validateInvoiceDateNotInFuture(String invoiceDate) {
+        if (invoiceDate == null || invoiceDate.isBlank()) {
+            return;
+        }
+        try {
+            LocalDate parsed = LocalDate.parse(invoiceDate.substring(0, Math.min(10, invoiceDate.length())));
+            if (parsed.isAfter(LocalDate.now())) {
+                throw new BusinessRuleException(
+                        "تاريخ فاتورة الشراء (" + parsed + ") في المستقبل — لا يمكن تسجيل فاتورة مورد بتاريخ لم يأتِ بعد. تأكد من التاريخ المدخل.");
+            }
+        } catch (java.time.format.DateTimeParseException ignored) {
+            // Unparseable date strings are left to existing downstream handling.
+        }
     }
 
     private static PurchaseInvoiceLineReceiptWarning lineWarning(
@@ -296,6 +367,156 @@ public class PurchaseInvoiceService {
             }
         }
         return supplier;
+    }
+
+    public PurchaseReturnResult returnInvoice(String tenantId, String employeeId, String invoiceId, PurchaseReturnRequest request) {
+        if (invoiceId == null || invoiceId.isBlank()) {
+            throw new BusinessRuleException("معرّف فاتورة الشراء مطلوب للإرجاع.");
+        }
+        Employee employee = employeeRepository.findById(employeeId)
+                .orElseThrow(() -> new ResourceNotFoundException("الموظف غير موجود: " + employeeId));
+
+        PurchaseInvoice invoice = invoiceRepository.findByIdAndUploadedByTenantId(invoiceId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("فاتورة الشراء غير موجودة: " + invoiceId));
+
+        if ("RETURNED".equalsIgnoreCase(invoice.getStatus())) {
+            throw new BusinessRuleException("هذه الفاتورة مرتجعة بالكامل بالفعل.");
+        }
+        if (!"COMPLETED".equalsIgnoreCase(invoice.getStatus()) && !"PARTIALLY_RETURNED".equalsIgnoreCase(invoice.getStatus())) {
+            throw new BusinessRuleException("لا يمكن إرجاع فاتورة بحالة: " + invoice.getStatus());
+        }
+
+        boolean hasItems = invoice.getItems() != null && !invoice.getItems().isEmpty();
+        BigDecimal totalReturnedValue;
+        List<PurchaseReturnLineRequest> processed = new ArrayList<>();
+
+        if (!hasItems) {
+            // Lump-sum invoice (entered as a total value, no product breakdown) — nothing
+            // was received into stock for it, so just credit the balance directly.
+            BigDecimal remaining = invoice.getGrandTotal() != null ? invoice.getGrandTotal() : BigDecimal.ZERO;
+            BigDecimal amount = (request != null && request.getAmount() != null) ? request.getAmount() : remaining;
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessRuleException("قيمة الإرجاع يجب أن تكون أكبر من صفر.");
+            }
+            if (amount.compareTo(remaining) > 0) {
+                throw new BusinessRuleException(
+                        "قيمة الإرجاع (" + amount + ") تتجاوز المتبقي من الفاتورة (" + remaining + ").");
+            }
+            totalReturnedValue = amount;
+        } else {
+            Map<String, Integer> returnQtyByItemId = new LinkedHashMap<>();
+            List<PurchaseReturnLineRequest> lines = request != null ? request.getLines() : null;
+            if (lines == null || lines.isEmpty()) {
+                for (PurchaseInvoiceItem item : invoice.getItems()) {
+                    int returnable = returnableQuantity(item);
+                    if (returnable > 0) {
+                        returnQtyByItemId.put(item.getId(), returnable);
+                    }
+                }
+            } else {
+                for (PurchaseReturnLineRequest line : lines) {
+                    if (line.getPurchaseInvoiceItemId() == null || line.getPurchaseInvoiceItemId().isBlank()) {
+                        throw new BusinessRuleException("معرّف بند الفاتورة مطلوب للإرجاع الجزئي.");
+                    }
+                    if (line.getQuantity() == null || line.getQuantity() <= 0) {
+                        throw new BusinessRuleException("كمية الإرجاع يجب أن تكون أكبر من صفر.");
+                    }
+                    returnQtyByItemId.merge(line.getPurchaseInvoiceItemId(), line.getQuantity(), Integer::sum);
+                }
+            }
+
+            if (returnQtyByItemId.isEmpty()) {
+                throw new BusinessRuleException("لا توجد كميات قابلة للإرجاع في هذه الفاتورة.");
+            }
+
+            BigDecimal itemsReturnedValue = BigDecimal.ZERO;
+
+            for (Map.Entry<String, Integer> entry : returnQtyByItemId.entrySet()) {
+                String itemId = entry.getKey();
+                int qty = entry.getValue();
+                PurchaseInvoiceItem item = invoice.getItems().stream()
+                        .filter(i -> itemId.equals(i.getId()))
+                        .findFirst()
+                        .orElseThrow(() -> new BusinessRuleException("بند غير موجود في الفاتورة: " + itemId));
+
+                int returnable = returnableQuantity(item);
+                if (qty > returnable) {
+                    throw new BusinessRuleException(
+                            "كمية الإرجاع للصنف '" + item.getProductName() + "' تتجاوز المتاح (" + returnable + ").");
+                }
+
+                String sku = item.getSku() != null ? item.getSku().trim() : "";
+                Product product = productRepository.findBySkuIgnoreCaseAndTenantId(sku, tenantId)
+                        .orElseThrow(() -> new BusinessRuleException(
+                                "لا يمكن إرجاع الصنف '" + item.getProductName() + "' — المنتج غير مسجل بالكتالوج (SKU: " + sku + ")."));
+                ProductVariant variant = skuCatalogService.findCanonicalVariant(product)
+                        .orElseThrow(() -> new BusinessRuleException("لا يمكن تحديد نسخة المنتج للصنف: " + item.getProductName()));
+
+                int conversionFactor = (item.getConversionFactor() != null && item.getConversionFactor() > 0)
+                        ? item.getConversionFactor() : 1;
+                int batchQty = qty * conversionFactor;
+
+                if (item.getCost() == null) {
+                    throw new BusinessRuleException(
+                            "لا يمكن إرجاع الصنف '" + item.getProductName() + "' — سعر التكلفة غير مسجل لهذا البند.");
+                }
+
+                fifoCostingService.processSupplierReturn(tenantId, invoice.getId(), variant.getId(), batchQty, employeeId);
+
+                BigDecimal lineValue = item.getCost().multiply(BigDecimal.valueOf(qty));
+                itemsReturnedValue = itemsReturnedValue.add(lineValue);
+
+                item.setQuantityReturned((item.getQuantityReturned() != null ? item.getQuantityReturned() : 0) + qty);
+                processed.add(PurchaseReturnLineRequest.builder().purchaseInvoiceItemId(itemId).quantity(qty).build());
+            }
+
+            totalReturnedValue = itemsReturnedValue;
+        }
+
+        BigDecimal excessCredit = accountsPayableService.applyReturnCredit(invoice, totalReturnedValue);
+
+        boolean fullReturn = isFullyReturned(invoice);
+        invoice.setStatus(fullReturn ? "RETURNED" : "PARTIALLY_RETURNED");
+
+        PurchaseInvoice saved = invoiceRepository.save(invoice);
+
+        auditLogRepository.save(AuditLog.builder()
+                .id(UUID.randomUUID().toString())
+                .employee(employee)
+                .action(fullReturn ? "PURCHASE_RETURN" : "PARTIAL_PURCHASE_RETURN")
+                .affectedEntity("PurchaseInvoice")
+                .entityId(saved.getId())
+                .newState((fullReturn ? "إرجاع كامل لفاتورة " : "إرجاع جزئي لفاتورة ") + saved.getInvoiceNumber()
+                        + " بقيمة " + totalReturnedValue)
+                .timestamp(Instant.now())
+                .build());
+
+        return PurchaseReturnResult.builder()
+                .invoice(saved)
+                .returnedAmount(totalReturnedValue)
+                .excessCredit(excessCredit)
+                .fullReturn(fullReturn)
+                .linesProcessed(processed)
+                .build();
+    }
+
+    private int returnableQuantity(PurchaseInvoiceItem item) {
+        int qty = item.getQuantity() != null ? item.getQuantity() : 0;
+        int returned = item.getQuantityReturned() != null ? item.getQuantityReturned() : 0;
+        return Math.max(0, qty - returned);
+    }
+
+    private boolean isFullyReturned(PurchaseInvoice invoice) {
+        if (invoice.getItems() == null || invoice.getItems().isEmpty()) {
+            BigDecimal remaining = invoice.getGrandTotal() != null ? invoice.getGrandTotal() : BigDecimal.ZERO;
+            return remaining.compareTo(BigDecimal.ZERO) <= 0;
+        }
+        for (PurchaseInvoiceItem item : invoice.getItems()) {
+            if (returnableQuantity(item) > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<PurchaseInvoice> getAllInvoices() {
