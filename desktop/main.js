@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn, spawnSync, execSync, exec } = require('child_process');
+const { spawn, spawnSync, execSync, exec, execFile } = require('child_process');
 const crypto = require('crypto');
 const net = require('net');
 
@@ -12,10 +12,11 @@ const APP_DATA_DIR = path.join(systemDrive, '\\', 'AnimaSysData');
 const LOGS_DIR = path.join(APP_DATA_DIR, 'Logs');
 const BACKUPS_DIR = path.join(APP_DATA_DIR, 'Backups');
 const DB_DATA_DIR = path.join(APP_DATA_DIR, 'database_data');
+const IMAGES_DIR = path.join(APP_DATA_DIR, 'InvoiceImages');
 const CONFIG_FILE = path.join(APP_DATA_DIR, 'config.json');
 
 // Ensure system directories exist
-[APP_DATA_DIR, LOGS_DIR, BACKUPS_DIR, DB_DATA_DIR].forEach(dir => {
+[APP_DATA_DIR, LOGS_DIR, BACKUPS_DIR, DB_DATA_DIR, IMAGES_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -610,6 +611,68 @@ ipcMain.handle('get-license-status', () => {
     uuid: getMachineUUID()
   };
 });
+// ─── RECEIPT PRINTER TARGETING ──────────────────────────────────────────────
+// Windows always keeps virtual "printers" (Print to PDF, XPS, Fax, OneNote) installed
+// alongside the real receipt printer. If one of those was ever used last / set as
+// default, the native print dialog opens on it and the cashier prints an A4 PDF
+// instead of the 80mm roll. We can't preselect a printer in that dialog via Electron's
+// print API (deviceName only applies to silent printing), so instead we point the
+// OS's actual default printer at the real receipt printer right before the dialog opens.
+const VIRTUAL_PRINTER_HINTS = ['pdf', 'xps', 'onenote', 'fax', 'send to'];
+
+function isVirtualPrinter(name) {
+  const n = (name || '').toLowerCase();
+  return VIRTUAL_PRINTER_HINTS.some((hint) => n.includes(hint));
+}
+
+function setWindowsDefaultPrinter(printerName) {
+  return new Promise((resolve) => {
+    execFile('rundll32', ['printui.dll,PrintUIEntry', '/y', '/n', printerName], (err) => {
+      if (err) {
+        logElectron(`[WARN] Failed to set default printer to "${printerName}": ${err.message}`);
+        resolve(false);
+      } else {
+        logElectron(`Default printer set to "${printerName}" for receipt printing.`);
+        resolve(true);
+      }
+    });
+  });
+}
+
+ipcMain.handle('list-printers', async () => {
+  if (!mainWindow) return [];
+  try {
+    return await mainWindow.webContents.getPrintersAsync();
+  } catch (e) {
+    logElectron(`[ERROR] Failed to list printers: ${e.message}`);
+    return [];
+  }
+});
+
+// Called right before the receipt print dialog opens. If the shop's one physical
+// printer isn't already the OS default (e.g. the default drifted to "Microsoft Print
+// to PDF"), switch the OS default to it so the dialog opens pointed at the real printer.
+ipcMain.handle('ensure-receipt-printer-default', async () => {
+  if (!mainWindow) return { success: false, reason: 'no-window' };
+  try {
+    const printers = await mainWindow.webContents.getPrintersAsync();
+    const currentDefault = printers.find((p) => p.isDefault);
+    if (currentDefault && !isVirtualPrinter(currentDefault.name)) {
+      return { success: true, printerName: currentDefault.name, changed: false };
+    }
+    const physicalPrinters = printers.filter((p) => !isVirtualPrinter(p.name));
+    if (physicalPrinters.length === 0) {
+      return { success: false, reason: 'no-physical-printer' };
+    }
+    const target = physicalPrinters[0];
+    const changed = await setWindowsDefaultPrinter(target.name);
+    return { success: changed, printerName: target.name, changed };
+  } catch (e) {
+    logElectron(`[ERROR] ensure-receipt-printer-default failed: ${e.message}`);
+    return { success: false, reason: e.message };
+  }
+});
+
 ipcMain.handle('save-invoice-pdf', async (event, { html, fileName }) => {
   if (!mainWindow) return { success: false, error: 'no-window' };
 
@@ -648,6 +711,63 @@ ipcMain.handle('save-invoice-pdf', async (event, { html, fileName }) => {
     try { fs.unlinkSync(tmpPath); } catch (_) { /* best-effort cleanup */ }
   }
 });
+
+// ─── WHATSAPP INVOICE IMAGE SHARING ─────────────────────────────────────────
+// WhatsApp's wa.me links can only pre-fill text, never attach a file — there's no
+// public API for that outside the paid Business API. So instead we render the same
+// invoice markup used for PDF/print into an offscreen window, screenshot it as a PNG,
+// and put that image on the OS clipboard so the cashier can just Ctrl+V it into the
+// chat that wa.me opens. The PNG is also kept on disk as a fallback if paste fails.
+ipcMain.handle('capture-invoice-image', async (event, { html, fileName }) => {
+  if (!mainWindow) return { success: false, error: 'no-window' };
+
+  const tmpHtmlPath = path.join(os.tmpdir(), `amazonpet-invoice-img-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.html`);
+  let captureWindow = null;
+  try {
+    fs.writeFileSync(tmpHtmlPath, String(html || ''), 'utf8');
+
+    captureWindow = new BrowserWindow({
+      show: false,
+      width: 900,
+      height: 1200,
+      webPreferences: { offscreen: true },
+    });
+    await captureWindow.loadFile(tmpHtmlPath);
+
+    // Measure the invoice sheet's actual rendered size so we can shrink the window
+    // to exactly fit it — capturePage() grabs the whole window, not just the content.
+    const { width, height } = await captureWindow.webContents.executeJavaScript(`
+      (function () {
+        var el = document.querySelector('.sheet') || document.body;
+        var rect = el.getBoundingClientRect();
+        return { width: Math.ceil(rect.width), height: Math.ceil(rect.height) };
+      })();
+    `);
+    captureWindow.setContentSize(Math.max(Math.ceil(width) || 0, 100), Math.max(Math.ceil(height) || 0, 100));
+    // Let layout settle at the new window size before capturing.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const image = await captureWindow.webContents.capturePage();
+    const pngBuffer = image.toPNG();
+
+    if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
+    const safeName = (fileName || `invoice-${Date.now()}.png`).replace(/[\\/:*?"<>|]/g, '_');
+    const outPath = path.join(IMAGES_DIR, safeName);
+    fs.writeFileSync(outPath, pngBuffer);
+
+    clipboard.writeImage(nativeImage.createFromBuffer(pngBuffer));
+
+    logElectron(`Invoice image captured and copied to clipboard: ${outPath}`);
+    return { success: true, filePath: outPath };
+  } catch (err) {
+    logElectron(`[ERROR] Failed to capture invoice image: ${err.message}`);
+    return { success: false, error: err.message };
+  } finally {
+    if (captureWindow && !captureWindow.isDestroyed()) captureWindow.destroy();
+    try { fs.unlinkSync(tmpHtmlPath); } catch (_) { /* best-effort cleanup */ }
+  }
+});
+
 ipcMain.handle('verify-license', (event, key) => {
   const isValid = verifyLicenseKey(key);
   if (isValid) {
