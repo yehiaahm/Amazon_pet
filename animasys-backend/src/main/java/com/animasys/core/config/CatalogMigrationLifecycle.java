@@ -166,19 +166,27 @@ public class CatalogMigrationLifecycle {
         addColumnIfMissing(jdbc, "inventory_batches", "warehouse_id", "VARCHAR(255) NULL");
     }
 
-    private void addColumnIfMissing(JdbcTemplate jdbcTemplate, String tableName, String columnName, String columnDefinition) {
-        try {
-            jdbcTemplate.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnDefinition);
-            log.info("Added missing column {}.{} for JPA compatibility", tableName, columnName);
-        } catch (Exception e) {
-            String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-            String causeMsg = e.getCause() != null && e.getCause().getMessage() != null ? e.getCause().getMessage().toLowerCase() : "";
-            if (msg.contains("duplicate") || causeMsg.contains("duplicate") || msg.contains("already exists") || causeMsg.contains("already exists")) {
-                log.debug("Column {}.{} already exists", tableName, columnName);
-            } else {
-                log.warn("Failed to add column {}.{}: {}", tableName, columnName, msg);
-            }
+    // Existence-checked via INFORMATION_SCHEMA rather than try/catch-on-error-message:
+    // matching on substrings of a driver's exception message is fragile across DB
+    // engines/versions/locales, whereas a COUNT(*) pre-check is portable and exact.
+    private void addColumnIfMissing(JdbcTemplate jdbc, String table, String column, String definition) {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE UPPER(TABLE_SCHEMA) = UPPER(SCHEMA())
+                  AND TABLE_NAME = ?
+                  AND COLUMN_NAME = ?
+                """,
+                Integer.class,
+                table,
+                column
+        );
+        if (count != null && count > 0) {
+            log.debug("Column {}.{} already exists", table, column);
+            return;
         }
+        jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+        log.info("Added missing column {}.{} for JPA compatibility", table, column);
     }
 
     private void addConstraintIfMissing(JdbcTemplate jdbcTemplate, String tableName, String constraintDefinition) {
