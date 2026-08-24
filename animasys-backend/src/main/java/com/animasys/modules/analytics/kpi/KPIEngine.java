@@ -4,6 +4,7 @@ import com.animasys.modules.analytics.repository.DashboardAnalyticsRepository;
 import com.animasys.modules.analytics.repository.DashboardAnalyticsRepository.KpiSalesMetrics;
 import com.animasys.modules.inventory.service.FifoCostingService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -20,6 +21,17 @@ public class KPIEngine {
     private final DashboardAnalyticsRepository analyticsRepository;
     private final FifoCostingService fifoCostingService;
 
+    /**
+     * aggregateKpiSales() is a genuine all-time aggregate (no period to bound it by, unlike the
+     * dashboard's period metrics) -- its cost is inherent to the total row count and only grows.
+     * Confirmed live during the 2026-08-22 16h soak: at ~15k sale_items it took 60+ seconds per
+     * call, holding a Hikari connection the whole time (all 144 connection-leak warnings in that
+     * run traced to this exact method), compounding pool exhaustion under concurrent load. This is
+     * a business-intelligence figure (revenue/COGS/margin), not a transactional read -- caching it
+     * for the same TTL already used elsewhere in this codebase (CacheConfig's 30min Caffeine cache)
+     * trades acceptable staleness for eliminating repeated full-table recomputation.
+     */
+    @Cacheable(value = "kpiMetrics", key = "#tenantId")
     public Map<String, Object> calculateKPIMetrics(String tenantId) {
         KpiSalesMetrics sales = analyticsRepository.aggregateKpiSales(tenantId);
         BigDecimal grossRevenue = sales.revenue();

@@ -174,7 +174,7 @@ public class DashboardAnalyticsRepository {
                        COALESCE(SUM(m.service_revenue), 0)
                 FROM sales s
                 JOIN employees e ON s.employee_id = e.id
-                JOIN (""" + saleMetricInner() + ") m ON m.sale_id = s.id\n"
+                JOIN (""" + saleMetricInner("AND line_sale.date >= :from") + ") m ON m.sale_id = s.id\n"
                 + "WHERE e.tenant_id = :tenantId AND s.date >= :from AND " + COUNTABLE_SALE + "\n"
                 + "GROUP BY EXTRACT(YEAR FROM s.date), EXTRACT(MONTH FROM s.date)\n"
                 + "ORDER BY yr, mo")
@@ -234,7 +234,7 @@ public class DashboardAnalyticsRepository {
                        COUNT(*)
                 FROM sales s
                 JOIN employees e ON s.employee_id = e.id
-                JOIN (""" + saleMetricInner() + ") m ON m.sale_id = s.id\n"
+                JOIN (""" + saleMetricInner("") + ") m ON m.sale_id = s.id\n"
                 + "WHERE e.tenant_id = :tenantId AND " + COUNTABLE_SALE;
     }
 
@@ -245,12 +245,20 @@ public class DashboardAnalyticsRepository {
                        COUNT(*)
                 FROM sales s
                 JOIN employees e ON s.employee_id = e.id
-                JOIN (""" + saleMetricInner() + ") m ON m.sale_id = s.id\n"
+                JOIN (""" + saleMetricInner("AND line_sale.date >= :from AND line_sale.date < :toExclusive") + ") m ON m.sale_id = s.id\n"
                 + "WHERE e.tenant_id = :tenantId AND " + COUNTABLE_SALE + "\n"
                 + "AND s.date >= :from AND s.date < :toExclusive";
     }
 
-    private String saleMetricInner() {
+    /**
+     * {@code dateFilterSql} scopes the sale_items aggregation to only the sales rows the outer
+     * query actually wants (e.g. "AND line_sale.date >= :from AND line_sale.date < :toExclusive"),
+     * reusing the outer query's own named parameters. Without this, the derived table's GROUP BY
+     * forces a full aggregation of every row in sale_items on every call -- a GROUP BY inside a
+     * derived table blocks predicate pushdown, so the outer date filter alone cannot limit it.
+     * Pass "" only for genuinely all-time aggregates.
+     */
+    private String saleMetricInner(String dateFilterSql) {
         return """
                 SELECT s.id AS sale_id,
                   CASE WHEN UPPER(s.status) = 'REFUNDED' THEN 0
@@ -277,7 +285,10 @@ public class DashboardAnalyticsRepository {
                       CASE WHEN si.cogs > 0 THEN si.cogs
                            ELSE si.cost * GREATEST(0, si.quantity - si.quantity_returned) END
                       ELSE 0 END) AS cogs
-                  FROM sale_items si GROUP BY si.sale_id
+                  FROM sale_items si
+                  JOIN sales line_sale ON line_sale.id = si.sale_id\s""" + dateFilterSql + """
+
+                  GROUP BY si.sale_id
                 ) line ON line.sale_id = s.id
                 """;
     }
@@ -288,7 +299,7 @@ public class DashboardAnalyticsRepository {
                 FROM sales s
                 JOIN employees e ON s.employee_id = e.id
                 JOIN customers c ON s.customer_id = c.id
-                JOIN (""" + saleMetricInner() + ") m ON m.sale_id = s.id\n"
+                JOIN (""" + saleMetricInner("AND line_sale.date >= :from AND line_sale.date < :toExclusive") + ") m ON m.sale_id = s.id\n"
                 + "WHERE e.tenant_id = :tenantId AND s.date >= :from AND s.date < :toExclusive AND "
                 + COUNTABLE_SALE + "\nGROUP BY c.id, c.name";
     }

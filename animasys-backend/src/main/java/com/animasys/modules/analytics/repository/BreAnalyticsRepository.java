@@ -16,19 +16,24 @@ public class BreAnalyticsRepository {
 
     @SuppressWarnings("unchecked")
     public List<LowStockAlertRow> lowStockAlerts(String tenantId) {
+        // Previously a correlated "NOT EXISTS another variant with the same SKU and higher stock"
+        // subquery per candidate row -- that re-scans product_variants once per row instead of
+        // once total, so cost grows as O(candidates x catalog size). Rewritten to compute the
+        // max stock per normalized SKU once (one aggregation pass) and join against it -- same
+        // "only the highest-stocked duplicate-SKU row qualifies" semantics, one pass instead of N.
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT p.name, pv.name, pv.stock_quantity, p.min_stock_limit
                 FROM product_variants pv
                 JOIN products p ON pv.product_id = p.id
+                JOIN (
+                  SELECT UPPER(TRIM(pv3.sku)) AS norm_sku, MAX(pv3.stock_quantity) AS max_stock
+                  FROM product_variants pv3
+                  JOIN products p3 ON pv3.product_id = p3.id
+                  WHERE p3.tenant_id = :tenantId
+                  GROUP BY UPPER(TRIM(pv3.sku))
+                ) sku_max ON sku_max.norm_sku = UPPER(TRIM(pv.sku)) AND sku_max.max_stock = pv.stock_quantity
                 WHERE p.tenant_id = :tenantId
                   AND pv.stock_quantity < p.min_stock_limit
-                  AND NOT EXISTS (
-                    SELECT 1 FROM product_variants pv2
-                    JOIN products p2 ON pv2.product_id = p2.id
-                    WHERE p2.tenant_id = :tenantId
-                      AND UPPER(TRIM(pv2.sku)) = UPPER(TRIM(pv.sku))
-                      AND pv2.stock_quantity > pv.stock_quantity
-                  )
                 ORDER BY pv.stock_quantity ASC
                 """)
                 .setParameter("tenantId", tenantId)
