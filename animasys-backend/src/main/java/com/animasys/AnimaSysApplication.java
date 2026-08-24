@@ -6,12 +6,23 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import java.util.Locale;
+
 @SpringBootApplication
 @EnableAsync
 @EnableScheduling
 @EnableCaching
 public class AnimaSysApplication {
     static {
+        // Root cause: String.format/NumberFormat/DecimalFormat calls that don't pass an
+        // explicit Locale fall back to the JVM default locale. If that default is ever
+        // an Arabic locale (e.g. the host OS is configured for ar_EG), ICU's default
+        // numbering system for "ar" is Arabic-Indic digits, so %d/%f conversions used
+        // throughout the codebase (SKU/PIN/label generation, error messages, KPIs)
+        // would silently render ٠١٢٣٤٥٦٧٨٩ instead of 0-9. Pinning only the FORMAT
+        // category keeps any locale-dependent display behavior untouched.
+        Locale.setDefault(Locale.Category.FORMAT, Locale.US);
+
         java.io.File envFile = new java.io.File(".env");
         if (!envFile.exists()) {
             envFile = new java.io.File("animasys-backend/.env");
