@@ -46,7 +46,7 @@ class CustomerServiceTest {
 
         when(tenantRepository.findById("t-crm")).thenReturn(Optional.of(tenant));
         when(customerRepository.findByPhoneAndTenantId("0100", "t-crm")).thenReturn(Optional.empty());
-        when(customerRepository.save(any(Customer.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(inv -> inv.getArgument(0));
         when(petRepository.save(any(Pet.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Customer created = customerService.createCustomer("t-crm", dto, petDto);

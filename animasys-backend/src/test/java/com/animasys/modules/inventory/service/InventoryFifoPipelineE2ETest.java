@@ -22,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,7 +33,15 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Regression note: this class used to be the only @SpringBootTest in the suite without
+ * @ActiveProfiles("test") — it was silently running against the same persistent H2 file
+ * the real app uses instead of an isolated in-memory database (see DataSourceConfig /
+ * project memory), so its hardcoded, non-unique SKU literals could collide with leftover
+ * rows from earlier runs of this same test. Fixed by isolating it like every sibling test.
+ */
 @SpringBootTest
+@ActiveProfiles("test")
 class InventoryFifoPipelineE2ETest {
 
     @Autowired private FifoCostingService fifoCostingService;
@@ -217,8 +226,14 @@ class InventoryFifoPipelineE2ETest {
     }
 
     @Test
-    @DisplayName("Purchase line with bad SKU returns warning and skips batch")
+    @DisplayName("Purchase line with unrecognized SKU but a product name auto-creates the product and receives stock")
     void purchaseSkuWarning() {
+        // Renamed/updated from its original intent ("bad SKU returns a warning and skips the
+        // batch"): PurchaseInvoiceService.receiveStockFromInvoice now auto-creates a brand-new
+        // product on the fly whenever a purchase line has an unrecognized SKU *and* a product
+        // name (see the "Unknown SKU but a product name was typed in" branch) instead of
+        // warning and skipping. This test now asserts that real, intended current behavior.
+        String newSku = "NO-SUCH-SKU-" + UUID.randomUUID().toString().substring(0, 8);
         PurchaseInvoice invoice = PurchaseInvoice.builder()
                 .invoiceNumber("PI-BAD-" + System.currentTimeMillis())
                 .invoiceDate(LocalDate.now().toString())
@@ -231,7 +246,7 @@ class InventoryFifoPipelineE2ETest {
                 .grandTotal(new BigDecimal("40.00"))
                 .items(List.of(PurchaseInvoiceItem.builder()
                         .productName("Unknown")
-                        .sku("NO-SUCH-SKU")
+                        .sku(newSku)
                         .cost(new BigDecimal("40.00"))
                         .price(new BigDecimal("100.00"))
                         .quantity(1)
@@ -240,8 +255,19 @@ class InventoryFifoPipelineE2ETest {
                 .build();
 
         var result = purchaseInvoiceService.createInvoice(invoice, employee.getId(), tenant.getId());
-        assertEquals(1, result.getStockReceiptWarnings().size());
-        assertEquals("SKU_NOT_FOUND", result.getStockReceiptWarnings().get(0).getCode());
+
+        assertTrue(result.getStockReceiptWarnings().isEmpty(),
+                "Auto-creating the product from a valid name must not produce a warning");
+        assertEquals(newSku, result.getInvoice().getItems().get(0).getSku());
+
+        Product createdProduct = productRepository.findBySkuIgnoreCaseAndTenantId(newSku, tenant.getId())
+                .orElseThrow(() -> new AssertionError("Auto-created product not found for sku " + newSku));
+        ProductVariant createdVariant = variantRepository.findByProductId(createdProduct.getId()).stream()
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Auto-created product has no variant"));
+        assertEquals(1, fifoCostingService.getAvailableBatchQuantity(tenant.getId(), createdVariant.getId()));
+
+        // The pre-existing baseline product/variant from setUp() must be untouched by this line.
         assertEquals(0, fifoCostingService.getAvailableBatchQuantity(tenant.getId(), variant.getId()));
     }
 

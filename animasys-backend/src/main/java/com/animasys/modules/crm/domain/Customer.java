@@ -33,6 +33,17 @@ public class Customer {
     private String phone;
     private String email;
 
+    /**
+     * Kept in sync with {@link #phone} (normalized, null when blank) by CustomerService on every
+     * write. Backs the DB-level {@code uk_customers_tenant_phone_dedupe} unique constraint added
+     * in V49 — {@code phone} itself isn't the unique column so historical duplicate rows from
+     * before that migration can keep their original phone value untouched. Never set directly by
+     * callers/JSON.
+     */
+    @Column(name = "phone_dedupe_key")
+    @JsonIgnore
+    private String phoneDedupeKey;
+
     /** When true, customer is banned from purchasing. */
     @Column(name = "is_banned", nullable = false)
     @Builder.Default

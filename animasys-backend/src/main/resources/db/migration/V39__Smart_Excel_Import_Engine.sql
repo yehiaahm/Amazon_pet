@@ -30,7 +30,7 @@ CREATE TABLE import_sessions (
 CREATE TABLE import_session_items (
     id                  VARCHAR(50)  PRIMARY KEY,
     session_id          VARCHAR(50)  NOT NULL,
-    row_number          INT          NOT NULL,
+    `row_number`        INT          NOT NULL,
     raw_data             TEXT        NOT NULL, -- JSON object: raw header -> raw cell text
     mapped_data          TEXT,                 -- JSON object: ImportField code -> normalized value
     status               VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING, NEW, UPDATE, DUPLICATE, ERROR, IMPORTED, UPDATED, SKIPPED, FAILED
@@ -44,7 +44,7 @@ CREATE TABLE import_session_items (
 );
 
 CREATE INDEX idx_import_sessions_tenant ON import_sessions(tenant_id, created_at DESC);
-CREATE INDEX idx_import_session_items_session ON import_session_items(session_id, row_number);
+CREATE INDEX idx_import_session_items_session ON import_session_items(session_id, `row_number`);
 CREATE INDEX idx_import_session_items_status ON import_session_items(session_id, status);
 
 -- Permission for the new import feature

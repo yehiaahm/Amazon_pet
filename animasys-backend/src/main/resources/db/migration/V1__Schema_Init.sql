@@ -49,7 +49,15 @@ CREATE TABLE categories (
 CREATE TABLE products (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id VARCHAR(36) NOT NULL,
-    sku VARCHAR(50) UNIQUE NOT NULL,
+    -- No inline UNIQUE here (deliberately, not an oversight): V18 later adds a
+    -- tenant-scoped composite unique constraint (tenant_id, sku) instead, since
+    -- a bare column-level UNIQUE on sku would wrongly forbid two different
+    -- tenants from ever using the same SKU. Auto-generated constraint names
+    -- for an inline UNIQUE are non-deterministic across engines (verified: H2
+    -- names it e.g. CONSTRAINT_C4), so V18 previously had to dynamically look
+    -- up and drop whatever name got assigned before adding the real one —
+    -- simpler to just never create the column-level constraint at all.
+    sku VARCHAR(50) NOT NULL,
     name VARCHAR(150) NOT NULL,
     category_id VARCHAR(36) NOT NULL,
     min_stock_limit INT NOT NULL DEFAULT 10,

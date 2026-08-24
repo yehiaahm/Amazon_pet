@@ -24,7 +24,9 @@ import com.animasys.modules.analytics.kpi.KPIEngine;
 import com.animasys.modules.ai.config.AiPromptLimits;
 import com.animasys.modules.ai.context.AiClientContextSanitizer;
 import com.animasys.modules.inventory.domain.InventoryBatch;
+import com.animasys.modules.inventory.domain.Warehouse;
 import com.animasys.modules.inventory.repository.InventoryBatchRepository;
+import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.support.IntegrationTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,11 +61,13 @@ class AiContextIntegrationTest extends IntegrationTestBase {
     @Autowired private ProductRepository productRepository;
     @Autowired private ProductVariantRepository variantRepository;
     @Autowired private InventoryBatchRepository batchRepository;
+    @Autowired private WarehouseRepository warehouseRepository;
 
     private Tenant tenant;
     private Employee owner;
     private POSSession posSession;
     private Customer customer;
+    private Warehouse warehouse;
 
     @BeforeEach
     void setUp() {
@@ -80,6 +84,12 @@ class AiContextIntegrationTest extends IntegrationTestBase {
                 .tenant(tenant)
                 .name("Main")
                 .address("Cairo")
+                .build());
+        warehouse = warehouseRepository.save(Warehouse.builder()
+                .id(UUID.randomUUID().toString())
+                .branch(branch)
+                .name("Main Warehouse")
+                .code("WH-" + UUID.randomUUID().toString().substring(0, 6))
                 .build());
         owner = employeeRepository.save(Employee.builder()
                 .id(UUID.randomUUID().toString())
@@ -203,6 +213,7 @@ class AiContextIntegrationTest extends IntegrationTestBase {
                 .id(UUID.randomUUID().toString())
                 .tenantId(tenant.getId())
                 .productVariant(variant)
+                .warehouse(warehouse)
                 .batchNumber("BRE-BATCH-" + UUID.randomUUID().toString().substring(0, 6))
                 .unitCost(BigDecimal.ONE)
                 .initialQuantity(10)

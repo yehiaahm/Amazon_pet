@@ -20,7 +20,7 @@ public class ImportSessionItem {
     @JoinColumn(name = "session_id", nullable = false)
     private ImportSession session;
 
-    @Column(name = "row_number", nullable = false)
+    @Column(name = "`row_number`", nullable = false)
     private int rowNumber;
 
     @Column(name = "raw_data", nullable = false, columnDefinition = "TEXT")

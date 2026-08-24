@@ -19,43 +19,20 @@ CREATE TABLE IF NOT EXISTS tenant_barcode_settings (
     PRIMARY KEY (tenant_id)
 );
 
-/*!
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode VARCHAR(255) DEFAULT NULL', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+-- Previously wrapped in MySQL-only "/*! ... */" executable comments (silent
+-- no-op on H2). Rewritten to plain "IF NOT EXISTS" DDL, which both MySQL
+-- 8.0.29+ and H2 2.x's MODE=MySQL execute for real (verified against H2
+-- 2.2.224) — same idempotent-on-rerun behavior the dynamic SQL was after.
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS barcode VARCHAR(255) DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS barcode_format VARCHAR(50) DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS barcode_generated BOOLEAN DEFAULT FALSE;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS barcode_generated_at TIMESTAMP NULL DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS generated_by_employee_id VARCHAR(100) DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS barcode_source VARCHAR(50) DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS barcode_status VARCHAR(50) DEFAULT 'ACTIVE';
 
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode_format');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode_format VARCHAR(50) DEFAULT NULL', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode_generated');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode_generated BOOLEAN DEFAULT FALSE', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode_generated_at');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode_generated_at TIMESTAMP NULL DEFAULT NULL', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'generated_by_employee_id');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN generated_by_employee_id VARCHAR(100) DEFAULT NULL', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode_source');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode_source VARCHAR(50) DEFAULT NULL', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND COLUMN_NAME = 'barcode_status');
-SET @sql := IF(@col = 0, 'ALTER TABLE product_variants ADD COLUMN barcode_status VARCHAR(50) DEFAULT ''ACTIVE''', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @uk := (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND CONSTRAINT_NAME = 'uk_product_variants_tenant_barcode');
-SET @sql := IF(@uk = 0, 'ALTER TABLE product_variants ADD CONSTRAINT uk_product_variants_tenant_barcode UNIQUE (tenant_id, barcode)', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
-SET @fk := (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variants' AND CONSTRAINT_NAME = 'fk_variants_generated_by_employee');
-SET @sql := IF(@fk = 0, 'ALTER TABLE product_variants ADD CONSTRAINT fk_variants_generated_by_employee FOREIGN KEY (generated_by_employee_id) REFERENCES employees(id)', 'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-*/
+ALTER TABLE product_variants ADD CONSTRAINT IF NOT EXISTS uk_product_variants_tenant_barcode UNIQUE (tenant_id, barcode);
+ALTER TABLE product_variants ADD CONSTRAINT IF NOT EXISTS fk_variants_generated_by_employee FOREIGN KEY (generated_by_employee_id) REFERENCES employees(id);
 
 CREATE TABLE IF NOT EXISTS variant_barcode_history (
     id VARCHAR(100) NOT NULL,

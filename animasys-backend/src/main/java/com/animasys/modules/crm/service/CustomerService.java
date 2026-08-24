@@ -11,6 +11,7 @@ import com.animasys.modules.iam.repository.TenantRepository;
 import com.animasys.modules.sales.domain.Sale;
 import com.animasys.modules.sales.repository.SaleRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -37,11 +38,16 @@ public class CustomerService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
 
-        // Check for duplicate phone within tenant
-        if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
-            customerRepository.findByPhoneAndTenantId(dto.getPhone(), tenantId)
+        String normalizedPhone = normalizePhone(dto.getPhone());
+
+        // Fast-path check: rejects the common sequential case with a clean, specific message.
+        // This alone is a check-then-insert race under concurrency — the DB unique constraint
+        // on (tenant_id, phone_dedupe_key) added in V49 is what actually closes that race; the
+        // catch below turns its violation into the same clean business error instead of a 500.
+        if (normalizedPhone != null) {
+            customerRepository.findByPhoneAndTenantId(normalizedPhone, tenantId)
                     .ifPresent(existing -> {
-                        throw new BusinessRuleException("عميل بهذا الرقم مسجل بالفعل: " + dto.getPhone());
+                        throw new BusinessRuleException("عميل بهذا الرقم مسجل بالفعل: " + normalizedPhone);
                     });
         }
 
@@ -49,14 +55,19 @@ public class CustomerService {
                 .id(UUID.randomUUID().toString())
                 .tenant(tenant)
                 .name(dto.getName().trim())
-                .phone(dto.getPhone())
+                .phone(normalizedPhone)
+                .phoneDedupeKey(normalizedPhone)
                 .email(dto.getEmail())
                 .isBanned(dto.getIsBanned() != null ? dto.getIsBanned() : false)
                 .discount(clampDiscount(dto.getDiscount() != null ? dto.getDiscount() : 0))
                 .notes(normalizeNotes(dto.getNotes()))
                 .build();
 
-        customer = customerRepository.save(customer);
+        try {
+            customer = customerRepository.saveAndFlush(customer);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessRuleException("عميل بهذا الرقم مسجل بالفعل: " + normalizedPhone);
+        }
 
         if (petDto != null && petDto.getName() != null && !petDto.getName().isBlank()) {
             Pet pet = Pet.builder()
@@ -107,18 +118,21 @@ public class CustomerService {
             throw new BusinessRuleException("اسم العميل مطلوب");
         }
 
+        String normalizedPhone = normalizePhone(dto.getPhone());
+
         // Prevent duplicate phone within the same tenant (allow keeping own number)
-        if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
-            customerRepository.findByPhoneAndTenantId(dto.getPhone(), tenantId)
+        if (normalizedPhone != null) {
+            customerRepository.findByPhoneAndTenantId(normalizedPhone, tenantId)
                     .ifPresent(other -> {
                         if (!other.getId().equals(id)) {
-                            throw new BusinessRuleException("عميل بهذا الرقم مسجل بالفعل: " + dto.getPhone());
+                            throw new BusinessRuleException("عميل بهذا الرقم مسجل بالفعل: " + normalizedPhone);
                         }
                     });
         }
 
         existing.setName(dto.getName().trim());
-        existing.setPhone(dto.getPhone());
+        existing.setPhone(normalizedPhone);
+        existing.setPhoneDedupeKey(normalizedPhone);
         existing.setEmail(dto.getEmail());
         if (dto.getNotes() != null) {
             existing.setNotes(normalizeNotes(dto.getNotes()));
@@ -129,7 +143,11 @@ public class CustomerService {
         if (dto.getDiscount() != null) {
             existing.setDiscount(clampDiscount(dto.getDiscount()));
         }
-        return customerRepository.save(existing);
+        try {
+            return customerRepository.saveAndFlush(existing);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessRuleException("عميل بهذا الرقم مسجل بالفعل: " + normalizedPhone);
+        }
     }
 
     public void deleteCustomer(String tenantId, String id) {
@@ -200,6 +218,14 @@ public class CustomerService {
         if (discount < 0) return 0;
         if (discount > 100) return 100;
         return discount;
+    }
+
+    private static String normalizePhone(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String trimmed = phone.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String normalizeNotes(String notes) {

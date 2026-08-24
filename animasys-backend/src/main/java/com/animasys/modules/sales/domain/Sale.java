@@ -108,4 +108,17 @@ public class Sale {
     @Builder.Default
     @Column(name = "loyalty_redeemed_reversed", nullable = false)
     private BigDecimal loyaltyRedeemedReversed = BigDecimal.ZERO;
+
+    /**
+     * PENDING (not yet attempted), POSTED (journals confirmed posted), or FAILED (posting was
+     * attempted and threw -- see journalFailureReason). Set by JournalPostingExecutor, never by
+     * request DTOs. Backs the reconciliation job that guarantees every completed sale ends up
+     * with accounting entries even if the post-commit posting step failed the first time.
+     */
+    @Builder.Default
+    @Column(name = "journal_status", nullable = false)
+    private String journalStatus = "PENDING";
+
+    @Column(name = "journal_failure_reason", length = 1000)
+    private String journalFailureReason;
 }

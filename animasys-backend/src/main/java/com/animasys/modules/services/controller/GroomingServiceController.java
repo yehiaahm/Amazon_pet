@@ -105,7 +105,7 @@ public class GroomingServiceController {
     public ResponseEntity<ApiResponseWrapper<List<GroomingService>>> seedDefaults() {
         String tenantId = SecurityUtils.requireTenantId();
         Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseGet(() -> tenantRepository.findById("t-1").orElse(null));
+                .orElseThrow(() -> new ResourceNotFoundException("Tenant not found: " + tenantId));
 
         List<GroomingService> defaults = List.of(
             GroomingService.builder().id("svc-1").tenant(tenant).name("حمام وتنشيف كامل (Full Grooming & Bath)").price(new java.math.BigDecimal("180.00")).durationMinutes(45).build(),

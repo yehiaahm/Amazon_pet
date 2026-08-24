@@ -18,6 +18,9 @@ public interface SaleRepository extends JpaRepository<Sale, String>, JpaSpecific
     @Query("SELECT s FROM Sale s JOIN s.employee e WHERE e.tenant.id = :tenantId")
     List<Sale> findByTenantId(@Param("tenantId") String tenantId);
 
+    /** Drives the journal-posting reconciliation job: every completed sale not yet POSTED. */
+    List<Sale> findByStatusAndJournalStatusNot(String status, String journalStatus);
+
     @Query("""
             SELECT s FROM Sale s
             JOIN FETCH s.employee e

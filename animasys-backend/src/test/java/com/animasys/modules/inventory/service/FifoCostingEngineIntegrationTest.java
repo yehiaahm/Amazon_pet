@@ -332,6 +332,7 @@ public class FifoCostingEngineIntegrationTest extends IntegrationTestBase {
                     .id(UUID.randomUUID().toString())
                     .tenantId(tenantId)
                     .productVariant(dogFoodVariant)
+                    .warehouse(warehouse)
                     .batchNumber("LOT-STRESS-" + i)
                     .unitCost(new BigDecimal("100.0000"))
                     .initialQuantity(10)

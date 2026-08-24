@@ -34,12 +34,21 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Covers the idempotency branches not already exercised by
@@ -212,5 +221,89 @@ class IdempotentCheckoutServiceTest extends IntegrationTestBase {
         String status = jdbcTemplate.queryForObject(
                 "SELECT status FROM idempotency_keys WHERE idempotency_key = ?", String.class, idempotencyKey);
         assertEquals("COMPLETED", status);
+    }
+
+    /**
+     * Real concurrency test (not simulated via direct DB row insertion, unlike the two
+     * tests above): fires genuinely simultaneous checkout requests carrying the SAME
+     * Idempotency-Key from N real threads, racing tryInsertProcessing's unique-constraint
+     * insert. Regardless of which threads win/lose the race (some may get 409 CONFLICT if
+     * they observe a still-fresh PROCESSING row; that is an acceptable, documented outcome
+     * of this design, not a bug), the invariants that must never break under real concurrency
+     * are: exactly one Sale is ever created for this key, and stock is deducted exactly once
+     * — never a duplicate sale, duplicate payment, or duplicate stock deduction.
+     */
+    @Test
+    @DisplayName("Concurrency: N simultaneous requests with the same Idempotency-Key never create more than one sale")
+    void simultaneousDuplicateRequestsCreateExactlyOneSale() throws InterruptedException {
+        int initialStock = 20;
+        ProductVariant variant = createTestVariant("IDEM-RACE-001", initialStock, new BigDecimal("100.00"), new BigDecimal("40.00"));
+        fifoCostingService.createPurchaseBatch(
+                tenant.getId(), warehouse.getId(), variant.getId(), null, null,
+                "BATCH-RACE", new BigDecimal("40.00"), initialStock,
+                java.time.LocalDate.now().plusMonths(6), Instant.now(), manager.getId());
+
+        String idempotencyKey = "IDEM-RACE-" + UUID.randomUUID();
+        int totalThreads = 10;
+        ExecutorService executorService = Executors.newFixedThreadPool(totalThreads);
+        CountDownLatch ready = new CountDownLatch(totalThreads);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(totalThreads);
+
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger conflictCount = new AtomicInteger(0);
+        AtomicInteger otherFailureCount = new AtomicInteger(0);
+        Set<String> saleIdsSeen = ConcurrentHashMap.newKeySet();
+
+        for (int i = 0; i < totalThreads; i++) {
+            executorService.submit(() -> {
+                try {
+                    authenticate(manager);
+                    CreateSaleRequest req = buildRequest();
+                    SaleItem item = SaleItem.builder()
+                            .type("PRODUCT")
+                            .itemId(variant.getId())
+                            .quantity(1)
+                            .price(new BigDecimal("100.00"))
+                            .build();
+                    ready.countDown();
+                    start.await();
+                    Sale sale = idempotentCheckoutService.processCheckout(
+                            idempotencyKey, req, List.of(item), tenant.getId(), manager.getId());
+                    saleIdsSeen.add(sale.getId());
+                    successCount.incrementAndGet();
+                } catch (ResponseStatusException ex) {
+                    if (ex.getStatusCode() == HttpStatus.CONFLICT) {
+                        conflictCount.incrementAndGet();
+                    } else {
+                        otherFailureCount.incrementAndGet();
+                    }
+                } catch (Exception ex) {
+                    otherFailureCount.incrementAndGet();
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+
+        ready.await(5, TimeUnit.SECONDS);
+        start.countDown();
+        assertTrue(done.await(30, TimeUnit.SECONDS), "All concurrent checkout attempts must finish within 30s");
+        executorService.shutdown();
+
+        long salesForKey = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM idempotency_keys WHERE idempotency_key = ? AND status = 'COMPLETED'",
+                Long.class, idempotencyKey);
+        assertEquals(1, salesForKey, "Exactly one idempotency_keys row must reach COMPLETED for this key");
+
+        assertTrue(successCount.get() >= 1, "At least one concurrent request must succeed");
+        assertEquals(1, saleIdsSeen.size(), "Every successful/replayed response must reference the exact same Sale id — never a distinct duplicate");
+        assertEquals(totalThreads, successCount.get() + conflictCount.get() + otherFailureCount.get());
+        assertEquals(0, otherFailureCount.get(),
+                "Every concurrent attempt must resolve to either a successful sale or a clean 409 CONFLICT — no other failure mode");
+
+        int remainingStock = variantRepository.findById(variant.getId()).orElseThrow().getStockQuantity();
+        assertEquals(initialStock - 1, remainingStock,
+                "Stock must be deducted exactly once (for the single real sale), never once per concurrent attempt");
     }
 }

@@ -1,82 +1,20 @@
 -- Enforce NOT NULL + uniqueness after V16 backfill and V17 catalog merge.
--- Uses MySQL syntax (MODIFY COLUMN / DROP INDEX) rather than H2/Postgres forms.
--- Wrapped in MySQL-only "/*! ... */" executable comments (same trick used
--- below) so the H2 fallback profile — which cannot parse MODIFY COLUMN this
--- way — treats them as plain comments and skips them instead of failing
--- startup outright. H2 is a desktop/dev fallback only; NOT NULL enforcement
--- there is best-effort, same as the constraint blocks skipped below.
+--
+-- Previously wrapped in MySQL-only "/*! ... */" executable comments, which made
+-- this whole migration a silent no-op on H2 (H2 parses "/*! ... */" as a plain
+-- SQL comment, unlike MySQL which executes its contents) — meaning a fresh H2
+-- database could never actually get these NOT NULL/uniqueness guarantees.
+-- Rewritten to plain portable syntax: MODIFY COLUMN and ADD CONSTRAINT IF NOT
+-- EXISTS both run for real on MySQL 8.0.29+ and on H2 2.x's MODE=MySQL
+-- (verified against H2 2.2.224).
+--
+-- The legacy single-column UNIQUE this used to find-and-drop from
+-- `products.sku` no longer exists: V1__Schema_Init.sql now creates that
+-- column without an inline UNIQUE, so there is nothing left to clean up here.
 
-/*!
 ALTER TABLE product_variants MODIFY COLUMN tenant_id VARCHAR(36) NOT NULL;
 ALTER TABLE product_variants MODIFY COLUMN sku VARCHAR(50) NOT NULL;
-*/
 
--- Drop legacy single-column UNIQUE on products.sku (from V1), whatever MySQL named it
-/*!
-SET @legacy_sku_idx := (
-    SELECT INDEX_NAME
-    FROM information_schema.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'products'
-      AND COLUMN_NAME = 'sku'
-      AND NON_UNIQUE = 0
-      AND INDEX_NAME <> 'PRIMARY'
-      AND INDEX_NAME NOT IN ('uk_products_tenant_sku')
-    LIMIT 1
-);
-SET @drop_legacy := IF(
-    @legacy_sku_idx IS NULL,
-    'SELECT 1',
-    CONCAT('ALTER TABLE products DROP INDEX `', @legacy_sku_idx, '`')
-);
-PREPARE stmt_drop_legacy FROM @drop_legacy;
-EXECUTE stmt_drop_legacy;
-DEALLOCATE PREPARE stmt_drop_legacy;
-*/
-
-/*!
-SET @uk_products := (
-    SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'products'
-      AND CONSTRAINT_NAME = 'uk_products_tenant_sku'
-);
-SET @sql_uk_products := IF(
-    @uk_products = 0,
-    'ALTER TABLE products ADD CONSTRAINT uk_products_tenant_sku UNIQUE (tenant_id, sku)',
-    'SELECT 1'
-);
-PREPARE stmt_uk_products FROM @sql_uk_products;
-EXECUTE stmt_uk_products;
-DEALLOCATE PREPARE stmt_uk_products;
-
-SET @uk_pv_product := (
-    SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'product_variants'
-      AND CONSTRAINT_NAME = 'uk_product_variants_product'
-);
-SET @sql_uk_pv_product := IF(
-    @uk_pv_product = 0,
-    'ALTER TABLE product_variants ADD CONSTRAINT uk_product_variants_product UNIQUE (product_id)',
-    'SELECT 1'
-);
-PREPARE stmt_uk_pv_product FROM @sql_uk_pv_product;
-EXECUTE stmt_uk_pv_product;
-DEALLOCATE PREPARE stmt_uk_pv_product;
-
-SET @uk_pv_sku := (
-    SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'product_variants'
-      AND CONSTRAINT_NAME = 'uk_product_variants_tenant_sku'
-);
-SET @sql_uk_pv_sku := IF(
-    @uk_pv_sku = 0,
-    'ALTER TABLE product_variants ADD CONSTRAINT uk_product_variants_tenant_sku UNIQUE (tenant_id, sku)',
-    'SELECT 1'
-);
-PREPARE stmt_uk_pv_sku FROM @sql_uk_pv_sku;
-EXECUTE stmt_uk_pv_sku;
-DEALLOCATE PREPARE stmt_uk_pv_sku;
-*/
+ALTER TABLE products ADD CONSTRAINT IF NOT EXISTS uk_products_tenant_sku UNIQUE (tenant_id, sku);
+ALTER TABLE product_variants ADD CONSTRAINT IF NOT EXISTS uk_product_variants_product UNIQUE (product_id);
+ALTER TABLE product_variants ADD CONSTRAINT IF NOT EXISTS uk_product_variants_tenant_sku UNIQUE (tenant_id, sku);

@@ -27,6 +27,17 @@ public class DataSourceConfig {
     @Value("${spring.datasource.password:}")
     private String mysqlPassword;
 
+    /**
+     * Defaults to MySQL for prod/dev, where spring.datasource.url is a mysql:// URL and this
+     * property is never set. The test profile overrides both spring.datasource.url (to an H2
+     * in-memory URL) and this property (to org.h2.Driver) together — using the wrong driver here
+     * for that URL previously made the connectivity probe below always fail with "Driver ... claims
+     * to not accept jdbcUrl", silently sending every @SpringBootTest through the same persistent-H2
+     * fallback file the real app uses instead of an isolated in-memory database.
+     */
+    @Value("${spring.datasource.driver-class-name:com.mysql.cj.jdbc.Driver}")
+    private String primaryDriverClassName;
+
     @Value("${app.allow-h2-fallback:false}")
     private boolean allowH2Fallback;
 
@@ -47,15 +58,16 @@ public class DataSourceConfig {
     @Primary
     public DataSource dataSource() {
         try {
-            log.info("Checking MySQL availability at: {}", mysqlUrl);
+            log.info("Checking primary datasource availability at: {}", mysqlUrl);
+            Class.forName(primaryDriverClassName);
             DriverManager.setLoginTimeout(5);
             try (Connection conn = DriverManager.getConnection(mysqlUrl, mysqlUsername, mysqlPassword)) {
-                log.info("MySQL connection succeeded. Initializing Hikari pool.");
+                log.info("Primary datasource connection succeeded. Initializing Hikari pool.");
                 HikariConfig config = new HikariConfig();
                 config.setJdbcUrl(mysqlUrl);
                 config.setUsername(mysqlUsername);
                 config.setPassword(mysqlPassword);
-                config.setDriverClassName("com.mysql.cj.jdbc.Driver");
+                config.setDriverClassName(primaryDriverClassName);
                 applyPoolDefaults(config);
                 return new HikariDataSource(config);
             }

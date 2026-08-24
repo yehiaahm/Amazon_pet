@@ -11,6 +11,7 @@ import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.inventory.domain.ProductVariant;
+import com.animasys.modules.inventory.domain.Warehouse;
 import com.animasys.modules.inventory.repository.ProductVariantRepository;
 import com.animasys.modules.inventory.repository.WarehouseRepository;
 import com.animasys.modules.inventory.service.FifoCostingService;
@@ -147,10 +148,7 @@ public class SaleService {
         // Resolved once up front: item validation (stock check) and the FIFO deduction
         // further down must agree on the same warehouse, or a "stock available" check
         // can pass while the scoped deduction finds nothing and the sale rolls back.
-        String warehouseId = warehouseRepository.findByBranchId(session.getBranch().getId()).stream()
-                .findFirst()
-                .map(com.animasys.modules.inventory.domain.Warehouse::getId)
-                .orElse(StockService.DEFAULT_SALES_WAREHOUSE);
+        String warehouseId = resolveSalesWarehouseId(session.getBranch());
 
         Customer customer = null;
         if (customerId != null && !customerId.trim().isEmpty()) {
@@ -485,10 +483,7 @@ public class SaleService {
             returnLineSubtotal = returnLineSubtotal.add(lineReturnSubtotal);
             productRevenue = productRevenue.add(lineReturnSubtotal);
 
-            String warehouseId = warehouseRepository.findByBranchId(sale.getPosSession().getBranch().getId()).stream()
-                    .findFirst()
-                    .map(com.animasys.modules.inventory.domain.Warehouse::getId)
-                    .orElse(StockService.DEFAULT_SALES_WAREHOUSE);
+            String warehouseId = resolveSalesWarehouseId(sale.getPosSession().getBranch());
 
             BigDecimal cogsReversed = fifoCostingService.processCustomerReturn(
                     tenantId,
@@ -649,6 +644,30 @@ public class SaleService {
             return employee.getTenant().getId();
         }
         throw new BusinessRuleException("لا يمكن تحديد الشركة (Tenant) لهذه العملية. راجع ربط الموظف والفرع.");
+    }
+
+    /**
+     * Deterministic sales-warehouse resolution. Every other stock-affecting flow (receiving,
+     * manual adjustment, imports — see StockService.DEFAULT_SALES_WAREHOUSE usages) treats the
+     * well-known retail-facing warehouse ("wh-shelf") as where sellable stock lives; this used to
+     * instead take "the first warehouse for the branch" off an unordered query, which could
+     * resolve to a different warehouse (e.g. "wh-main") that legitimately has zero stock for an
+     * item sitting on the shelf — checkout would then report the item unavailable even though the
+     * catalog correctly showed it in stock. Only fall back to another warehouse (sorted
+     * deterministically, never relying on DB row order) if the default doesn't exist for this
+     * branch at all.
+     */
+    private String resolveSalesWarehouseId(Branch branch) {
+        List<Warehouse> branchWarehouses = warehouseRepository.findByBranchId(branch.getId());
+        boolean hasDefault = branchWarehouses.stream()
+                .anyMatch(w -> StockService.DEFAULT_SALES_WAREHOUSE.equals(w.getId()));
+        if (hasDefault) {
+            return StockService.DEFAULT_SALES_WAREHOUSE;
+        }
+        return branchWarehouses.stream()
+                .map(Warehouse::getId)
+                .min(Comparator.naturalOrder())
+                .orElse(StockService.DEFAULT_SALES_WAREHOUSE);
     }
 
     /**

@@ -64,6 +64,24 @@ class SecurityUtilsTest {
         assertThrows(AccessDeniedException.class, SecurityUtils::requireTenantId);
     }
 
+    /**
+     * Regression: requireEmployee() used to dereference UserPrincipal.getEmployee()
+     * without a null check, so any principal implementation returning a null employee
+     * (a mocked/alternate UserDetails, or a future auth mechanism) NPE'd (500) instead
+     * of failing closed with a clean auth error.
+     */
+    @Test
+    void requireTenantIdFailsClosedWhenPrincipalHasNullEmployee() {
+        UserPrincipal principal = org.mockito.Mockito.mock(UserPrincipal.class);
+        org.mockito.Mockito.when(principal.getEmployee()).thenReturn(null);
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(principal, null, List.of());
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        assertThrows(AccessDeniedException.class, SecurityUtils::requireTenantId);
+        assertThrows(AccessDeniedException.class, SecurityUtils::requireBranchId);
+        assertThrows(AccessDeniedException.class, SecurityUtils::requireEmployeeId);
+    }
+
     @Test
     void hasPermissionMatchesPermAuthorities() {
         Employee employee = employeeWithTenant("t-perm");
