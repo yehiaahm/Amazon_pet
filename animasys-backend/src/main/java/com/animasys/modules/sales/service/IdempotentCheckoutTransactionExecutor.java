@@ -64,7 +64,8 @@ class IdempotentCheckoutTransactionExecutor {
                 request.isDelivery(),
                 request.getDeliveryFee(),
                 request.getLoyaltyRedeem(),
-                request.getPayments()
+                request.getPayments(),
+                request.getDeliveryAddress()
         );
 
         String payload;

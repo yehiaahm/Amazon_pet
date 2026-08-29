@@ -69,6 +69,9 @@ public class DailyClosing {
     @Column(name = "cash_expenses_total")
     private BigDecimal cashExpensesTotal;
 
+    @Column(name = "cash_deposits_total")
+    private BigDecimal cashDepositsTotal;
+
     @Column(name = "delivery_orders_count")
     private Integer deliveryOrdersCount;
 

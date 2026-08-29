@@ -5,8 +5,8 @@ import { ArrowLeft, Landmark, User, Clock, Sun, Moon, Scissors, Calendar, LogOut
 import Badge from '../components/ui/Badge';
 import { formatMoney } from '../core/utils/money';
 import { usePermissions } from '../core/permissions/usePermissions';
-import { usePermissionStore } from '../core/permissions/permissionStore';
 import { PERMISSIONS } from '../core/permissions/permissions';
+import { logout } from '../core/auth/logout';
 
 interface POSLayoutProps {
   children: React.ReactNode;
@@ -15,8 +15,6 @@ interface POSLayoutProps {
 export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
   const setActiveModule = useUIStore(s => s.setActiveModule);
   const currentEmployee = useUIStore(s => s.currentEmployee);
-  const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
-  const setAuthenticated = useUIStore(s => s.setAuthenticated);
   const setAutoOpenCloseShiftModal = useUIStore(s => s.setAutoOpenCloseShiftModal);
   const setLogoutAfterCloseShift = useUIStore(s => s.setLogoutAfterCloseShift);
   const theme = useUIStore(s => s.theme);
@@ -39,10 +37,7 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
       setAutoOpenCloseShiftModal(true);
       return;
     }
-    localStorage.removeItem('token');
-    setCurrentEmployee(null);
-    setAuthenticated(false);
-    usePermissionStore.getState().clearPermissions();
+    logout();
   };
 
   return (

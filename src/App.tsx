@@ -22,10 +22,10 @@ import Employees from './modules/employees/Employees';
 import RolesPermissions from './modules/roles/RolesPermissions';
 import LoyaltyDashboard from './modules/loyalty/LoyaltyDashboard';
 import { usePermissions } from './core/permissions/usePermissions';
-import { usePermissionStore } from './core/permissions/permissionStore';
 import { useMyPermissions } from './core/hooks/useERPData';
 import AccessDenied from './components/ui/AccessDenied';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { logout } from './core/auth/logout';
 
 function withModuleBoundary(name: string, node: React.ReactNode) {
   return <ErrorBoundary moduleName={name}>{node}</ErrorBoundary>;
@@ -36,17 +36,8 @@ export const App: React.FC = () => {
   const setActiveModule = useUIStore(s => s.setActiveModule);
   const isAuthenticated = useUIStore(s => s.isAuthenticated);
   const theme = useUIStore(s => s.theme);
-  const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
-  const setAuthenticated = useUIStore(s => s.setAuthenticated);
   const { canAccessModule, resolveDefaultModule } = usePermissions();
   useMyPermissions();
-
-  const logout = React.useCallback(() => {
-    localStorage.removeItem('token');
-    setCurrentEmployee(null);
-    setAuthenticated(false);
-    usePermissionStore.getState().clearPermissions();
-  }, [setCurrentEmployee, setAuthenticated]);
 
   React.useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

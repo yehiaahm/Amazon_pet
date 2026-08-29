@@ -110,6 +110,7 @@ export const CRM: React.FC = () => {
   const [custName, setCustName] = useState('');
   const [custPhone, setCustPhone] = useState('');
   const [custEmail, setCustEmail] = useState('');
+  const [custAddress, setCustAddress] = useState('');
 
   // Pet options for quick CRM binding
   const [petName, setPetName] = useState('');
@@ -123,6 +124,7 @@ export const CRM: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
+  const [editAddress, setEditAddress] = useState('');
   const [editDiscount, setEditDiscount] = useState('0');
   const [editBanned, setEditBanned] = useState(false);
   const [editNotes, setEditNotes] = useState('');
@@ -308,6 +310,7 @@ export const CRM: React.FC = () => {
         name: custName,
         phone: custPhone,
         email: custEmail,
+        address: custAddress.trim() || undefined,
         isBanned: false,
         discount: 0,
         notes: custNotes.trim() || undefined,
@@ -324,6 +327,7 @@ export const CRM: React.FC = () => {
         setCustName('');
         setCustPhone('');
         setCustEmail('');
+        setCustAddress('');
         setCustNotes('');
         setPetName('');
         setPetBreed('');
@@ -337,6 +341,7 @@ export const CRM: React.FC = () => {
     setEditName(customer.name || '');
     setEditPhone(customer.phone || '');
     setEditEmail(customer.email || '');
+    setEditAddress(customer.address || '');
     setEditDiscount(String(Number(customer.discount ?? 0)));
     setEditBanned(Boolean(customer.isBanned));
     setEditNotes(customer.notes || '');
@@ -349,6 +354,7 @@ export const CRM: React.FC = () => {
     setEditName('');
     setEditPhone('');
     setEditEmail('');
+    setEditAddress('');
     setEditDiscount('0');
     setEditBanned(false);
     setEditNotes('');
@@ -373,6 +379,7 @@ export const CRM: React.FC = () => {
         name: editName.trim(),
         phone: editPhone.trim(),
         email: editEmail.trim(),
+        address: editAddress.trim() || undefined,
         discount: discountPct,
         isBanned: editBanned,
         notes: editNotes.trim() || undefined,
@@ -398,6 +405,7 @@ export const CRM: React.FC = () => {
         name: row.name,
         phone: row.phone,
         email: row.email,
+        address: row.address,
         isBanned: patch.isBanned ?? Boolean(row.isBanned),
         discount: patch.discount ?? Number(row.discount ?? 0),
         notes: row.notes,
@@ -650,6 +658,12 @@ export const CRM: React.FC = () => {
             onChange={(e) => setCustEmail(e.target.value)}
             placeholder="مثال: client@domain.com"
           />
+          <Input
+            label="العنوان"
+            value={custAddress}
+            onChange={(e) => setCustAddress(e.target.value)}
+            placeholder="مثال: القاهرة، مدينة نصر، شارع مصطفى النحاس"
+          />
 
           {/* Notes field */}
           <div>
@@ -754,6 +768,12 @@ export const CRM: React.FC = () => {
             value={editEmail}
             onChange={(e) => setEditEmail(e.target.value)}
             placeholder="مثال: client@domain.com"
+          />
+          <Input
+            label="العنوان"
+            value={editAddress}
+            onChange={(e) => setEditAddress(e.target.value)}
+            placeholder="مثال: القاهرة، مدينة نصر، شارع مصطفى النحاس"
           />
           <Can permission={PERMISSIONS.CUSTOMERS_LOYALTY}>
             <Input

@@ -17,6 +17,8 @@ import com.animasys.modules.finance.domain.DailyClosing;
 import com.animasys.modules.finance.repository.DailyClosingRepository;
 import com.animasys.modules.finance.domain.Expense;
 import com.animasys.modules.finance.repository.ExpenseRepository;
+import com.animasys.modules.finance.domain.CashDeposit;
+import com.animasys.modules.finance.repository.CashDepositRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,7 @@ public class POSSessionService {
     private final SalePaymentRepository salePaymentRepository;
     private final DailyClosingRepository dailyClosingRepository;
     private final ExpenseRepository expenseRepository;
+    private final CashDepositRepository cashDepositRepository;
 
     public POSSession startSession(String branchId, String openedById, BigDecimal openingBalance) {
         Optional<POSSession> active = sessionRepository.findByBranchIdAndStatus(branchId, "OPEN");
@@ -169,8 +172,18 @@ public class POSSessionService {
                 .filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        List<CashDeposit> deposits = (branch != null && branch.getId() != null)
+                ? cashDepositRepository.findByBranchIdAndDateBetween(branch.getId(), sessionStartDay, LocalDate.now(zone))
+                : List.of();
+
+        BigDecimal cashDepositsTotal = deposits.stream()
+                .filter(d -> "CASH".equalsIgnoreCase(d.getDepositedTo()))
+                .map(CashDeposit::getAmount)
+                .filter(java.util.Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         BigDecimal openingBal = session.getOpeningBalance() != null ? session.getOpeningBalance() : BigDecimal.ZERO;
-        BigDecimal computedExpectedBalance = openingBal.add(cashSalesTotal).subtract(cashExpensesTotal);
+        BigDecimal computedExpectedBalance = openingBal.add(cashSalesTotal).add(cashDepositsTotal).subtract(cashExpensesTotal);
 
         BigDecimal actualPhysical = physicalBalance != null ? physicalBalance : (closingBalance != null ? closingBalance : computedExpectedBalance);
         BigDecimal actualClosing = closingBalance != null ? closingBalance : actualPhysical;
@@ -196,6 +209,7 @@ public class POSSessionService {
                         .vodafoneSalesTotal(vodafoneSalesTotal)
                         .totalSales(totalSales)
                         .cashExpensesTotal(cashExpensesTotal)
+                        .cashDepositsTotal(cashDepositsTotal)
                         .deliveryOrdersCount(deliveryOrdersCount)
                         .deliveryFeesTotal(deliveryFeesTotal)
                         .build();

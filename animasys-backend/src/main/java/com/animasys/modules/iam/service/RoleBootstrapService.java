@@ -76,9 +76,14 @@ public class RoleBootstrapService {
             }
         },
         ALL_EXCEPT_FACTORY_RESET {
+            private final Set<String> ownerOnly = Set.of(
+                    "settings.factory_reset",
+                    "finance.view_deposits", "finance.add_deposit", "finance.delete_deposit"
+            );
+
             @Override
             boolean includes(String code) {
-                return !"settings.factory_reset".equals(code);
+                return !ownerOnly.contains(code);
             }
         },
         CASHIER {
@@ -89,7 +94,7 @@ public class RoleBootstrapService {
                         "sales.override_price", "sales.refund_sale", "sales.void_invoice", "sales.reprint_invoice",
                         "sales.print_thermal_receipt", "sales.print_a4_invoice",
                         "inventory.view", "products.view", "products.print_barcode",
-                        "customers.view", "customers.view_purchase_history",
+                        "customers.view", "customers.view_purchase_history", "customers.manage_loyalty",
                         "boarding.view_reservations", "boarding.create_reservation", "boarding.edit_reservation",
                         "grooming.view_appointments", "grooming.create_appointment", "grooming.edit_appointment",
                         "grooming.complete_appointment",

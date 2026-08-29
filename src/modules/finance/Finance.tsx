@@ -1,9 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import {
   useExpenses,
+  useCashDeposits,
   useDailyClosings,
   useAddExpense,
   useDeleteExpense,
+  useAddCashDeposit,
+  useDeleteCashDeposit,
   useSales,
   useKPIMetrics,
   usePurchaseInvoices,
@@ -24,6 +27,7 @@ import {
   Wallet,
   TrendingUp,
   Truck,
+  PiggyBank,
 } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
@@ -58,21 +62,32 @@ type FinancialEntry = {
 export const Finance: React.FC = () => {
   const { hasPermission } = usePermissions();
   const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
+  const canViewDeposits = hasPermission(PERMISSIONS.FINANCE_VIEW_DEPOSITS);
   const { data: expenses = [], isLoading: loadingExpenses } = useExpenses();
+  const { data: deposits = [], isLoading: loadingDeposits } = useCashDeposits({ enabled: canViewDeposits });
   const { data: closings = [], isLoading: loadingClosings } = useDailyClosings();
   const { data: salesPage } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
   const { data: purchaseInvoices = [] } = usePurchaseInvoices();
   const { data: kpis } = useKPIMetrics();
   const { mutate: logExpense, isPending: logging } = useAddExpense();
   const { mutate: deleteExpense } = useDeleteExpense();
+  const { mutate: logDeposit, isPending: loggingDeposit } = useAddCashDeposit();
+  const { mutate: deleteDeposit } = useDeleteCashDeposit();
 
-  const [activeSubTab, setActiveSubTab] = useState<'MASTER_LEDGER' | 'EXPENSES' | 'CLOSINGS' | 'PAYABLE'>('MASTER_LEDGER');
+  const [activeSubTab, setActiveSubTab] = useState<'MASTER_LEDGER' | 'EXPENSES' | 'DEPOSITS' | 'CLOSINGS' | 'PAYABLE'>('MASTER_LEDGER');
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expCategory, setExpCategory] = useState<string>('SUPPLIES');
   const [customCategory, setCustomCategory] = useState('');
   const [expDescription, setExpDescription] = useState('');
   const [expAmount, setExpAmount] = useState('');
   const [expSource, setExpSource] = useState<'CASH' | 'BANK'>('BANK');
+
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depSource, setDepSource] = useState<string>('OWNER_INJECTION');
+  const [customDepSource, setCustomDepSource] = useState('');
+  const [depDescription, setDepDescription] = useState('');
+  const [depAmount, setDepAmount] = useState('');
+  const [depTarget, setDepTarget] = useState<'CASH' | 'BANK'>('CASH');
 
   // Ledger Filter States
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
@@ -133,7 +148,28 @@ export const Finance: React.FC = () => {
       });
     });
 
-    // 3. Add Supplier Payments (Money OUT / سداد فواتير الشراء) — hits cash
+    // 3. Add Cash Deposits (Money IN / إيداعات نقدية من المالك)
+    deposits.forEach((d) => {
+      let srcLabel = d.source;
+      if (d.source === 'OWNER_INJECTION') srcLabel = 'إيداع من المالك';
+      else if (d.source === 'LOAN') srcLabel = 'قرض أو تمويل';
+      else if (d.source === 'FLOAT_TOPUP') srcLabel = 'تعزيز رصيد الدرج';
+
+      entries.push({
+        id: `dep-${d.id}`,
+        date: d.date || new Date().toISOString(),
+        type: 'IN',
+        category: `إيداع: ${srcLabel}`,
+        description: d.description || `إيداع نقدي (${srcLabel})`,
+        amount: Number(d.amount) || 0,
+        paymentMethod: d.depositedTo === 'BANK' ? 'BANK' : 'CASH',
+        user: 'المالك',
+        referenceId: d.id,
+        excludeFromProfit: true,
+      });
+    });
+
+    // 4. Add Supplier Payments (Money OUT / سداد فواتير الشراء) — hits cash
     // balances like any outflow, but excluded from profit: the cost of this
     // inventory is already deducted from profit as COGS when it's sold, so
     // counting it again here as an "expense" would double-subtract it.
@@ -165,7 +201,7 @@ export const Finance: React.FC = () => {
 
     // Sort descending by date
     return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sales, expenses, purchaseInvoices]);
+  }, [sales, expenses, deposits, purchaseInvoices]);
 
   // Filtered Ledger
   const filteredLedger = useMemo(() => {
@@ -188,6 +224,7 @@ export const Finance: React.FC = () => {
   const metrics = useMemo(() => {
     let totalIn = 0;
     let totalOut = 0;
+    let profitBoostingIn = 0; // IN total minus capital injections (owner deposits) — not real revenue
     let profitReducingOut = 0; // OUT total minus supplier payments — COGS already covers those at sale time
     let cashInDrawer = 0;
     let bankTotal = 0;
@@ -197,6 +234,7 @@ export const Finance: React.FC = () => {
     masterLedger.forEach((entry) => {
       if (entry.type === 'IN') {
         totalIn += entry.amount;
+        if (!entry.excludeFromProfit) profitBoostingIn += entry.amount;
         if (entry.paymentMethod === 'CASH') cashInDrawer += entry.amount;
         else if (entry.paymentMethod === 'BANK') bankTotal += entry.amount;
         else if (entry.paymentMethod === 'INSTAPAY') instapayTotal += entry.amount;
@@ -212,7 +250,7 @@ export const Finance: React.FC = () => {
     });
 
     const netCashFlow = totalIn - totalOut;
-    const realizedNetProfit = kpis?.netProfit ?? (totalIn - (kpis?.cogs || 0) - profitReducingOut);
+    const realizedNetProfit = kpis?.netProfit ?? (profitBoostingIn - (kpis?.cogs || 0) - profitReducingOut);
 
     return {
       totalIn,
@@ -260,6 +298,33 @@ export const Finance: React.FC = () => {
           setExpAmount('');
           setCustomCategory('');
           setExpCategory('SUPPLIES');
+        },
+      }
+    );
+  };
+
+  const handleRecordDeposit = () => {
+    const amount = parseFloat(depAmount) || 0;
+    if (amount <= 0) return;
+
+    const finalSource = depSource === 'CUSTOM' ? customDepSource.trim() : depSource;
+    if (!finalSource) return;
+
+    logDeposit(
+      {
+        branchId: 'b-1',
+        source: finalSource,
+        description: depDescription,
+        amount,
+        depositedTo: depTarget,
+      },
+      {
+        onSuccess: () => {
+          setShowDepositModal(false);
+          setDepDescription('');
+          setDepAmount('');
+          setCustomDepSource('');
+          setDepSource('OWNER_INJECTION');
         },
       }
     );
@@ -464,6 +529,54 @@ export const Finance: React.FC = () => {
     },
   ];
 
+  const depositsColumns = [
+    { header: 'التاريخ', accessor: 'date' as const, key: 'date', sortable: true },
+    {
+      header: 'مصدر الإيداع',
+      accessor: (row: any) => {
+        if (row.source === 'OWNER_INJECTION') return 'إيداع من المالك';
+        if (row.source === 'LOAN') return 'قرض أو تمويل';
+        if (row.source === 'FLOAT_TOPUP') return 'تعزيز رصيد الدرج';
+        if (row.source === 'OTHER') return 'أخرى';
+        return row.source;
+      },
+      key: 'source',
+      sortable: true,
+    },
+    { header: 'البيان / الوصف', accessor: 'description' as const, key: 'description' },
+    {
+      header: 'القيمة',
+      accessor: (row: any) => formatMoney(row.amount),
+      key: 'amount',
+      sortable: true,
+    },
+    {
+      header: 'الإيداع في حـ/',
+      accessor: (row: any) => (row.depositedTo === 'BANK' ? 'الحساب البنكي' : 'النقدية بالدرج'),
+      key: 'depositedTo',
+    },
+    {
+      header: 'إجراءات',
+      accessor: (row: any) => (
+        <Can permission={PERMISSIONS.FINANCE_DELETE_DEPOSIT}>
+          <Button
+            onClick={() => {
+              if (confirm('هل أنت متأكد من رغبتك في حذف هذا الإيداع؟')) {
+                deleteDeposit(row.id);
+              }
+            }}
+            variant="danger"
+            size="sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px' }}
+          >
+            <Trash2 size={12} /> حذف
+          </Button>
+        </Can>
+      ),
+      key: 'actions',
+    },
+  ];
+
   const closingsColumns = [
     { header: 'تاريخ اليومية', accessor: 'date' as const, key: 'date', sortable: true },
     {
@@ -529,7 +642,7 @@ export const Finance: React.FC = () => {
     },
   ];
 
-  if (loadingExpenses || loadingClosings) {
+  if (loadingExpenses || loadingClosings || (canViewDeposits && loadingDeposits)) {
     return (
       <div className="workspace">
         <div className="skeleton" style={{ height: '40px' }} />
@@ -550,6 +663,11 @@ export const Finance: React.FC = () => {
             <Can permission={PERMISSIONS.FINANCE_ADD_EXPENSE}>
               <Button onClick={() => setShowExpenseModal(true)} variant="primary" size="sm">
                 <PlusCircle size={14} /> تسجيل مصروف تشغيلي جديد
+              </Button>
+            </Can>
+            <Can permission={PERMISSIONS.FINANCE_ADD_DEPOSIT}>
+              <Button onClick={() => setShowDepositModal(true)} variant="primary" size="sm">
+                <PiggyBank size={14} /> تسجيل إيداع نقدي جديد
               </Button>
             </Can>
           </div>
@@ -781,6 +899,24 @@ export const Finance: React.FC = () => {
         >
           <Landmark size={16} /> النفقات والمصاريف التشغيلية
         </button>
+        <Can permission={PERMISSIONS.FINANCE_VIEW_DEPOSITS}>
+          <button
+            onClick={() => setActiveSubTab('DEPOSITS')}
+            className="btn-ghost"
+            style={{
+              fontSize: 'var(--font-size-sm)',
+              padding: '6px 16px',
+              borderBottom: activeSubTab === 'DEPOSITS' ? '2px solid var(--color-primary)' : 'none',
+              color: activeSubTab === 'DEPOSITS' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              fontWeight: activeSubTab === 'DEPOSITS' ? 'bold' : 'normal',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <PiggyBank size={16} /> الإيداعات النقدية
+          </button>
+        </Can>
         <button
           onClick={() => setActiveSubTab('CLOSINGS')}
           className="btn-ghost"
@@ -893,6 +1029,16 @@ export const Finance: React.FC = () => {
           />
         )}
 
+        {activeSubTab === 'DEPOSITS' && (
+          <DataTable
+            data={[...(deposits || [])].reverse()}
+            columns={depositsColumns}
+            rowKey="id"
+            searchField="description"
+            searchPlaceholder="ابحث ببيان أو وصف الإيداع..."
+          />
+        )}
+
         {activeSubTab === 'CLOSINGS' && (
           <DataTable data={[...(closings || [])].reverse()} columns={closingsColumns} rowKey="id" />
         )}
@@ -960,6 +1106,70 @@ export const Finance: React.FC = () => {
             options={[
               { value: 'BANK', label: 'الحساب البنكي الرئيسي للمؤسسة' },
               { value: 'CASH', label: 'درج الكاشير النقدي بالفرع' },
+            ]}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDepositModal}
+        onClose={() => setShowDepositModal(false)}
+        title="تسجيل إيداع نقدي جديد"
+        footer={
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button onClick={() => setShowDepositModal(false)} variant="secondary">
+              إلغاء
+            </Button>
+            <Button onClick={handleRecordDeposit} disabled={loggingDeposit} variant="primary">
+              حفظ وتسجيل الإيداع
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+          <Select
+            label="مصدر الإيداع"
+            value={depSource}
+            onChange={(e) => setDepSource(e.target.value)}
+            options={[
+              { value: 'OWNER_INJECTION', label: 'إيداع من المالك (رأس مال إضافي)' },
+              { value: 'LOAN', label: 'قرض أو تمويل خارجي' },
+              { value: 'FLOAT_TOPUP', label: 'تعزيز رصيد درج الكاشير' },
+              { value: 'OTHER', label: 'مصدر آخر' },
+              { value: 'CUSTOM', label: 'تصنيف مخصص... (أدخل اسماً مخصصاً)' },
+            ]}
+          />
+
+          {depSource === 'CUSTOM' && (
+            <Input
+              label="اسم المصدر المخصص"
+              value={customDepSource}
+              onChange={(e) => setCustomDepSource(e.target.value)}
+              placeholder="مثال: تسوية عهدة، استرداد من مورد..."
+            />
+          )}
+
+          <Input
+            label="قيمة الإيداع (ج.م)"
+            value={depAmount}
+            onChange={(e) => setDepAmount(e.target.value)}
+            placeholder="0.00"
+          />
+
+          <Input
+            label="بيان أو وصف الإيداع"
+            value={depDescription}
+            onChange={(e) => setDepDescription(e.target.value)}
+            placeholder="مثال: تعزيز رصيد الدرج بداية الوردية"
+          />
+
+          <Select
+            label="الإيداع في حساب"
+            value={depTarget}
+            onChange={(e) => setDepTarget(e.target.value as any)}
+            options={[
+              { value: 'CASH', label: 'درج الكاشير النقدي بالفرع' },
+              { value: 'BANK', label: 'الحساب البنكي الرئيسي للمؤسسة' },
             ]}
           />
         </div>

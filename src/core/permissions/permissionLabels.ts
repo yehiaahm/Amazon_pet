@@ -121,6 +121,9 @@ export const PERMISSION_TRANSLATIONS: Record<string, { name: string; description
   'finance.delete_expense': { name: 'حذف سجل مصروف' },
   'finance.view_profit': { name: 'عرض صافي الأرباح والأداء المالي' },
   'finance.view_reports': { name: 'عرض التقارير وإغلاقات الصندوق اليومية' },
+  'finance.view_deposits': { name: 'عرض سجل الإيداعات النقدية' },
+  'finance.add_deposit': { name: 'تسجيل إيداع نقدي جديد (صلاحية المالك فقط)' },
+  'finance.delete_deposit': { name: 'حذف سجل إيداع نقدي' },
 
   // Reports
   'reports.view': { name: 'عرض التقرير العامة للنظام' },

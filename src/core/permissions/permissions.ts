@@ -72,6 +72,9 @@ export const PERMISSIONS = {
   FINANCE_DELETE_EXPENSE: 'finance.delete_expense',
   FINANCE_VIEW_PROFIT: 'finance.view_profit',
   FINANCE_VIEW_REPORTS: 'finance.view_reports',
+  FINANCE_VIEW_DEPOSITS: 'finance.view_deposits',
+  FINANCE_ADD_DEPOSIT: 'finance.add_deposit',
+  FINANCE_DELETE_DEPOSIT: 'finance.delete_deposit',
 
   REPORTS_VIEW: 'reports.view',
   REPORTS_EXPORT_EXCEL: 'reports.export_excel',

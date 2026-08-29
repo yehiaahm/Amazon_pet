@@ -114,6 +114,7 @@ export interface Customer {
   name: string;
   phone: string;
   email: string;
+  address?: string;
   isBanned?: boolean;
   /** Promotional discount percent 0–100 */
   discount?: number;
@@ -245,6 +246,16 @@ export interface Expense {
   paidFrom: 'CASH' | 'BANK';
 }
 
+export interface CashDeposit {
+  id: string;
+  branchId: string;
+  source: string;
+  amount: number;
+  date: string;
+  description: string;
+  depositedTo: 'CASH' | 'BANK';
+}
+
 export interface DailyClosing {
   id: string;
   branchId: string;
@@ -263,6 +274,7 @@ export interface DailyClosing {
   totalSales?: number;
   deliveryOrdersCount?: number;
   deliveryFeesTotal?: number;
+  cashDepositsTotal?: number;
 }
 
 export interface POSSession {
@@ -315,6 +327,7 @@ export interface Sale {
   payments?: { method: string; amount: number }[];
   delivery?: boolean;
   deliveryFee?: number;
+  deliveryAddress?: string;
   /** Loyalty balance credited from this sale. */
   loyaltyEarned?: number;
   /** Loyalty balance spent as payment on this sale. */

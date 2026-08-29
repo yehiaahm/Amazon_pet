@@ -383,6 +383,7 @@ export const InvoiceReview: React.FC = () => {
       sale: selectedSale,
       customerName: cust?.name || 'Walk-in Customer',
       customerPhone: cust?.phone,
+      customerAddress: cust?.address,
       cashierName: cashier,
       branchName: 'Hadaeq El Ahram',
       resolveName: resolveInvoiceItemName,

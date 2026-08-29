@@ -10,9 +10,9 @@ import {
   Sun, Moon, FileText, RotateCcw, Shield, Gift
 } from 'lucide-react';
 import { usePermissions } from '../core/permissions/usePermissions';
-import { usePermissionStore } from '../core/permissions/permissionStore';
 import { PERMISSIONS } from '../core/permissions/permissions';
 import Can from '../components/ui/Can';
+import { logout } from '../core/auth/logout';
 
 interface ExecutiveLayoutProps {
   children: React.ReactNode;
@@ -27,8 +27,6 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
   const toggleTheme = useUIStore(s => s.toggleTheme);
   
   const currentEmployee = useUIStore(s => s.currentEmployee);
-  const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
-  const setAuthenticated = useUIStore(s => s.setAuthenticated);
   const setAutoOpenCloseShiftModal = useUIStore(s => s.setAutoOpenCloseShiftModal);
   const setLogoutAfterCloseShift = useUIStore(s => s.setLogoutAfterCloseShift);
 
@@ -151,10 +149,7 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
                   setActiveModule('pos');
                   return;
                 }
-                localStorage.removeItem('token');
-                setCurrentEmployee(null);
-                setAuthenticated(false);
-                usePermissionStore.getState().clearPermissions();
+                logout();
               }}
               className="btn-ghost"
               style={{

@@ -1,5 +1,6 @@
 server:
-  port: 8080
+  # Railway (and most PaaS hosts) inject PORT at runtime; keep 8080 as the local/desktop default.
+  port: ${PORT:8080}
   servlet:
     context-path: /api
 

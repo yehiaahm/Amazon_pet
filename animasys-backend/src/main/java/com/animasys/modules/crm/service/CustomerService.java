@@ -58,6 +58,7 @@ public class CustomerService {
                 .phone(normalizedPhone)
                 .phoneDedupeKey(normalizedPhone)
                 .email(dto.getEmail())
+                .address(dto.getAddress())
                 .isBanned(dto.getIsBanned() != null ? dto.getIsBanned() : false)
                 .discount(clampDiscount(dto.getDiscount() != null ? dto.getDiscount() : 0))
                 .notes(normalizeNotes(dto.getNotes()))
@@ -134,6 +135,7 @@ public class CustomerService {
         existing.setPhone(normalizedPhone);
         existing.setPhoneDedupeKey(normalizedPhone);
         existing.setEmail(dto.getEmail());
+        existing.setAddress(dto.getAddress());
         if (dto.getNotes() != null) {
             existing.setNotes(normalizeNotes(dto.getNotes()));
         }

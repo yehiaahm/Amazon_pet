@@ -87,7 +87,7 @@ public class InventoryController {
     }
 
     @GetMapping("/variants")
-    @PreAuthorize("@authz.has('inventory.view')")
+    @PreAuthorize("@authz.hasAny('inventory.view', 'products.view', 'sales.create_sale')")
     public ResponseEntity<ApiResponseWrapper<CatalogPageResponse>> getVariants(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,

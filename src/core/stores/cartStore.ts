@@ -39,6 +39,8 @@ interface CartState {
   isDelivery: boolean;
   /** Delivery fee entered by the cashier; only counted when isDelivery is true. */
   deliveryFee: number;
+  /** Delivery address; auto-filled from the selected customer's saved address when available. */
+  deliveryAddress: string;
 
   addItem: (item: CartLineInput) => void;
   removeItem: (itemId: string, type: SaleItem['type']) => void;
@@ -60,6 +62,7 @@ interface CartState {
   setBelowMinManagerPassword: (password: string) => void;
   setIsDelivery: (isDelivery: boolean) => void;
   setDeliveryFee: (fee: number) => void;
+  setDeliveryAddress: (address: string) => void;
   clearCart: () => void;
   getUnapprovedBelowMinLines: () => SaleItem[];
   minAllowedPriceForLine: (itemId: string, type: SaleItem['type']) => number;
@@ -107,6 +110,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   belowMinManagerPassword: '',
   isDelivery: false,
   deliveryFee: 0,
+  deliveryAddress: '',
 
   addItem: (item) =>
     set((state) => {
@@ -232,8 +236,9 @@ export const useCartStore = create<CartState>((set, get) => ({
       splitPayments: state.splitPayments.map((line, i) => (i === index ? { ...line, ...patch } : line)),
     })),
   setBelowMinManagerPassword: (password) => set({ belowMinManagerPassword: password }),
-  setIsDelivery: (isDelivery) => set({ isDelivery, ...(isDelivery ? {} : { deliveryFee: 0 }) }),
+  setIsDelivery: (isDelivery) => set({ isDelivery, ...(isDelivery ? {} : { deliveryFee: 0, deliveryAddress: '' }) }),
   setDeliveryFee: (fee) => set({ deliveryFee: Number.isFinite(fee) && fee >= 0 ? fee : 0 }),
+  setDeliveryAddress: (address) => set({ deliveryAddress: address }),
   clearCart: () =>
     set({
       cartItems: [],
@@ -247,6 +252,7 @@ export const useCartStore = create<CartState>((set, get) => ({
       belowMinManagerPassword: '',
       isDelivery: false,
       deliveryFee: 0,
+      deliveryAddress: '',
     }),
 
   getTotals: () => {

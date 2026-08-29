@@ -12,20 +12,26 @@ public class EndpointPermissionRegistry {
 
     private record Key(String method, String path) {}
 
-    private final Map<Key, String> mappings = new HashMap<>();
+    private final Map<Key, String[]> mappings = new HashMap<>();
 
     public EndpointPermissionRegistry() {
         registerEndpoints();
     }
 
-    public Optional<String> resolve(String httpMethod, String requestUri) {
+    /**
+     * Resolves the permission code(s) required for a request. An endpoint may accept
+     * any one of several permissions (e.g. the POS product catalog is reachable by
+     * either the inventory-management permission or plain sales-floor access) -
+     * callers should grant access if the caller holds at least one of these.
+     */
+    public Optional<String[]> resolve(String httpMethod, String requestUri) {
         String normalized = normalizePath(requestUri);
         String method = httpMethod != null ? httpMethod.toUpperCase(Locale.ROOT) : "GET";
-        String direct = mappings.get(new Key(method, normalized));
+        String[] direct = mappings.get(new Key(method, normalized));
         if (direct != null) {
             return Optional.of(direct);
         }
-        for (Map.Entry<Key, String> entry : mappings.entrySet()) {
+        for (Map.Entry<Key, String[]> entry : mappings.entrySet()) {
             if (!entry.getKey().method.equals(method)) {
                 continue;
             }
@@ -69,8 +75,8 @@ public class EndpointPermissionRegistry {
         return path;
     }
 
-    private void map(String method, String path, String permission) {
-        mappings.put(new Key(method.toUpperCase(Locale.ROOT), path), permission);
+    private void map(String method, String path, String... permissions) {
+        mappings.put(new Key(method.toUpperCase(Locale.ROOT), path), permissions);
     }
 
     private void registerEndpoints() {
@@ -111,7 +117,10 @@ public class EndpointPermissionRegistry {
 
         // Inventory — stock views & operations
         map("GET",    "/v1/inventory/warehouses",                   "inventory.view");
-        map("GET",    "/v1/inventory/variants",                     "inventory.view");
+        // This also serves the POS product grid (the sellable catalog), so anyone
+        // cleared to ring up sales must be able to load it even without the
+        // broader inventory-management permission.
+        map("GET",    "/v1/inventory/variants",                     "inventory.view", "products.view", "sales.create_sale");
         map("GET",    "/v1/inventory/low-stock",                    "inventory.view");
         map("GET",    "/v1/inventory/batches",                      "inventory.batch_management");
         map("GET",    "/v1/inventory/movements",                    "inventory.view_stock_history");
@@ -242,6 +251,10 @@ public class EndpointPermissionRegistry {
         map("POST",   "/v1/expenses",                                 "finance.add_expense");
         map("GET",    "/v1/expenses/{id}",                            "finance.view_expenses");
         map("DELETE", "/v1/expenses/{id}",                            "finance.delete_expense");
+        map("GET",    "/v1/cash-deposits",                            "finance.view_deposits");
+        map("POST",   "/v1/cash-deposits",                            "finance.add_deposit");
+        map("GET",    "/v1/cash-deposits/{id}",                       "finance.view_deposits");
+        map("DELETE", "/v1/cash-deposits/{id}",                       "finance.delete_deposit");
         map("GET",    "/v1/daily-closings",                           "finance.view_reports");
         map("POST",   "/v1/daily-closings",                           "finance.view_reports");
         map("GET",    "/v1/accounts-payable/dashboard",               "finance.view_reports");

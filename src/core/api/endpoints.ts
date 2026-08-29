@@ -1,6 +1,6 @@
 import {
   Product, ProductVariant, Warehouse, StockMovement,
-  Customer, Pet, Service, Appointment, Expense,
+  Customer, Pet, Service, Appointment, Expense, CashDeposit,
   DailyClosing, POSSession, Sale, KPIMetrics, DashboardMetrics, AIAdvisorInsight,
   PurchaseInvoice, BoardingReservation, TenantBarcodeSettings,
   PurchaseInvoiceCreateResponse, PurchaseReturnResult, SaleRefundResult, SaleBatchAllocationRow,
@@ -893,6 +893,23 @@ export const api = {
 
   async deleteExpense(id: string): Promise<void> {
     await apiFetch<void>(`/v1/expenses/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getCashDeposits(): Promise<CashDeposit[]> {
+    return await apiFetch<CashDeposit[]>('/v1/cash-deposits');
+  },
+
+  async addCashDeposit(deposit: Omit<CashDeposit, 'id' | 'date'>): Promise<CashDeposit> {
+    return await apiFetch<CashDeposit>('/v1/cash-deposits', {
+      method: 'POST',
+      body: JSON.stringify(deposit),
+    });
+  },
+
+  async deleteCashDeposit(id: string): Promise<void> {
+    await apiFetch<void>(`/v1/cash-deposits/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   },

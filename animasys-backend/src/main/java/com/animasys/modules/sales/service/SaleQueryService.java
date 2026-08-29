@@ -118,7 +118,11 @@ public class SaleQueryService {
             return;
         }
         predicates.add(cb.equal(employeeJoin.get("id"), actor.getId()));
-        if (criteria.getDateFrom() == null && criteria.getDateTo() == null) {
+        // An exact invoice-number search (see applyFilters) already narrows to at most
+        // one of the cashier's own sales, so it's safe to look past today for it - the
+        // "today only" bound below is just the browsing-without-a-number default.
+        boolean exactNumberSearch = criteria.getSearch() != null && !criteria.getSearch().isBlank();
+        if (criteria.getDateFrom() == null && criteria.getDateTo() == null && !exactNumberSearch) {
             LocalDate today = LocalDate.now(BUSINESS_ZONE);
             Instant from = today.atStartOfDay(BUSINESS_ZONE).toInstant();
             Instant to = today.plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant();

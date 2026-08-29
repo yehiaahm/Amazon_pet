@@ -21,6 +21,7 @@ export const keys = {
   services: ['services'] as const,
   appointments: ['appointments'] as const,
   expenses: ['expenses'] as const,
+  cashDeposits: ['cashDeposits'] as const,
   dailyClosings: ['dailyClosings'] as const,
   kpis: ['kpis'] as const,
   dashboard: ['dashboard'] as const,
@@ -94,10 +95,14 @@ export function useLowStockAlerts() {
   });
 }
 
-export function useSales(params: SalesQueryParams = { page: 0, size: 50, sort: 'date,desc' }) {
+export function useSales(
+  params: SalesQueryParams = { page: 0, size: 50, sort: 'date,desc' },
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: [...keys.sales, params],
     queryFn: () => api.getSales(params),
+    enabled: options?.enabled,
   });
 }
 
@@ -285,6 +290,14 @@ export function useExpenses() {
   return useQuery({
     queryKey: keys.expenses,
     queryFn: () => api.getExpenses(),
+  });
+}
+
+export function useCashDeposits(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: keys.cashDeposits,
+    queryFn: () => api.getCashDeposits(),
+    enabled: options?.enabled,
   });
 }
 
@@ -583,6 +596,36 @@ export function useDeleteExpense() {
       queryClient.invalidateQueries({ queryKey: keys.kpis });
       queryClient.invalidateQueries({ queryKey: keys.aiInsights });
       addNotification('FINANCE', 'Expense Deleted', 'Operational expense has been deleted.');
+    }
+  });
+}
+
+export function useAddCashDeposit() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (depositData: Parameters<typeof api.addCashDeposit>[0]) => api.addCashDeposit(depositData),
+    onSuccess: (newDeposit) => {
+      queryClient.invalidateQueries({ queryKey: keys.cashDeposits });
+      queryClient.invalidateQueries({ queryKey: keys.kpis });
+      queryClient.invalidateQueries({ queryKey: keys.aiInsights });
+      addNotification('FINANCE', 'Cash Deposit Recorded', `Logged ${formatMoney(newDeposit.amount)} under ${newDeposit.source}.`);
+    }
+  });
+}
+
+export function useDeleteCashDeposit() {
+  const queryClient = useQueryClient();
+  const addNotification = useUIStore(s => s.addNotification);
+
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCashDeposit(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.cashDeposits });
+      queryClient.invalidateQueries({ queryKey: keys.kpis });
+      queryClient.invalidateQueries({ queryKey: keys.aiInsights });
+      addNotification('FINANCE', 'Cash Deposit Deleted', 'Cash deposit record has been deleted.');
     }
   });
 }

@@ -14,6 +14,7 @@ public class CreateCustomerRequest {
     private String name;
     private String phone;
     private String email;
+    private String address;
     private Boolean isBanned;
     @Min(0) @Max(100)
     private Integer discount;
@@ -26,6 +27,7 @@ public class CreateCustomerRequest {
         private String name;
         private String phone;
         private String email;
+        private String address;
         private Boolean isBanned;
         @Min(0) @Max(100)
         private Integer discount;
@@ -45,6 +47,10 @@ public class CreateCustomerRequest {
 
     public String resolvedEmail() {
         return pick(customer != null ? customer.getEmail() : null, email);
+    }
+
+    public String resolvedAddress() {
+        return pick(customer != null ? customer.getAddress() : null, address);
     }
 
     public Boolean resolvedIsBanned() {

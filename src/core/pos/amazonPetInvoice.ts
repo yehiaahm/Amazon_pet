@@ -16,6 +16,7 @@ export type AmazonPetInvoiceData = {
   date: string | Date;
   customerName: string;
   customerPhone?: string;
+  customerAddress?: string;
   cashierName: string;
   branchName?: string;
   items: InvoiceLine[];
@@ -28,6 +29,7 @@ export type AmazonPetInvoiceData = {
   status?: string;
   isDelivery?: boolean;
   deliveryFee?: number;
+  deliveryAddress?: string;
 };
 
 const NAVY = '#1a2b5e';
@@ -230,6 +232,8 @@ function renderInvoiceBody(data: AmazonPetInvoiceData): string {
         <div class="row"><span class="label">Cashier:</span><span class="value">${esc(data.cashierName)}</span></div>
         <div class="row"><span class="label">Customer:</span><span class="value">${esc(data.customerName)}</span></div>
         <div class="row"><span class="label">Phone No.:</span><span class="value">${esc(phone)}</span></div>
+        ${data.customerAddress ? `<div class="row"><span class="label">Address:</span><span class="value">${esc(data.customerAddress)}</span></div>` : ''}
+        ${data.isDelivery && data.deliveryAddress && data.deliveryAddress !== data.customerAddress ? `<div class="row"><span class="label">Delivery Address:</span><span class="value">${esc(data.deliveryAddress)}</span></div>` : ''}
       </div>
     </div>
 
@@ -587,9 +591,11 @@ export function saleToInvoiceData(opts: {
     status?: string;
     delivery?: boolean;
     deliveryFee?: number;
+    deliveryAddress?: string;
   };
   customerName: string;
   customerPhone?: string;
+  customerAddress?: string;
   cashierName: string;
   branchName?: string;
   /** Optional catalog lookup to fill missing item names on older sales */
@@ -631,6 +637,7 @@ export function saleToInvoiceData(opts: {
     date: sale.date,
     customerName: opts.customerName,
     customerPhone: opts.customerPhone,
+    customerAddress: opts.customerAddress,
     cashierName: opts.cashierName,
     branchName: opts.branchName || 'Hadaeq El Ahram',
     items,
@@ -643,5 +650,6 @@ export function saleToInvoiceData(opts: {
     status: sale.status,
     isDelivery: sale.delivery,
     deliveryFee: sale.deliveryFee,
+    deliveryAddress: sale.deliveryAddress,
   };
 }

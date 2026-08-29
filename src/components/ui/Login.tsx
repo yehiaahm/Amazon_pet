@@ -59,7 +59,7 @@ export const Login: React.FC = () => {
       const raw = err?.message || '';
       const msg =
         raw === 'Failed to fetch'
-          ? 'تعذر الاتصال بالخادم. تأكد أن Amazon Pet يعمل وأن المنفذ 8080 متاح.'
+          ? 'تعذر الاتصال بالخادم. تأكد من تشغيل خادم Amazon Pet ومحاولة الاتصال مرة أخرى.'
           : raw || 'خطأ في الاتصال بالخادم. تأكد من تشغيل الـ Backend.';
       setErrorMsg(msg);
       setPinCode('');

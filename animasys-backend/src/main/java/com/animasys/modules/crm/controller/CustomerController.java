@@ -92,6 +92,7 @@ public class CustomerController {
         c.setName(request.resolvedName());
         c.setPhone(request.resolvedPhone());
         c.setEmail(request.resolvedEmail());
+        c.setAddress(request.resolvedAddress());
         c.setIsBanned(request.resolvedIsBanned());
         c.setDiscount(request.resolvedDiscount());
         c.setNotes(request.resolvedNotes());

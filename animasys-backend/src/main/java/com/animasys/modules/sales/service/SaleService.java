@@ -126,6 +126,17 @@ public class SaleService {
                            String managerUsername, String managerPassword,
                            boolean isDelivery, BigDecimal clientDeliveryFee, BigDecimal loyaltyRedeemRequested,
                            List<SalePaymentRequest> payments) {
+        return createSale(posSessionId, employeeId, customerId, clientTotal, clientTax, clientDiscount,
+                paymentMethod, clientItems, managerUsername, managerPassword, isDelivery, clientDeliveryFee,
+                loyaltyRedeemRequested, payments, null);
+    }
+
+    public Sale createSale(String posSessionId, String employeeId, String customerId,
+                           BigDecimal clientTotal, BigDecimal clientTax, BigDecimal clientDiscount,
+                           String paymentMethod, List<SaleItem> clientItems,
+                           String managerUsername, String managerPassword,
+                           boolean isDelivery, BigDecimal clientDeliveryFee, BigDecimal loyaltyRedeemRequested,
+                           List<SalePaymentRequest> payments, String deliveryAddress) {
         if (clientItems == null || clientItems.isEmpty()) {
             throw new BusinessRuleException("لا يمكن إتمام البيع بدون أصناف");
         }
@@ -329,6 +340,8 @@ public class SaleService {
                 .status("COMPLETED")
                 .delivery(isDelivery)
                 .deliveryFee(deliveryFee)
+                .deliveryAddress(isDelivery && deliveryAddress != null && !deliveryAddress.isBlank()
+                        ? deliveryAddress.trim() : null)
                 .loyaltyRedeemed(loyaltyRedeemed)
                 .build();
 

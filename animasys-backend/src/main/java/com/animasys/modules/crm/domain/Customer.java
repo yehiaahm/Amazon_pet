@@ -32,6 +32,7 @@ public class Customer {
 
     private String phone;
     private String email;
+    private String address;
 
     /**
      * Kept in sync with {@link #phone} (normalized, null when blank) by CustomerService on every

@@ -14,6 +14,8 @@ interface SessionState {
   startSession: (openedById: string, openingBalance: number) => Promise<POSSession>;
   endSession: (sessionId: string, closingBalance: number, expected: number, actual: number, closedById: string) => Promise<POSSession>;
   clearError: () => void;
+  /** Drop this account's session data so the next login doesn't inherit it. */
+  reset: () => void;
 }
 
 function notifySessionError(title: string, error: unknown) {
@@ -29,6 +31,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   error: null,
 
   clearError: () => set({ error: null }),
+
+  reset: () => set({ activeSession: null, sessions: [], loading: false, error: null }),
 
   fetchSessions: async () => {
     set({ loading: true, error: null });

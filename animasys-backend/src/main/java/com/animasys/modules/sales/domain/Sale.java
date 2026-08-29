@@ -89,6 +89,9 @@ public class Sale {
     @Column(name = "delivery_fee", nullable = false)
     private BigDecimal deliveryFee = BigDecimal.ZERO;
 
+    @Column(name = "delivery_address", length = 500)
+    private String deliveryAddress;
+
     /** Loyalty balance credited from this sale (written post-commit once earning is computed). */
     @Builder.Default
     @Column(name = "loyalty_earned", nullable = false)

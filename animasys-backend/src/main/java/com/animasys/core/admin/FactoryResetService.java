@@ -135,6 +135,9 @@ public class FactoryResetService {
         cleared.put("expenses", delete(
                 "DELETE FROM expenses WHERE tenant_id = :tenantId", tenantId));
 
+        cleared.put("cash_deposits", delete(
+                "DELETE FROM cash_deposits WHERE tenant_id = :tenantId", tenantId));
+
         cleared.put("daily_closings", delete("""
                 DELETE FROM daily_closings WHERE branch_id IN (
                     SELECT b.id FROM branches b
@@ -203,6 +206,19 @@ public class FactoryResetService {
                     WHERE e.tenant_id = :tenantId
                 )
                 """, tenantId));
+
+        cleared.put("import_session_items", delete("""
+                DELETE FROM import_session_items WHERE session_id IN (
+                    SELECT ims.id FROM import_sessions ims
+                    WHERE ims.tenant_id = :tenantId
+                )
+                """, tenantId));
+
+        cleared.put("import_sessions", delete(
+                "DELETE FROM import_sessions WHERE tenant_id = :tenantId", tenantId));
+
+        cleared.put("ai_request_logs", delete(
+                "DELETE FROM ai_request_logs WHERE tenant_id = :tenantId", tenantId));
 
         try {
             jdbcTemplate.update(

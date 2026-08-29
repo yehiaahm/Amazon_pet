@@ -42,6 +42,7 @@ public class CreateSaleRequest {
 
     private boolean delivery;
     private BigDecimal deliveryFee;
+    private String deliveryAddress;
 
     /** Amount of the customer's loyalty balance the cashier asked to redeem on this sale. Clamped server-side. */
     private BigDecimal loyaltyRedeem;

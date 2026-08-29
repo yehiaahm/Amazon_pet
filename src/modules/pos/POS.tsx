@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '../../core/stores/cartStore';
 import { useSessionStore } from '../../core/stores/sessionStore';
 import { useUIStore } from '../../core/stores/uiStore';
+import { logout } from '../../core/auth/logout';
 import {
   useVariants, useProducts, useServices,
   useCustomers, useCreateSale, useSales, useRefundSale, useAddCustomer,
@@ -59,8 +60,6 @@ import { PosVirtualCatalogGrid } from './PosVirtualCatalogGrid';
 
 export const POS: React.FC = () => {
   const currentEmployee = useUIStore(s => s.currentEmployee)!;
-  const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
-  const setAuthenticated = useUIStore(s => s.setAuthenticated);
   const addNotification = useUIStore(s => s.addNotification);
   const { hasPermission } = usePermissions();
   const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
@@ -102,12 +101,14 @@ export const POS: React.FC = () => {
   const setIsDelivery = useCartStore(s => s.setIsDelivery);
   const deliveryFee = useCartStore(s => s.deliveryFee);
   const setDeliveryFee = useCartStore(s => s.setDeliveryFee);
+  const deliveryAddress = useCartStore(s => s.deliveryAddress);
+  const setDeliveryAddress = useCartStore(s => s.setDeliveryAddress);
 
   const checkoutIdempotencyKeyRef = useRef(crypto.randomUUID());
 
   useEffect(() => {
     checkoutIdempotencyKeyRef.current = crypto.randomUUID();
-  }, [cartItems, customerId, paymentMethod, isSplitPayment, splitPayments, discountPercent, isDelivery, deliveryFee, loyaltyRedeemAmount]);
+  }, [cartItems, customerId, paymentMethod, isSplitPayment, splitPayments, discountPercent, isDelivery, deliveryFee, deliveryAddress, loyaltyRedeemAmount]);
 
   // Queries & Mutations
   const { data: products } = useProducts();
@@ -121,12 +122,19 @@ export const POS: React.FC = () => {
   const canManageLoyalty = hasPermission(PERMISSIONS.CUSTOMERS_LOYALTY);
   const loyaltyBalance = loyaltyAccount?.balance ?? 0;
   const { mutate: executeSale, isPending: checkingOut } = useCreateSale();
+  // Scope to "today" (not "since this session opened") so a cashier can still find
+  // an invoice from earlier today after closing/reopening their register session.
+  const todayStartIso = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString();
+  }, []);
   const { data: salesPage } = useSales({
     page: 0,
     size: 100,
     sort: 'date,desc',
     ...(restrictedSalesScope ? { employee: currentEmployee.id } : {}),
-    ...(activeSession?.openedAt ? { dateFrom: activeSession.openedAt } : {}),
+    dateFrom: todayStartIso,
   });
   const sales = salesPage?.content;
   const { mutate: triggerRefund } = useRefundSale();
@@ -137,6 +145,7 @@ export const POS: React.FC = () => {
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
   const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustAddress, setNewCustAddress] = useState('');
   const [newPetName, setNewPetName] = useState('');
   const [newPetSpecies, setNewPetSpecies] = useState('DOG');
   const [newPetBreed, setNewPetBreed] = useState('');
@@ -367,7 +376,21 @@ export const POS: React.FC = () => {
     return { list, fuzzy: false };
   }, [sales, debouncedSearchQuery, customers, currentEmployee, restrictedSalesScope]);
 
-  const filteredSalesInPOS = invoiceSearchResult.list;
+  // The batch above only covers today. If the cashier typed an exact invoice
+  // number that isn't in it, the invoice may just be older - fall back to an
+  // unbounded lookup by that exact number (backend still scopes it to this
+  // cashier's own sales, no fuzzy/browse matching for restricted roles).
+  const trimmedInvoiceQuery = debouncedSearchQuery.trim();
+  const needsOlderInvoiceLookup = restrictedSalesScope && !!trimmedInvoiceQuery && invoiceSearchResult.list.length === 0;
+  const { data: olderInvoicePage, isFetching: searchingOlderInvoice } = useSales(
+    { page: 0, size: 1, search: trimmedInvoiceQuery, employee: currentEmployee.id },
+    { enabled: needsOlderInvoiceLookup }
+  );
+
+  const filteredSalesInPOS = useMemo(() => {
+    if (!needsOlderInvoiceLookup) return invoiceSearchResult.list;
+    return olderInvoicePage?.content ?? [];
+  }, [invoiceSearchResult, needsOlderInvoiceLookup, olderInvoicePage]);
 
   // Invoice navigation helpers inside POS Receipt Modal
   const activeReceiptIndex = useMemo(() => {
@@ -403,14 +426,22 @@ export const POS: React.FC = () => {
     }
   }, [selectedCustomer]);
 
+  // Auto-fill the delivery address from the selected customer's saved address —
+  // only when the field is still empty, so it never overwrites a manual edit.
+  useEffect(() => {
+    if (isDelivery && !deliveryAddress && selectedCustomer?.address) {
+      setDeliveryAddress(selectedCustomer.address);
+    }
+  }, [isDelivery, selectedCustomer]);
+
   // Filter customers by typed query
   const customerSuggestions = useMemo(() => {
     if (!customers) return [];
     const q = custSearchQuery.trim().toLowerCase();
     if (!q || q.includes('(')) return [];
-    return customers.filter(c => 
-      c.name.toLowerCase().includes(q) || 
-      c.phone.includes(q)
+    return customers.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      (c.phone || '').includes(q)
     );
   }, [customers, custSearchQuery]);
 
@@ -455,6 +486,7 @@ export const POS: React.FC = () => {
         sale: receipt,
         customerName: cust?.name || 'Walk-in Customer',
         customerPhone: cust?.phone,
+        customerAddress: cust?.address,
         cashierName: currentEmployee.fullName || currentEmployee.username || 'Cashier',
         branchName: 'Hadaeq El Ahram',
         resolveName: resolveInvoiceItemName,
@@ -475,6 +507,7 @@ export const POS: React.FC = () => {
           sale: receipt,
           customerName: cust?.name || 'Walk-in Customer',
           customerPhone: cust?.phone,
+          customerAddress: cust?.address,
           cashierName: currentEmployee.fullName || currentEmployee.username || 'Cashier',
           branchName: 'Hadaeq El Ahram',
           resolveName: resolveInvoiceItemName,
@@ -496,6 +529,7 @@ export const POS: React.FC = () => {
         sale: activeReceipt,
         customerName: cust?.name || 'Walk-in Customer',
         customerPhone: cust?.phone,
+        customerAddress: cust?.address,
         cashierName: currentEmployee.fullName || currentEmployee.username || 'Cashier',
         branchName: 'Hadaeq El Ahram',
         resolveName: resolveInvoiceItemName,
@@ -595,6 +629,11 @@ export const POS: React.FC = () => {
   const executeCheckout = (managerPassword?: string) => {
     const totals = getTotals();
 
+    if (isDelivery && !deliveryAddress.trim()) {
+      addNotification('WARNINGS', 'عنوان التوصيل مطلوب', 'أدخل عنوان التوصيل قبل إتمام طلب الدليفري.');
+      return;
+    }
+
     if (isSplitPayment) {
       const [first, second] = splitPayments;
       const sum = (first?.amount || 0) + (second?.amount || 0);
@@ -621,6 +660,7 @@ export const POS: React.FC = () => {
       customerId: customerId || undefined,
       delivery: isDelivery,
       deliveryFee: isDelivery ? totals.deliveryFee : 0,
+      deliveryAddress: isDelivery ? deliveryAddress.trim() : undefined,
       loyaltyRedeem: totals.loyaltyRedeemed,
       items: cartItems.map((item) => ({
         ...item,
@@ -709,9 +749,7 @@ export const POS: React.FC = () => {
 
       if (logoutAfterCloseShift) {
         setLogoutAfterCloseShift(false);
-        localStorage.removeItem('token');
-        setCurrentEmployee(null);
-        setAuthenticated(false);
+        logout();
       }
     } catch (err: any) {
       // Error surfaced via sessionStore notification
@@ -728,7 +766,8 @@ export const POS: React.FC = () => {
       customer: {
         name: newCustName,
         phone: newCustPhone,
-        email: newCustEmail
+        email: newCustEmail,
+        address: newCustAddress.trim() || undefined
       },
       pet: newPetName.trim() ? {
         name: newPetName,
@@ -748,6 +787,7 @@ export const POS: React.FC = () => {
         setNewCustName('');
         setNewCustPhone('');
         setNewCustEmail('');
+        setNewCustAddress('');
         setNewPetName('');
         setNewPetBreed('');
         setNewPetAge('');
@@ -1130,10 +1170,8 @@ export const POS: React.FC = () => {
             <Button 
               onClick={() => {
                 setLogoutAfterCloseShift(false);
-                localStorage.removeItem('token');
-                setCurrentEmployee(null);
-                setAuthenticated(false);
-              }} 
+                logout();
+              }}
               variant="ghost" 
               style={{ width: '100%', color: 'var(--color-danger)', fontWeight: 'bold' }}
             >
@@ -1314,6 +1352,13 @@ export const POS: React.FC = () => {
                     أدخل رقم الفاتورة المراد إرجاعها في حقل البحث أعلى الشاشة لإظهار بياناتها.
                   </div>
                 </div>
+              ) : needsOlderInvoiceLookup && searchingOlderInvoice ? (
+                <div style={{ padding: 'var(--spacing-6)', textAlign: 'center', backgroundColor: 'var(--color-surface)', border: '1px dashed var(--color-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-secondary)' }}>
+                  <Search size={32} color="var(--color-primary)" style={{ marginBottom: 8, opacity: 0.8 }} />
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold', color: 'var(--color-text-primary)' }}>
+                    بيدور على الفاتورة...
+                  </div>
+                </div>
               ) : debouncedSearchQuery.trim() && filteredSalesInPOS.length === 0 ? (
                 <div style={{ padding: 'var(--spacing-6)', textAlign: 'center', backgroundColor: 'var(--color-surface)', border: '1px dashed var(--color-danger)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-secondary)' }}>
                   <Search size={32} color="var(--color-danger)" style={{ marginBottom: 8, opacity: 0.8 }} />
@@ -1322,7 +1367,7 @@ export const POS: React.FC = () => {
                   </div>
                   {restrictedSalesScope ? (
                     <div style={{ fontSize: '10px', marginTop: 4 }}>
-                      تأكد إنك كتبت الرقم زي ما هو مطبوع بالظبط. لاحظ إن البحث هنا بيظهر بس فواتيرك انت اللي عملتها النهاردة — لو الفاتورة قديمة أو عملها كاشير تاني، اطلب من المدير يفتحها من شاشة "الفواتير".
+                      تأكد إنك كتبت الرقم زي ما هو مطبوع بالظبط. البحث بيشمل فواتيرك انت بس (أي تاريخ) — لو الفاتورة عملها كاشير تاني، اطلب من المدير يفتحها من شاشة "الفواتير".
                     </div>
                   ) : (
                     <div style={{ fontSize: '10px', marginTop: 4 }}>
@@ -1713,11 +1758,11 @@ export const POS: React.FC = () => {
 
               {/* Suggestion Dropdown List */}
               {showCustSuggestions && custSearchQuery && customerSuggestions.length > 0 && (
-                <div 
+                <div
                   ref={suggestionsRef}
                   style={{
                     position: 'absolute',
-                    bottom: '100%',
+                    top: '100%',
                     right: 0,
                     width: '100%',
                     backgroundColor: 'var(--color-surface)',
@@ -1728,7 +1773,7 @@ export const POS: React.FC = () => {
                     maxHeight: '180px',
                     overflowY: 'auto',
                     direction: 'rtl',
-                    marginBottom: '4px'
+                    marginTop: '4px'
                   }}
                 >
                   {customerSuggestions.map(cust => (
@@ -1794,7 +1839,7 @@ export const POS: React.FC = () => {
                 <div
                   style={{
                     position: 'absolute',
-                    bottom: '100%',
+                    top: '100%',
                     right: 0,
                     width: '100%',
                     backgroundColor: 'var(--color-surface)',
@@ -1806,7 +1851,7 @@ export const POS: React.FC = () => {
                     fontSize: 'var(--font-size-xs)',
                     color: 'var(--color-text-secondary)',
                     direction: 'rtl',
-                    marginBottom: '4px',
+                    marginTop: '4px',
                     textAlign: 'center'
                   }}
                 >
@@ -1921,6 +1966,22 @@ export const POS: React.FC = () => {
                   placeholder="0.00"
                   style={{ padding: '4px var(--spacing-2)' }}
                 />
+              </div>
+            )}
+            {isDelivery && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <Input
+                  label="عنوان التوصيل*"
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  placeholder="مثال: القاهرة، مدينة نصر، شارع مصطفى النحاس"
+                  style={!deliveryAddress.trim() ? { borderColor: 'var(--color-danger)' } : undefined}
+                />
+                {!deliveryAddress.trim() && (
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>
+                    مطلوب إدخال عنوان التوصيل ليظهر في الفاتورة
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -2523,6 +2584,13 @@ export const POS: React.FC = () => {
             value={newCustEmail}
             onChange={(e) => setNewCustEmail(e.target.value)}
             placeholder="مثال: email@example.com"
+          />
+
+          <Input
+            label="العنوان (اختياري)"
+            value={newCustAddress}
+            onChange={(e) => setNewCustAddress(e.target.value)}
+            placeholder="مثال: القاهرة، مدينة نصر"
           />
 
           <h5 style={{ fontWeight: 'bold', fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)', borderBottom: '1px solid var(--color-border)', paddingBottom: '6px', margin: '8px 0 0 0' }}>بيانات أليف العميل (اختياري للربط السريع):</h5>
