@@ -77,7 +77,8 @@ jobs:
       - name: Build and (conditionally) push backend image
         uses: docker/build-push-action@v5
         with:
-          context: animasys-backend
+          context: .
+          file: animasys-backend/Dockerfile
           push: ${{ github.event_name == 'push' }}
           tags: ghcr.io/${{ github.repository }}/animasys-backend:${{ github.sha }},ghcr.io/${{ github.repository }}/animasys-backend:latest
           cache-from: type=gha

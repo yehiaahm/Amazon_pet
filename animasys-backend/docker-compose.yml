@@ -17,8 +17,8 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: animasys-backend/Dockerfile
     restart: unless-stopped
     depends_on:
       mysql:

@@ -1,13 +1,15 @@
 # --- Build stage -------------------------------------------------------
+# Build context is the REPO ROOT (see /railway.json's dockerfilePath and
+# .github/workflows/ci.yml's docker job) so paths below are repo-root-relative.
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
 # Cache dependencies separately from source so `mvn` doesn't re-download
 # the whole repo on every source change.
-COPY pom.xml .
+COPY animasys-backend/pom.xml .
 RUN mvn -B -q dependency:go-offline
 
-COPY src ./src
+COPY animasys-backend/src ./src
 RUN mvn -B -q clean package -DskipTests
 
 # --- Runtime stage -------------------------------------------------------
