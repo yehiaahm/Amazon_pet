@@ -23,7 +23,7 @@ class AiStartupValidatorTest {
     }
 
     @Test
-    void productionProfileRequiresApiKey() {
+    void productionProfileAllowsMissingApiKey() {
         AiProperties properties = new AiProperties();
         properties.setMockEnabled(false);
 
@@ -31,9 +31,7 @@ class AiStartupValidatorTest {
         environment.setActiveProfiles("prod");
 
         AiStartupValidator validator = new AiStartupValidator(properties, environment);
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> validator.run(null));
-        assertTrue(ex.getMessage().contains("GEMINI_API_KEY"));
+        assertDoesNotThrow(() -> validator.run(null));
     }
 
     @Test

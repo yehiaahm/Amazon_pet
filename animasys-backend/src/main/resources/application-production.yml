@@ -1,4 +1,5 @@
-# Production profile — AI mock mode forbidden; API key required (validated at startup).
+# Production profile — AI mock mode forbidden. GEMINI_API_KEY is optional; if unset,
+# AI endpoints fail at call time (see AiStartupValidator) but the app still boots.
 app:
   ai:
     mock-enabled: false

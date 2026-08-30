@@ -27,11 +27,6 @@ public class AiStartupValidator implements ApplicationRunner {
                     "AI mock mode (app.ai.mock-enabled=true) is forbidden in production profile");
         }
 
-        if (isProductionProfile() && !aiProperties.hasApiKey()) {
-            throw new IllegalStateException(
-                    "GEMINI_API_KEY is required when running with a production profile");
-        }
-
         if (aiProperties.isMockEnabled()) {
             log.warn("AI mock mode is ENABLED — responses are synthetic and must not be used for real ERP data");
         } else if (!aiProperties.hasApiKey()) {
