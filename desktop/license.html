@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 500px;
+      height: 400px;
+      background: linear-gradient(135deg, #1e1e24 0%, #111115 100%);
+      color: #ffffff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      border: 1px solid #33333e;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    
+    .header {
+      padding: 25px 25px 15px 25px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      -webkit-app-region: drag;
+    }
+    
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      background: linear-gradient(45deg, #00c6ff, #0072ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin: 0;
+    }
+    
+    .close-btn {
+      color: #888;
+      cursor: pointer;
+      font-size: 20px;
+      font-weight: bold;
+      transition: color 0.2s;
+      -webkit-app-region: no-drag;
+    }
+    
+    .close-btn:hover {
+      color: #ff4a4a;
+    }
+    
+    .content {
+      padding: 0 25px 25px 25px;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+    
+    .desc {
+      font-size: 13px;
+      color: #aaaab8;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    
+    .field-group {
+      margin-bottom: 20px;
+    }
+    
+    .label {
+      font-size: 12px;
+      color: #777785;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    
+    .uuid-box {
+      background: #17171d;
+      border: 1px solid #292935;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: monospace;
+      font-size: 13px;
+      color: #00c6ff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .copy-btn {
+      background: #22222b;
+      border: 1px solid #3d3d4e;
+      color: #b3b3c6;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .copy-btn:hover {
+      background: #0072ff;
+      border-color: #0072ff;
+      color: white;
+    }
+    
+    .input-key {
+      width: 100%;
+      background: #17171d;
+      border: 1px solid #292935;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 14px;
+      color: white;
+      box-sizing: border-box;
+      text-transform: uppercase;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    
+    .input-key:focus {
+      border-color: #0072ff;
+    }
+    
+    .error-msg {
+      font-size: 12px;
+      color: #ff4a4a;
+      height: 16px;
+      margin-bottom: 15px;
+      transition: opacity 0.2s;
+      opacity: 0;
+    }
+    
+    .footer-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: auto;
+    }
+    
+    .btn {
+      padding: 12px 24px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+    
+    .btn-secondary {
+      background: transparent;
+      color: #aaaab8;
+      border: 1px solid #292935;
+    }
+    
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.02);
+      color: white;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(45deg, #0072ff, #00c6ff);
+      color: white;
+      box-shadow: 0 4px 15px rgba(0, 114, 255, 0.3);
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(0, 114, 255, 0.4);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 class="title">System Activation</h1>
+    <div class="close-btn" id="close-btn">&times;</div>
+  </div>
+  
+  <div class="content">
+    <div class="desc">
+      This copy of Amazon Pet ERP is unregistered. Please send the Machine ID below to your provider to receive your activation key.
+    </div>
+    
+    <div class="field-group">
+      <div class="label">Machine Identification ID</div>
+      <div class="uuid-box">
+        <span id="uuid-text">Retrieving ID...</span>
+        <button class="copy-btn" id="copy-btn">Copy</button>
+      </div>
+    </div>
+    
+    <div class="field-group">
+      <div class="label">Enter Activation Key</div>
+      <input type="text" class="input-key" id="key-input" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="32">
+    </div>
+    
+    <div class="error-msg" id="error-msg">Invalid activation key. Please double check.</div>
+    
+    <div class="footer-actions">
+      <button class="btn btn-secondary" id="cancel-btn">Exit</button>
+      <button class="btn btn-primary" id="activate-btn">Activate License</button>
+    </div>
+  </div>
+
+  <script>
+    const uuidText = document.getElementById('uuid-text');
+    const copyBtn = document.getElementById('copy-btn');
+    const keyInput = document.getElementById('key-input');
+    const errorMsg = document.getElementById('error-msg');
+    const closeBtn = document.getElementById('close-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const activateBtn = document.getElementById('activate-btn');
+
+    // Get licensing status on launch
+    window.electronAPI.getLicenseStatus().then(status => {
+      uuidText.textContent = status.uuid;
+    });
+
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(uuidText.textContent);
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy';
+      }, 2000);
+    });
+
+    closeBtn.addEventListener('click', () => {
+      window.close();
+    });
+    
+    cancelBtn.addEventListener('click', () => {
+      window.close();
+    });
+
+    activateBtn.addEventListener('click', async () => {
+      const key = keyInput.value.trim().toUpperCase();
+      if (!key) {
+        showError('Please enter an activation key.');
+        return;
+      }
+      
+      activateBtn.disabled = true;
+      activateBtn.textContent = 'Validating...';
+      errorMsg.style.opacity = '0';
+      
+      const success = await window.electronAPI.verifyLicense(key);
+      if (success) {
+        window.close();
+      } else {
+        showError('Invalid activation key. Please double check.');
+        activateBtn.disabled = false;
+        activateBtn.textContent = 'Activate License';
+      }
+    });
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.opacity = '1';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Build context is the repo root (see /railway.json). Keep it to what the
+# backend Dockerfile actually COPYs (animasys-backend/pom.xml, animasys-backend/src)
+# — everything else here just slows down the upload/build.
+node_modules/
+.git/
+.github/
+.claude/
+dist/
+coverage/
+backups/
+desktop/
+installer/
+docs/
+load-tests/
+scripts/
+.data/
+*.log
+*.jar
+*.exe
+*.pdb
+.env
+.env.*
+animasys-backend/target/
+animasys-backend/.data/
+animasys-backend/.data-smoketest/
+animasys-backend/logs/
+animasys-backend/.env

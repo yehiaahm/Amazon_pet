@@ -1,5 +1,6 @@
 package com.animasys.modules.crm.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -18,6 +19,7 @@ public class Pet {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)
+    @JsonIgnore
     private Customer customer;
 
     @Column(nullable = false)
@@ -28,4 +30,11 @@ public class Pet {
 
     private String breed;
     private Integer age;
+
+    // Virtual field for responses — populated from customer association
+    @com.fasterxml.jackson.annotation.JsonProperty("customerId")
+    @Transient
+    public String getCustomerId() {
+        return customer != null ? customer.getId() : null;
+    }
 }

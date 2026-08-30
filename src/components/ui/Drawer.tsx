@@ -5,21 +5,22 @@ interface DrawerProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  maxWidth?: string;
 }
 
-export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children }) => {
+export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children, maxWidth = '420px' }) => {
   if (!isOpen) return null;
 
   return (
     <div className="modal-overlay" onClick={onClose} style={{ justifyContent: 'flex-end', alignItems: 'stretch' }}>
-      <div 
+      <div
         className="drawer-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderLeft: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-lg)',
           width: '100%',
-          maxWidth: '420px',
+          maxWidth,
           height: '100%',
           display: 'flex',
           flexDirection: 'column',

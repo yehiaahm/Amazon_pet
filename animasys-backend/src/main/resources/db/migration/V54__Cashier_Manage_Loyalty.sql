@@ -1,0 +1,9 @@
+-- Cashier can toggle the loyalty program open/closed, same as OWNER/MANAGER already can.
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code = 'customers.manage_loyalty'
+WHERE r.code = 'CASHIER'
+  AND NOT EXISTS (
+      SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  );

@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUIStore } from '../../core/stores/uiStore';
-import { Search, Monitor, ShoppingCart, Package, DollarSign, Brain, Settings, Users, PlusCircle } from 'lucide-react';
+import { usePermissions } from '../../core/permissions/usePermissions';
+import { PERMISSIONS } from '../../core/permissions/permissions';
+import { Search, Monitor, ShoppingCart, Package, DollarSign, Brain, Users, PlusCircle, FileText, Scissors, Calendar } from 'lucide-react';
 
 interface CommandItem {
   id: string;
@@ -9,12 +11,17 @@ interface CommandItem {
   icon: React.ReactNode;
   action: () => void;
   shortcut?: string;
+  /** Module ids used for permission filtering (aligned with ExecutiveLayout) */
+  modules?: string[];
+  permission?: string;
 }
 
 export const CommandPalette: React.FC = () => {
   const isOpen = useUIStore(s => s.commandPaletteOpen);
   const setOpen = useUIStore(s => s.setCommandPaletteOpen);
   const setActiveModule = useUIStore(s => s.setActiveModule);
+  const currentEmployee = useUIStore(s => s.currentEmployee);
+  const { canAccessModule, hasPermission } = usePermissions();
   
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -35,37 +42,42 @@ export const CommandPalette: React.FC = () => {
 
   // Focus Input when opened
   useEffect(() => {
-    if (isOpen) {
-      setQuery('');
-      setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+    if (!isOpen) return;
+    setQuery('');
+    setSelectedIndex(0);
+    const timer = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [isOpen]);
 
-  const commands: CommandItem[] = [
-    // Navigation
-    { id: 'nav-exec', name: 'Go to Executive Dashboard', category: 'Navigation', icon: <Monitor size={16} />, action: () => setActiveModule('dashboard-executive') },
-    { id: 'nav-fin-dash', name: 'Go to Financial Dashboard', category: 'Navigation', icon: <DollarSign size={16} />, action: () => setActiveModule('dashboard-financial') },
-    { id: 'nav-inv-dash', name: 'Go to Inventory Dashboard', category: 'Navigation', icon: <Package size={16} />, action: () => setActiveModule('dashboard-inventory') },
-    { id: 'nav-ops-dash', name: 'Go to Operations Dashboard', category: 'Navigation', icon: <Monitor size={16} />, action: () => setActiveModule('dashboard-operations') },
-    { id: 'nav-pos', name: 'Go to POS Cash Register', category: 'Navigation', icon: <ShoppingCart size={16} />, action: () => setActiveModule('pos') },
-    { id: 'nav-inv', name: 'Go to Inventory & Warehouses', category: 'Navigation', icon: <Package size={16} />, action: () => setActiveModule('inventory') },
-    { id: 'nav-fin', name: 'Go to Finance Ledger', category: 'Navigation', icon: <DollarSign size={16} />, action: () => setActiveModule('finance') },
-    { id: 'nav-ai', name: 'Go to AI Business Advisor', category: 'Navigation', icon: <Brain size={16} />, action: () => setActiveModule('ai') },
-    { id: 'nav-sett', name: 'Go to System Settings', category: 'Navigation', icon: <Settings size={16} />, action: () => setActiveModule('settings') },
-    
-    // Quick Actions
-    { id: 'act-pos-new', name: 'New POS Cart Sale', category: 'Actions', icon: <PlusCircle size={16} />, action: () => { setActiveModule('pos'); }, shortcut: 'N' },
-    { id: 'act-add-prod', name: 'Add New Product', category: 'Actions', icon: <PlusCircle size={16} />, action: () => { setActiveModule('inventory'); }, shortcut: 'P' },
-    { id: 'act-add-cust', name: 'Add New Customer', category: 'Actions', icon: <Users size={16} />, action: () => { setActiveModule('crm'); }, shortcut: 'C' },
-    { id: 'act-add-exp', name: 'Record New Expense', category: 'Actions', icon: <DollarSign size={16} />, action: () => { setActiveModule('finance'); }, shortcut: 'E' },
-  ];
+  const commands: CommandItem[] = useMemo(() => [
+    { id: 'nav-exec', name: 'Go to Executive Dashboard', category: 'Navigation', icon: <Monitor size={16} />, action: () => setActiveModule('dashboard-executive'), modules: ['dashboard-executive'] },
+    { id: 'nav-fin-dash', name: 'Go to Financial Dashboard', category: 'Navigation', icon: <DollarSign size={16} />, action: () => setActiveModule('dashboard-financial'), modules: ['dashboard-financial'] },
+    { id: 'nav-inv-dash', name: 'Go to Inventory Dashboard', category: 'Navigation', icon: <Package size={16} />, action: () => setActiveModule('dashboard-inventory'), modules: ['dashboard-inventory'] },
+    { id: 'nav-ops-dash', name: 'Go to Operations Dashboard', category: 'Navigation', icon: <Monitor size={16} />, action: () => setActiveModule('dashboard-operations'), modules: ['dashboard-operations'] },
+    { id: 'nav-pos', name: 'Go to POS Cash Register', category: 'Navigation', icon: <ShoppingCart size={16} />, action: () => setActiveModule('pos'), modules: ['pos'] },
+    { id: 'nav-invoices', name: 'Go to Invoice Review', category: 'Navigation', icon: <FileText size={16} />, action: () => setActiveModule('invoices'), modules: ['invoices'] },
+    { id: 'nav-inv', name: 'Go to Inventory & Warehouses', category: 'Navigation', icon: <Package size={16} />, action: () => setActiveModule('inventory'), modules: ['inventory'] },
+    { id: 'nav-crm', name: 'Go to CRM Customers', category: 'Navigation', icon: <Users size={16} />, action: () => setActiveModule('crm'), modules: ['crm'] },
+    { id: 'nav-services', name: 'Go to Services & Appointments', category: 'Navigation', icon: <Scissors size={16} />, action: () => setActiveModule('services'), modules: ['services'] },
+    { id: 'nav-boarding', name: 'Go to Boarding', category: 'Navigation', icon: <Calendar size={16} />, action: () => setActiveModule('boarding'), modules: ['boarding'] },
+    { id: 'nav-fin', name: 'Go to Finance Ledger', category: 'Navigation', icon: <DollarSign size={16} />, action: () => setActiveModule('finance'), modules: ['finance'] },
+    { id: 'nav-ai', name: 'Go to AI Business Advisor', category: 'Navigation', icon: <Brain size={16} />, action: () => setActiveModule('ai'), modules: ['ai'] },
+    { id: 'act-pos-new', name: 'New POS Cart Sale', category: 'Actions', icon: <PlusCircle size={16} />, action: () => { setActiveModule('pos'); }, shortcut: 'N', modules: ['pos'] },
+    { id: 'act-add-prod', name: 'Add New Product', category: 'Actions', icon: <PlusCircle size={16} />, action: () => { setActiveModule('inventory'); }, shortcut: 'P', modules: ['inventory'], permission: PERMISSIONS.PRODUCTS_ADD },
+    { id: 'act-add-cust', name: 'Add New Customer', category: 'Actions', icon: <Users size={16} />, action: () => { setActiveModule('crm'); }, shortcut: 'C', modules: ['crm'], permission: PERMISSIONS.CUSTOMERS_ADD },
+    { id: 'act-add-exp', name: 'Record New Expense', category: 'Actions', icon: <DollarSign size={16} />, action: () => { setActiveModule('finance'); }, shortcut: 'E', modules: ['finance'], permission: PERMISSIONS.FINANCE_ADD_EXPENSE },
+  ], [setActiveModule]);
 
-  // Filtering
-  const filtered = commands.filter(cmd => 
-    cmd.name.toLowerCase().includes(query.toLowerCase()) ||
-    cmd.category.toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = commands.filter(cmd => {
+    if (!currentEmployee) return false;
+    const moduleOk = !cmd.modules || cmd.modules.some((m) => canAccessModule(m));
+    if (!moduleOk) return false;
+    if (cmd.permission && !hasPermission(cmd.permission)) return false;
+    return (
+      cmd.name.toLowerCase().includes(query.toLowerCase()) ||
+      cmd.category.toLowerCase().includes(query.toLowerCase())
+    );
+  });
 
   // Keyboard navigation inside palette
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -73,10 +85,10 @@ export const CommandPalette: React.FC = () => {
       setOpen(false);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(prev => (prev + 1) % filtered.length);
+      setSelectedIndex(prev => (prev + 1) % Math.max(filtered.length, 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
+      setSelectedIndex(prev => (prev - 1 + filtered.length) % Math.max(filtered.length, 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (filtered[selectedIndex]) {

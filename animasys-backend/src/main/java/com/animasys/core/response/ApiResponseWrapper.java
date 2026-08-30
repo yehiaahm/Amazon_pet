@@ -4,7 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder
@@ -14,6 +16,7 @@ public class ApiResponseWrapper<T> {
     private boolean success;
     private String message;
     private T data;
+    private List<?> warnings;
     private long timestamp;
 
     public static <T> ApiResponseWrapper<T> success(T data, String message) {
@@ -21,6 +24,16 @@ public class ApiResponseWrapper<T> {
                 .success(true)
                 .message(message)
                 .data(data)
+                .timestamp(Instant.now().getEpochSecond())
+                .build();
+    }
+
+    public static <T> ApiResponseWrapper<T> success(T data, String message, List<?> warnings) {
+        return ApiResponseWrapper.<T>builder()
+                .success(true)
+                .message(message)
+                .data(data)
+                .warnings(warnings)
                 .timestamp(Instant.now().getEpochSecond())
                 .build();
     }

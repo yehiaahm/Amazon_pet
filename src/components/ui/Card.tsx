@@ -6,11 +6,28 @@ interface CardProps {
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
+  onClick?: () => void;
 }
 
-export const Card: React.FC<CardProps> = ({ title, extra, children, className = '', style }) => {
+export const Card: React.FC<CardProps> = ({ title, extra, children, className = '', style, onClick }) => {
   return (
-    <div className={`card ${className}`} style={style}>
+    <div
+      className={`card ${className}`}
+      style={onClick ? { ...style, cursor: 'pointer' } : style}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+    >
       {title && (
         <div className="card-header">
           <span className="card-title">{title}</span>

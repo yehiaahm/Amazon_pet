@@ -5,6 +5,22 @@ echo          AnimaSys ERP - Launching System Suite
 echo ==========================================================
 echo.
 
+:: Ensure .env exists in animasys-backend
+if not exist "%~dp0animasys-backend\.env" (
+    echo [INFO] Copying .env.example to .env...
+    copy "%~dp0animasys-backend\.env.example" "%~dp0animasys-backend\.env" >nul
+)
+
+:: Parse and set env variables from .env
+for /f "usebackq tokens=1* delims==" %%i in ("%~dp0animasys-backend\.env") do (
+    if not "%%i"=="" if not "%%j"=="" (
+        echo %%i | findstr /b /c:"#" >nul
+        if errorlevel 1 (
+            set "%%i=%%j"
+        )
+    )
+)
+
 :: 1. Check if MySQL is listening on standard port 3306
 echo [1/3] Checking MySQL Database connection on port 3306...
 powershell -Command "Test-NetConnection -ComputerName localhost -Port 3306" >nul 2>&1

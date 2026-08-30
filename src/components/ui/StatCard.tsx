@@ -11,11 +11,12 @@ interface StatCardProps {
     type: 'up' | 'down' | 'neutral';
   };
   icon?: React.ReactNode;
+  onClick?: () => void;
 }
 
-export const StatCard: React.FC<StatCardProps> = ({ title, value, description, trend, icon }) => {
+export const StatCard: React.FC<StatCardProps> = ({ title, value, description, trend, icon, onClick }) => {
   return (
-    <Card style={{ padding: 'var(--spacing-4)' }}>
+    <Card style={{ padding: 'var(--spacing-4)' }} onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)', color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {title}

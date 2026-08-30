@@ -1,0 +1,49 @@
+{
+  "name": "amazon-pet-desktop",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-app": "node build-package.js",
+    "get-deps": "node get-dependencies.js",
+    "keygen": "node keygen.js",
+    "package": "electron-builder --win --x64 --dir",
+    "make-installer": "node build-installer.js",
+    "make-installer:fast": "node build-installer.js --skip-build"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "fs-extra": "^11.2.0"
+  },
+  "build": {
+    "appId": "com.amazonpet.erp",
+    "productName": "Amazon Pet",
+    "directories": {
+      "output": "packaged-build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "splash.html",
+      "license.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "dir"
+      ],
+      "icon": "icon.ico"
+    },
+    "asar": true
+  }
+}

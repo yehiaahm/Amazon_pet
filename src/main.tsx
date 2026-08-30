@@ -1,22 +1,25 @@
+import './core/i18n/forceLatinNumerals'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider, QueryErrorResetBoundary } from '@tanstack/react-query'
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
+import { installGlobalErrorHandlers } from './core/utils/errorReporting'
+import { queryClient } from './core/api/queryClient'
 import './styles/index.css'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: false,
-    },
-  },
-})
+installGlobalErrorHandlers()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary onReset={reset}>
+          <QueryClientProvider client={queryClient}>
+            <App />
+          </QueryClientProvider>
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
   </React.StrictMode>,
 )

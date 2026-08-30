@@ -1,0 +1,677 @@
+{
+  "cashiers": [
+    {
+      "username": "owner_marwan",
+      "password": "8829",
+      "role": "OWNER"
+    },
+    {
+      "username": "lt_cashier_0_1787318149008",
+      "password": "LoadTest123!",
+      "role": "MANAGER"
+    },
+    {
+      "username": "lt_cashier_1_1787318149134",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    },
+    {
+      "username": "lt_cashier_2_1787318149251",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    },
+    {
+      "username": "lt_cashier_3_1787318149365",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    },
+    {
+      "username": "lt_cashier_4_1787318149478",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    },
+    {
+      "username": "lt_cashier_5_1787318149596",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    },
+    {
+      "username": "lt_cashier_6_1787318149710",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    },
+    {
+      "username": "lt_cashier_7_1787318149819",
+      "password": "LoadTest123!",
+      "role": "CASHIER"
+    }
+  ],
+  "products": [
+    {
+      "variantId": "v-7eee92c4",
+      "price": 163.36,
+      "cost": 121.73,
+      "sku": "LT-1787318149933-0-2107j",
+      "name": "Purina Litter 1787318149933-0-2107j"
+    },
+    {
+      "variantId": "v-6d7a691f",
+      "price": 172.73,
+      "cost": 108.36,
+      "sku": "LT-1787318149979-1-2qolj",
+      "name": "Whiskas Brush 1787318149979-1-2qolj"
+    },
+    {
+      "variantId": "v-89847a93",
+      "price": 404.05,
+      "cost": 265.82,
+      "sku": "LT-1787318150019-2-10on7",
+      "name": "Whiskas Shampoo 1787318150019-2-10on7"
+    },
+    {
+      "variantId": "v-48ef1db4",
+      "price": 261.27,
+      "cost": 153.78,
+      "sku": "LT-1787318150061-3-ub26g",
+      "name": "Local Brand Litter 1787318150061-3-ub26g"
+    },
+    {
+      "variantId": "v-2ba7cf8a",
+      "price": 324.94,
+      "cost": 189.69,
+      "sku": "LT-1787318150105-4-mdid3",
+      "name": "PetLux Dog Food 1787318150105-4-mdid3"
+    },
+    {
+      "variantId": "v-5c9f6284",
+      "price": 306.7,
+      "cost": 218.76,
+      "sku": "LT-1787318150147-5-q63x7",
+      "name": "Whiskas Dog Food 1787318150147-5-q63x7"
+    },
+    {
+      "variantId": "v-581f4886",
+      "price": 367.53,
+      "cost": 291.69,
+      "sku": "LT-1787318150185-6-vd1dj",
+      "name": "Pedigree Vitamin 1787318150185-6-vd1dj"
+    },
+    {
+      "variantId": "v-85a5584b",
+      "price": 211.5,
+      "cost": 119.56,
+      "sku": "LT-1787318150227-7-sgvam",
+      "name": "Local Brand Bowl 1787318150227-7-sgvam"
+    },
+    {
+      "variantId": "v-fbb2d3ab",
+      "price": 195.53,
+      "cost": 114.48,
+      "sku": "LT-1787318150266-8-dlvbk",
+      "name": "Purina Cage 1787318150266-8-dlvbk"
+    },
+    {
+      "variantId": "v-f9a7fc04",
+      "price": 90.72,
+      "cost": 56.31,
+      "sku": "LT-1787318150310-9-zaxf9",
+      "name": "Royal Canin Flea Collar 1787318150310-9-zaxf9"
+    },
+    {
+      "variantId": "v-9bf6283b",
+      "price": 53.24,
+      "cost": 42.87,
+      "sku": "LT-1787318150354-10-8982g",
+      "name": "PetLux Cat Food 1787318150354-10-8982g"
+    },
+    {
+      "variantId": "v-4b2e9faa",
+      "price": 250.11,
+      "cost": 177.13,
+      "sku": "LT-1787318150396-11-g1jbu",
+      "name": "PetLux Cat Food 1787318150396-11-g1jbu"
+    },
+    {
+      "variantId": "v-6977511e",
+      "price": 245.27,
+      "cost": 151.31,
+      "sku": "LT-1787318150440-12-0rdbs",
+      "name": "Whiskas Chew Toy 1787318150440-12-0rdbs"
+    },
+    {
+      "variantId": "v-e0f9d8cc",
+      "price": 162.38,
+      "cost": 100.36,
+      "sku": "LT-1787318150481-13-zkesj",
+      "name": "Pedigree Bowl 1787318150481-13-zkesj"
+    },
+    {
+      "variantId": "v-4c4cec3e",
+      "price": 66.27,
+      "cost": 49.27,
+      "sku": "LT-1787318150527-14-2gaiy",
+      "name": "Local Brand Leash 1787318150527-14-2gaiy"
+    },
+    {
+      "variantId": "v-60561b34",
+      "price": 277.64,
+      "cost": 223.9,
+      "sku": "LT-1787318150565-15-64vm7",
+      "name": "Local Brand Cat Food 1787318150565-15-64vm7"
+    },
+    {
+      "variantId": "v-d60831ff",
+      "price": 115.73,
+      "cost": 70.01,
+      "sku": "LT-1787318150607-16-xvut3",
+      "name": "PetLux Vitamin 1787318150607-16-xvut3"
+    },
+    {
+      "variantId": "v-59df2ae9",
+      "price": 53.59,
+      "cost": 32.88,
+      "sku": "LT-1787318150650-17-rljp2",
+      "name": "PetLux Flea Collar 1787318150650-17-rljp2"
+    },
+    {
+      "variantId": "v-38992ab9",
+      "price": 222.49,
+      "cost": 162.4,
+      "sku": "LT-1787318150686-18-g3zqq",
+      "name": "Purina Cat Food 1787318150686-18-g3zqq"
+    },
+    {
+      "variantId": "v-24db7938",
+      "price": 488.63,
+      "cost": 282.12,
+      "sku": "LT-1787318150728-19-3lst9",
+      "name": "Royal Canin Chew Toy 1787318150728-19-3lst9"
+    },
+    {
+      "variantId": "v-1160f044",
+      "price": 395.65,
+      "cost": 221.9,
+      "sku": "LT-1787318150770-20-j6uxg",
+      "name": "Whiskas Dog Food 1787318150770-20-j6uxg"
+    },
+    {
+      "variantId": "v-aaa95795",
+      "price": 114.44,
+      "cost": 68.9,
+      "sku": "LT-1787318150815-21-2bpei",
+      "name": "Royal Canin Chew Toy 1787318150815-21-2bpei"
+    },
+    {
+      "variantId": "v-89b42646",
+      "price": 42.26,
+      "cost": 24.73,
+      "sku": "LT-1787318150856-22-w63z9",
+      "name": "Royal Canin Dog Food 1787318150856-22-w63z9"
+    },
+    {
+      "variantId": "v-5369779e",
+      "price": 358.86,
+      "cost": 250.6,
+      "sku": "LT-1787318150906-23-4eywv",
+      "name": "Pedigree Bed 1787318150906-23-4eywv"
+    },
+    {
+      "variantId": "v-e216602f",
+      "price": 423.23,
+      "cost": 291.68,
+      "sku": "LT-1787318150946-24-5bh7c",
+      "name": "Purina Shampoo 1787318150946-24-5bh7c"
+    },
+    {
+      "variantId": "v-2cfc29d2",
+      "price": 416.48,
+      "cost": 251.8,
+      "sku": "LT-1787318150987-25-c17x1",
+      "name": "Whiskas Leash 1787318150987-25-c17x1"
+    },
+    {
+      "variantId": "v-221ce2c6",
+      "price": 253.3,
+      "cost": 196.05,
+      "sku": "LT-1787318151027-26-0pcu9",
+      "name": "Royal Canin Shampoo 1787318151027-26-0pcu9"
+    },
+    {
+      "variantId": "v-8fcd4fc5",
+      "price": 152.05,
+      "cost": 124.43,
+      "sku": "LT-1787318151071-27-mfxzb",
+      "name": "Purina Cage 1787318151071-27-mfxzb"
+    },
+    {
+      "variantId": "v-51b0138f",
+      "price": 279.62,
+      "cost": 212.8,
+      "sku": "LT-1787318151117-28-c1nse",
+      "name": "Local Brand Shampoo 1787318151117-28-c1nse"
+    },
+    {
+      "variantId": "v-578f5ac7",
+      "price": 130.88,
+      "cost": 76.85,
+      "sku": "LT-1787318151166-29-0r6qc",
+      "name": "Pedigree Cage 1787318151166-29-0r6qc"
+    },
+    {
+      "variantId": "v-2a37d34f",
+      "price": 92.92,
+      "cost": 60.93,
+      "sku": "LT-1787318151216-30-qon3j",
+      "name": "Royal Canin Brush 1787318151216-30-qon3j"
+    },
+    {
+      "variantId": "v-87e479ac",
+      "price": 384.42,
+      "cost": 279.58,
+      "sku": "LT-1787318151268-31-h44in",
+      "name": "Royal Canin Chew Toy 1787318151268-31-h44in"
+    },
+    {
+      "variantId": "v-20e4e7c2",
+      "price": 32.38,
+      "cost": 25.8,
+      "sku": "LT-1787318151318-32-6317b",
+      "name": "Royal Canin Dog Food 1787318151318-32-6317b"
+    },
+    {
+      "variantId": "v-ccdf12e7",
+      "price": 172.89,
+      "cost": 101.34,
+      "sku": "LT-1787318151367-33-pppio",
+      "name": "Local Brand Bed 1787318151367-33-pppio"
+    },
+    {
+      "variantId": "v-ca1002e9",
+      "price": 191.48,
+      "cost": 120.81,
+      "sku": "LT-1787318151415-34-8mqoi",
+      "name": "Pedigree Litter 1787318151415-34-8mqoi"
+    },
+    {
+      "variantId": "v-7a14e9d1",
+      "price": 249.45,
+      "cost": 206.33,
+      "sku": "LT-1787318151467-35-l2cin",
+      "name": "Local Brand Flea Collar 1787318151467-35-l2cin"
+    },
+    {
+      "variantId": "v-2d7c53c2",
+      "price": 368.55,
+      "cost": 236.25,
+      "sku": "LT-1787318151517-36-l0lkm",
+      "name": "Royal Canin Cage 1787318151517-36-l0lkm"
+    },
+    {
+      "variantId": "v-1d337379",
+      "price": 393.1,
+      "cost": 296.68,
+      "sku": "LT-1787318151567-37-b5w3s",
+      "name": "Purina Dog Food 1787318151567-37-b5w3s"
+    },
+    {
+      "variantId": "v-68bb0cb7",
+      "price": 206.93,
+      "cost": 171.16,
+      "sku": "LT-1787318151612-38-o0w81",
+      "name": "Purina Cage 1787318151612-38-o0w81"
+    },
+    {
+      "variantId": "v-ccdb9ef4",
+      "price": 152.76,
+      "cost": 95.06,
+      "sku": "LT-1787318151660-39-qgfm4",
+      "name": "Whiskas Bowl 1787318151660-39-qgfm4"
+    },
+    {
+      "variantId": "v-86124ef7",
+      "price": 308.58,
+      "cost": 241.83,
+      "sku": "LT-1787318151710-40-tk9h7",
+      "name": "Whiskas Chew Toy 1787318151710-40-tk9h7"
+    },
+    {
+      "variantId": "v-5255c033",
+      "price": 56.35,
+      "cost": 41.37,
+      "sku": "LT-1787318151759-41-alp98",
+      "name": "Purina Cat Food 1787318151759-41-alp98"
+    },
+    {
+      "variantId": "v-7bdf4d48",
+      "price": 81.08,
+      "cost": 54.02,
+      "sku": "LT-1787318151802-42-srwaq",
+      "name": "Pedigree Shampoo 1787318151802-42-srwaq"
+    },
+    {
+      "variantId": "v-ef309aa0",
+      "price": 265.22,
+      "cost": 215.98,
+      "sku": "LT-1787318151844-43-gp5fg",
+      "name": "Whiskas Litter 1787318151844-43-gp5fg"
+    },
+    {
+      "variantId": "v-099a19b8",
+      "price": 236.38,
+      "cost": 149.7,
+      "sku": "LT-1787318151890-44-np2mj",
+      "name": "Royal Canin Bowl 1787318151890-44-np2mj"
+    },
+    {
+      "variantId": "v-e2c6f104",
+      "price": 352.06,
+      "cost": 233.46,
+      "sku": "LT-1787318151938-45-h29yo",
+      "name": "Whiskas Litter 1787318151938-45-h29yo"
+    },
+    {
+      "variantId": "v-4148bc8a",
+      "price": 140.89,
+      "cost": 109.3,
+      "sku": "LT-1787318151983-46-h5t5z",
+      "name": "PetLux Cat Food 1787318151983-46-h5t5z"
+    },
+    {
+      "variantId": "v-f8911586",
+      "price": 422.54,
+      "cost": 237.38,
+      "sku": "LT-1787318152030-47-xnnha",
+      "name": "Whiskas Vitamin 1787318152030-47-xnnha"
+    },
+    {
+      "variantId": "v-163071e6",
+      "price": 62.76,
+      "cost": 44.2,
+      "sku": "LT-1787318152075-48-ofi6f",
+      "name": "Royal Canin Litter 1787318152075-48-ofi6f"
+    },
+    {
+      "variantId": "v-9344d6f3",
+      "price": 89.2,
+      "cost": 60.68,
+      "sku": "LT-1787318152121-49-7mbxx",
+      "name": "PetLux Bed 1787318152121-49-7mbxx"
+    },
+    {
+      "variantId": "v-28506fbc",
+      "price": 139.34,
+      "cost": 77.67,
+      "sku": "LT-1787318152165-50-yo1u7",
+      "name": "Local Brand Dog Food 1787318152165-50-yo1u7"
+    },
+    {
+      "variantId": "v-22c6305e",
+      "price": 301.36,
+      "cost": 242.84,
+      "sku": "LT-1787318152212-51-rmjtg",
+      "name": "Whiskas Cage 1787318152212-51-rmjtg"
+    },
+    {
+      "variantId": "v-571b59da",
+      "price": 333.66,
+      "cost": 216.1,
+      "sku": "LT-1787318152251-52-5e7aw",
+      "name": "PetLux Bed 1787318152251-52-5e7aw"
+    },
+    {
+      "variantId": "v-40af5349",
+      "price": 344.98,
+      "cost": 279.79,
+      "sku": "LT-1787318152294-53-6rh1t",
+      "name": "Whiskas Bed 1787318152294-53-6rh1t"
+    },
+    {
+      "variantId": "v-957b10df",
+      "price": 382.54,
+      "cost": 231.7,
+      "sku": "LT-1787318152339-54-8eli5",
+      "name": "Local Brand Bed 1787318152339-54-8eli5"
+    },
+    {
+      "variantId": "v-5b2fece1",
+      "price": 271.73,
+      "cost": 162.71,
+      "sku": "LT-1787318152384-55-oaa7c",
+      "name": "Royal Canin Chew Toy 1787318152384-55-oaa7c"
+    },
+    {
+      "variantId": "v-9c782208",
+      "price": 318.23,
+      "cost": 201.92,
+      "sku": "LT-1787318152423-56-k4cb8",
+      "name": "Royal Canin Bowl 1787318152423-56-k4cb8"
+    },
+    {
+      "variantId": "v-312cca35",
+      "price": 40.1,
+      "cost": 25.11,
+      "sku": "LT-1787318152465-57-2rika",
+      "name": "PetLux Vitamin 1787318152465-57-2rika"
+    },
+    {
+      "variantId": "v-e256d1b6",
+      "price": 199.2,
+      "cost": 155.5,
+      "sku": "LT-1787318152510-58-lfvsl",
+      "name": "Whiskas Brush 1787318152510-58-lfvsl"
+    },
+    {
+      "variantId": "v-372fe3a1",
+      "price": 189.13,
+      "cost": 154.14,
+      "sku": "LT-1787318152553-59-ppfh5",
+      "name": "Pedigree Bed 1787318152553-59-ppfh5"
+    }
+  ],
+  "customers": [
+    {
+      "customerId": "2f22e5e7-6f3a-4377-bcbe-41649a6e6317",
+      "petId": null,
+      "discount": 5
+    },
+    {
+      "customerId": "e5a90593-8a64-4c65-bfd8-a86800693403",
+      "petId": "67375179-f432-494a-b445-b5cedff1a8b7",
+      "discount": 0
+    },
+    {
+      "customerId": "0d3c2fd8-9f03-4d29-99b3-78ff7f094261",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "200b9031-6bfb-4078-bb64-1db1eebd7da5",
+      "petId": "d0eaca26-d1ec-4c07-9ab8-c9c526c2f94d",
+      "discount": 0
+    },
+    {
+      "customerId": "07e934b2-95e7-4af3-bbe0-1f0217a1baa8",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "79af0587-8106-448c-a755-8ee5a8ae2f58",
+      "petId": "9e367505-386c-45a8-9562-b5ac0395b5bf",
+      "discount": 0
+    },
+    {
+      "customerId": "ac529771-ff06-4e29-976c-1551217ab0bc",
+      "petId": "95d9f406-e072-4915-acb0-5a3624f47013",
+      "discount": 0
+    },
+    {
+      "customerId": "471a508d-af2b-4bdd-b1f3-8735b9babb10",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "fc98cdf8-ca86-4e1d-bb1c-ae5db110a451",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "1ad053a5-d3d7-4ed1-ac3d-2ed95bb8e02c",
+      "petId": "bd5e9d60-405c-41b4-9bbf-02294edeb27d",
+      "discount": 0
+    },
+    {
+      "customerId": "f223a2c2-49c0-4612-a394-54af39dc41da",
+      "petId": "9638eaba-b85a-42e2-b7a4-1fd120721524",
+      "discount": 0
+    },
+    {
+      "customerId": "d76f14e8-7729-4772-9553-6c3841e37620",
+      "petId": "bc5ffb50-2d8f-40af-b6e7-9e607ebf94c3",
+      "discount": 0
+    },
+    {
+      "customerId": "65d5e0b3-a6c5-45ad-9704-50a2d72c9c1e",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "fcc58a20-cea0-462d-b9b1-479247d79aa5",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "2aa8a107-b6fe-4a4d-aeeb-ad0d7c8a7856",
+      "petId": "eb8e9290-b5d0-46dc-8fd2-6d36ab68ca74",
+      "discount": 0
+    },
+    {
+      "customerId": "6f03013e-7c5b-4bd2-985b-e4ed28021f62",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "9c2afb88-2ace-462c-acff-5fe42d9f322d",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "808b3d1d-d276-4054-b823-370168a09784",
+      "petId": "492a777b-a159-413f-9ef6-2485b3c73a69",
+      "discount": 0
+    },
+    {
+      "customerId": "1df93976-8510-40dd-b25d-bf3bce5b2622",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "37e9926c-0820-4318-bf23-97af9ff0fc29",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "0dc85c66-4c16-4627-9e30-dbaebf5ce6d4",
+      "petId": "6d4f7107-782c-485b-a1e1-29c2ba77d95b",
+      "discount": 0
+    },
+    {
+      "customerId": "1a8727c0-bf8a-4a64-826e-269ea96315ed",
+      "petId": "9df387a1-1014-4ae6-b7a0-aa6f2df35aaa",
+      "discount": 0
+    },
+    {
+      "customerId": "285898a9-1e64-4b35-ac4f-8d5f44e010a6",
+      "petId": "20f8905c-82f7-4197-b84e-4e00814798c4",
+      "discount": 0
+    },
+    {
+      "customerId": "b8992126-189e-46a4-902e-97c4b82a0d87",
+      "petId": "d93c1fdc-2fe9-42ee-a9bd-78ba3e3c8e2a",
+      "discount": 5
+    },
+    {
+      "customerId": "1f8d406a-f292-41e4-b535-f1c6f534cfbc",
+      "petId": "a7158938-0c19-4b44-9675-7cda7dd3932c",
+      "discount": 0
+    },
+    {
+      "customerId": "0783ae86-37f0-4bc1-b8d8-b82cc2cc5127",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "4c011f49-cbb9-4cc2-93e6-8a9bcd0ccb2c",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "c7640471-38e6-45c5-984f-c92310a20b80",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "20631130-2b0b-44af-8cfb-eae76d5088fd",
+      "petId": "b2aff3bb-714a-48cd-9d50-0b746f3a5638",
+      "discount": 5
+    },
+    {
+      "customerId": "bfbdc74b-8141-4fc8-a3b2-a5e4360484c6",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "e7a9d518-5991-40e7-be44-ed2a8a6676fd",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "58b80194-2694-40ae-b151-27ffeedd5d2f",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "366bed02-614a-4412-886e-49354a0f8ff3",
+      "petId": "06997920-5637-4c3b-b9c3-8bbea3908392",
+      "discount": 0
+    },
+    {
+      "customerId": "802afd1b-8b67-4b5e-a7df-34b657713854",
+      "petId": null,
+      "discount": 5
+    },
+    {
+      "customerId": "1fd28258-4636-44e8-8ed3-03e1f92b4e07",
+      "petId": "2852313e-3a02-43e6-a7d1-47df0a789114",
+      "discount": 5
+    },
+    {
+      "customerId": "f034c24e-7abd-4b9c-9140-746a16b96d17",
+      "petId": "22f6e2ce-6451-416d-916e-a48a03c94223",
+      "discount": 0
+    },
+    {
+      "customerId": "39964948-60bd-4668-9ebc-8659100618d6",
+      "petId": "24a22afe-e2e9-43a1-93cd-3324a465d878",
+      "discount": 0
+    },
+    {
+      "customerId": "a4398b9e-f5d6-4e2f-bdbc-3944bf0d4b48",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "3c867fc4-71a9-4bc8-babb-339aefd3e550",
+      "petId": null,
+      "discount": 0
+    },
+    {
+      "customerId": "915a3742-3d44-4866-bd39-238bf7d38d00",
+      "petId": "1df597e5-5a2a-4acd-90d2-14a1da8023e8",
+      "discount": 0
+    }
+  ],
+  "posSessionId": "0ddd94b7-e833-441c-bf6c-a3d6238eba39",
+  "branchId": "b-1",
+  "warehouseId": "wh-shelf",
+  "employeeId": "e-1"
+}

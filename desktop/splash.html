@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 450px;
+      height: 350px;
+      background: linear-gradient(135deg, #1e1e24 0%, #111115 100%);
+      color: #ffffff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      border: 1px solid #33333e;
+      border-radius: 12px;
+      overflow: hidden;
+      -webkit-app-region: drag;
+    }
+    
+    .logo-container {
+      margin-bottom: 25px;
+      text-align: center;
+    }
+    
+    .logo-title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      background: linear-gradient(45deg, #00c6ff, #0072ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin: 0;
+    }
+    
+    .logo-subtitle {
+      font-size: 11px;
+      color: #777785;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      margin-top: 5px;
+    }
+    
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.05);
+      border-top: 3px solid #00c6ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 25px;
+    }
+    
+    .status-text {
+      font-size: 13px;
+      color: #b3b3c6;
+      height: 20px;
+      text-align: center;
+      transition: all 0.3s;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo-container">
+    <h1 class="logo-title">Amazon Pet ERP</h1>
+    <div class="logo-subtitle">Local Enterprise Suite</div>
+  </div>
+  <div class="spinner"></div>
+  <div class="status-text" id="status">Starting services...</div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const statusEl = document.getElementById('status');
+    
+    ipcRenderer.on('status-update', (event, message) => {
+      statusEl.textContent = message;
+    });
+  </script>
+</body>
+</html>

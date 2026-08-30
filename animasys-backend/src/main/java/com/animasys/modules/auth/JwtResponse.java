@@ -13,9 +13,11 @@ public class JwtResponse {
     private String token;
     @Builder.Default
     private String type = "Bearer";
+    private String employeeId;
     private String username;
     private String fullName;
     private String role;
     private String tenantId;
     private String branchId;
+    private java.util.List<String> permissions;
 }

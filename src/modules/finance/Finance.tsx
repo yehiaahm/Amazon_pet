@@ -1,6 +1,34 @@
-import React, { useState } from 'react';
-import { useExpenses, useDailyClosings, useAddExpense, useAuditLogs, useSales } from '../../core/hooks/useERPData';
-import { PlusCircle, Landmark, BookOpen, FileSpreadsheet, ShieldAlert } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import {
+  useExpenses,
+  useCashDeposits,
+  useDailyClosings,
+  useAddExpense,
+  useDeleteExpense,
+  useAddCashDeposit,
+  useDeleteCashDeposit,
+  useSales,
+  useKPIMetrics,
+  usePurchaseInvoices,
+} from '../../core/hooks/useERPData';
+import {
+  PlusCircle,
+  Landmark,
+  FileSpreadsheet,
+  Trash2,
+  HandCoins,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Printer,
+  Receipt,
+  Building2,
+  Smartphone,
+  CreditCard,
+  Wallet,
+  TrendingUp,
+  Truck,
+  PiggyBank,
+} from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -8,187 +36,853 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
 import DataTable from '../../components/ui/DataTable';
+import { formatMoney } from '../../core/utils/money';
+import AccountsPayablePanel from './AccountsPayablePanel';
+import Can from '../../components/ui/Can';
+import { PERMISSIONS } from '../../core/permissions/permissions';
+import { usePermissions } from '../../core/permissions/usePermissions';
+import { hasRestrictedSalesScope } from '../../core/permissions/salesAuth';
+
+type FinancialEntry = {
+  id: string;
+  date: string;
+  type: 'IN' | 'OUT';
+  category: string;
+  description: string;
+  amount: number;
+  paymentMethod: 'CASH' | 'BANK' | 'INSTAPAY' | 'VODAFONE_CASH';
+  user: string;
+  referenceId?: string;
+  /** Inventory/supplier payments move real cash but must not double-count COGS
+   * (already deducted from profit at sale time) — so they're excluded from
+   * the realized-profit calc while still hitting cash balances below. */
+  excludeFromProfit?: boolean;
+};
 
 export const Finance: React.FC = () => {
-  const { data: expenses, isLoading: loadingExpenses } = useExpenses();
-  const { data: closings, isLoading: loadingClosings } = useDailyClosings();
-  const { data: auditLogs } = useAuditLogs();
-  const { data: sales } = useSales();
+  const { hasPermission } = usePermissions();
+  const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
+  const canViewDeposits = hasPermission(PERMISSIONS.FINANCE_VIEW_DEPOSITS);
+  const { data: expenses = [], isLoading: loadingExpenses } = useExpenses();
+  const { data: deposits = [], isLoading: loadingDeposits } = useCashDeposits({ enabled: canViewDeposits });
+  const { data: closings = [], isLoading: loadingClosings } = useDailyClosings();
+  const { data: salesPage } = useSales({ page: 0, size: 5000, sort: 'date,desc' });
+  const { data: purchaseInvoices = [] } = usePurchaseInvoices();
+  const { data: kpis } = useKPIMetrics();
   const { mutate: logExpense, isPending: logging } = useAddExpense();
+  const { mutate: deleteExpense } = useDeleteExpense();
+  const { mutate: logDeposit, isPending: loggingDeposit } = useAddCashDeposit();
+  const { mutate: deleteDeposit } = useDeleteCashDeposit();
 
-  // Local state
-  const [activeSubTab, setActiveSubTab] = useState<'EXPENSES' | 'CLOSINGS' | 'JOURNAL' | 'AUDIT'>('EXPENSES');
+  const [activeSubTab, setActiveSubTab] = useState<'MASTER_LEDGER' | 'EXPENSES' | 'DEPOSITS' | 'CLOSINGS' | 'PAYABLE'>('MASTER_LEDGER');
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [expCategory, setExpCategory] = useState<'RENT' | 'SALARY' | 'UTILITIES' | 'SUPPLIES' | 'OTHER'>('SUPPLIES');
+  const [expCategory, setExpCategory] = useState<string>('SUPPLIES');
+  const [customCategory, setCustomCategory] = useState('');
   const [expDescription, setExpDescription] = useState('');
   const [expAmount, setExpAmount] = useState('');
   const [expSource, setExpSource] = useState<'CASH' | 'BANK'>('BANK');
 
-  if (loadingExpenses || loadingClosings) {
-    return <div className="workspace"><div className="skeleton" style={{ height: '40px' }} /></div>;
-  }
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depSource, setDepSource] = useState<string>('OWNER_INJECTION');
+  const [customDepSource, setCustomDepSource] = useState('');
+  const [depDescription, setDepDescription] = useState('');
+  const [depAmount, setDepAmount] = useState('');
+  const [depTarget, setDepTarget] = useState<'CASH' | 'BANK'>('CASH');
+
+  // Ledger Filter States
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  const [ledgerMethodFilter, setLedgerMethodFilter] = useState<string>('ALL');
+
+  const sales = salesPage?.content || [];
+
+  // Synthesize Unified Financial Master Ledger (Every Pound IN & OUT)
+  const masterLedger = useMemo(() => {
+    const entries: FinancialEntry[] = [];
+
+    // 1. Add Sales (Money IN / المقبوضات)
+    sales.forEach((s) => {
+      const isRefunded = s.status === 'REFUNDED' || s.status === 'PARTIALLY_REFUNDED';
+      const amount = Number(s.totalAmount) || 0;
+      if (amount <= 0) return;
+
+      const pMethod: FinancialEntry['paymentMethod'] =
+        s.paymentMethod === 'CARD'
+          ? 'BANK'
+          : s.paymentMethod === 'INSTAPAY'
+          ? 'INSTAPAY'
+          : s.paymentMethod === 'VODAFONE_CASH'
+          ? 'VODAFONE_CASH'
+          : 'CASH';
+
+      entries.push({
+        id: `sale-${s.id}`,
+        date: s.date || (s as any).createdAt || new Date().toISOString(),
+        type: isRefunded ? 'OUT' : 'IN',
+        category: isRefunded ? 'مرتجع مبيعات' : 'مبيعات محل/خدمات',
+        description: `فاتورة مبيعات رقم #${s.id.slice(0, 8)} ${(s as any).customerFullName ? `— العميل: ${(s as any).customerFullName}` : ''}`,
+        amount,
+        paymentMethod: pMethod,
+        user: s.employeeFullName || 'الكاشير',
+        referenceId: s.id,
+      });
+    });
+
+    // 2. Add Expenses (Money OUT / المصروفات)
+    expenses.forEach((e) => {
+      let catLabel = e.category;
+      if (e.category === 'RENT') catLabel = 'إيجار المقر';
+      else if (e.category === 'SALARY') catLabel = 'رواتب ومستحقات الموظفين';
+      else if (e.category === 'UTILITIES') catLabel = 'فواتير ومرافق (كهرباء/إنترنت)';
+      else if (e.category === 'SUPPLIES') catLabel = 'مستلزمات وبضائع للمحل';
+
+      entries.push({
+        id: `exp-${e.id}`,
+        date: e.date || new Date().toISOString(),
+        type: 'OUT',
+        category: `مصروف: ${catLabel}`,
+        description: e.description || `مصروف تشغيلي (${catLabel})`,
+        amount: Number(e.amount) || 0,
+        paymentMethod: e.paidFrom === 'BANK' ? 'BANK' : 'CASH',
+        user: 'إدارة المالية',
+        referenceId: e.id,
+      });
+    });
+
+    // 3. Add Cash Deposits (Money IN / إيداعات نقدية من المالك)
+    deposits.forEach((d) => {
+      let srcLabel = d.source;
+      if (d.source === 'OWNER_INJECTION') srcLabel = 'إيداع من المالك';
+      else if (d.source === 'LOAN') srcLabel = 'قرض أو تمويل';
+      else if (d.source === 'FLOAT_TOPUP') srcLabel = 'تعزيز رصيد الدرج';
+
+      entries.push({
+        id: `dep-${d.id}`,
+        date: d.date || new Date().toISOString(),
+        type: 'IN',
+        category: `إيداع: ${srcLabel}`,
+        description: d.description || `إيداع نقدي (${srcLabel})`,
+        amount: Number(d.amount) || 0,
+        paymentMethod: d.depositedTo === 'BANK' ? 'BANK' : 'CASH',
+        user: 'المالك',
+        referenceId: d.id,
+        excludeFromProfit: true,
+      });
+    });
+
+    // 4. Add Supplier Payments (Money OUT / سداد فواتير الشراء) — hits cash
+    // balances like any outflow, but excluded from profit: the cost of this
+    // inventory is already deducted from profit as COGS when it's sold, so
+    // counting it again here as an "expense" would double-subtract it.
+    purchaseInvoices.forEach((inv) => {
+      (inv.installments || []).forEach((inst) => {
+        const paid = Number(inst.paidAmount) || 0;
+        if (paid <= 0) return;
+
+        let method: FinancialEntry['paymentMethod'] = 'CASH';
+        const notes = inst.notes || '';
+        if (notes.includes('تحويل بنكي')) method = 'BANK';
+        else if (notes.includes('إنستاباي')) method = 'INSTAPAY';
+        else if (notes.includes('فودافون')) method = 'VODAFONE_CASH';
+
+        entries.push({
+          id: `supplier-pay-${inst.id}`,
+          date: inst.paidAt || inv.invoiceDate || new Date().toISOString(),
+          type: 'OUT',
+          category: 'سداد فاتورة مورد',
+          description: `${inv.supplierName} — فاتورة ${inv.invoiceNumber}${inst.notes ? ` (${inst.notes})` : ''}`,
+          amount: paid,
+          paymentMethod: method,
+          user: 'حسابات الموردين',
+          referenceId: inv.id,
+          excludeFromProfit: true,
+        });
+      });
+    });
+
+    // Sort descending by date
+    return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [sales, expenses, deposits, purchaseInvoices]);
+
+  // Filtered Ledger
+  const filteredLedger = useMemo(() => {
+    return masterLedger.filter((item) => {
+      if (ledgerTypeFilter !== 'ALL' && item.type !== ledgerTypeFilter) return false;
+      if (ledgerMethodFilter !== 'ALL' && item.paymentMethod !== ledgerMethodFilter) return false;
+      return true;
+    });
+  }, [masterLedger, ledgerTypeFilter, ledgerMethodFilter]);
+
+  // Cashiers must not be able to browse individual invoices here - only the owner/manager
+  // "view employees" permission unlocks the itemized ledger; totals above stay accurate
+  // because `metrics` is derived from the unfiltered masterLedger, not this view.
+  const visibleLedger = useMemo(() => {
+    if (!restrictedSalesScope) return filteredLedger;
+    return filteredLedger.filter((entry) => !entry.id.startsWith('sale-'));
+  }, [filteredLedger, restrictedSalesScope]);
+
+  // Aggregated Financial Metrics
+  const metrics = useMemo(() => {
+    let totalIn = 0;
+    let totalOut = 0;
+    let profitBoostingIn = 0; // IN total minus capital injections (owner deposits) — not real revenue
+    let profitReducingOut = 0; // OUT total minus supplier payments — COGS already covers those at sale time
+    let cashInDrawer = 0;
+    let bankTotal = 0;
+    let instapayTotal = 0;
+    let vodafoneTotal = 0;
+
+    masterLedger.forEach((entry) => {
+      if (entry.type === 'IN') {
+        totalIn += entry.amount;
+        if (!entry.excludeFromProfit) profitBoostingIn += entry.amount;
+        if (entry.paymentMethod === 'CASH') cashInDrawer += entry.amount;
+        else if (entry.paymentMethod === 'BANK') bankTotal += entry.amount;
+        else if (entry.paymentMethod === 'INSTAPAY') instapayTotal += entry.amount;
+        else if (entry.paymentMethod === 'VODAFONE_CASH') vodafoneTotal += entry.amount;
+      } else {
+        totalOut += entry.amount;
+        if (!entry.excludeFromProfit) profitReducingOut += entry.amount;
+        if (entry.paymentMethod === 'CASH') cashInDrawer -= entry.amount;
+        else if (entry.paymentMethod === 'BANK') bankTotal -= entry.amount;
+        else if (entry.paymentMethod === 'INSTAPAY') instapayTotal -= entry.amount;
+        else if (entry.paymentMethod === 'VODAFONE_CASH') vodafoneTotal -= entry.amount;
+      }
+    });
+
+    const netCashFlow = totalIn - totalOut;
+    const realizedNetProfit = kpis?.netProfit ?? (profitBoostingIn - (kpis?.cogs || 0) - profitReducingOut);
+
+    return {
+      totalIn,
+      totalOut,
+      netCashFlow,
+      realizedNetProfit,
+      cashInDrawer: Math.max(0, cashInDrawer),
+      bankTotal,
+      instapayTotal,
+      vodafoneTotal,
+    };
+  }, [masterLedger, kpis]);
+
+  // Delivery orders — count + fees collected (fully refunded sales don't count as money in)
+  const deliveryMetrics = useMemo(() => {
+    let deliveryOrdersCount = 0;
+    let deliveryFeesTotal = 0;
+    sales.forEach((s) => {
+      if (!s.delivery || s.status === 'REFUNDED') return;
+      deliveryOrdersCount += 1;
+      deliveryFeesTotal += Number(s.deliveryFee) || 0;
+    });
+    return { deliveryOrdersCount, deliveryFeesTotal };
+  }, [sales]);
 
   const handleRecordExpense = () => {
     const amount = parseFloat(expAmount) || 0;
     if (amount <= 0) return;
 
-    logExpense({
-      branchId: 'b-1',
-      category: expCategory,
-      description: expDescription,
-      amount,
-      paidFrom: expSource
-    }, {
-      onSuccess: () => {
-        setShowExpenseModal(false);
-        setExpDescription('');
-        setExpAmount('');
+    const finalCategory = expCategory === 'CUSTOM' ? customCategory.trim() : expCategory;
+    if (!finalCategory) return;
+
+    logExpense(
+      {
+        branchId: 'b-1',
+        category: finalCategory,
+        description: expDescription,
+        amount,
+        paidFrom: expSource,
+      },
+      {
+        onSuccess: () => {
+          setShowExpenseModal(false);
+          setExpDescription('');
+          setExpAmount('');
+          setCustomCategory('');
+          setExpCategory('SUPPLIES');
+        },
       }
-    });
+    );
   };
 
-  // Columns Definitions
+  const handleRecordDeposit = () => {
+    const amount = parseFloat(depAmount) || 0;
+    if (amount <= 0) return;
+
+    const finalSource = depSource === 'CUSTOM' ? customDepSource.trim() : depSource;
+    if (!finalSource) return;
+
+    logDeposit(
+      {
+        branchId: 'b-1',
+        source: finalSource,
+        description: depDescription,
+        amount,
+        depositedTo: depTarget,
+      },
+      {
+        onSuccess: () => {
+          setShowDepositModal(false);
+          setDepDescription('');
+          setDepAmount('');
+          setCustomDepSource('');
+          setDepSource('OWNER_INJECTION');
+        },
+      }
+    );
+  };
+
+  const handlePrintAuditReport = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const rowsHtml = visibleLedger
+      .slice(0, 300)
+      .map(
+        (entry) => `
+        <tr>
+          <td>${new Date(entry.date).toLocaleString('ar-EG')}</td>
+          <td style="color: ${entry.type === 'IN' ? '#10B981' : '#EF4444'}; font-weight: bold;">
+            ${entry.type === 'IN' ? '📥 مقبوضات (دخل)' : '📤 مدفوعات (خرج)'}
+          </td>
+          <td>${entry.category}</td>
+          <td>${entry.description}</td>
+          <td>${
+            entry.paymentMethod === 'CASH'
+              ? 'درج النقدية'
+              : entry.paymentMethod === 'BANK'
+              ? 'حساب بنكي / شبكة'
+              : entry.paymentMethod === 'INSTAPAY'
+              ? 'إنستاباي'
+              : 'فودافون كاش'
+          }</td>
+          <td style="font-weight: bold; text-align: left;">${formatMoney(entry.amount)}</td>
+        </tr>
+      `
+      )
+      .join('');
+
+    printWindow.document.write(`
+      <html dir="rtl" lang="ar">
+        <head>
+          <title>تقرير كشف حركة الأموال والتدفقات المالية الشامل</title>
+          <style>
+            body { font-family: sans-serif; padding: 24px; color: #1e293b; }
+            h2 { color: #0f172a; margin-bottom: 4px; }
+            .header-info { margin-bottom: 20px; font-size: 14px; color: #64748b; }
+            .summary-cards { display: flex; gap: 16px; margin-bottom: 24px; }
+            .card { flex: 1; background: #f8fafc; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0; }
+            .card-title { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+            .card-value { font-size: 18px; font-weight: bold; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: right; }
+            th { background-color: #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <h2>تقرير التدفقات المالية وتفاصيل الدخل والخرج (360°)</h2>
+          <div class="header-info">تاريخ التقرير: ${new Date().toLocaleString('ar-EG')} — إجمالي الحركات المسجلة: ${visibleLedger.length}</div>
+          
+          <div class="summary-cards">
+            <div class="card">
+              <div class="card-title">إجمالي المقبوضات والدواخل</div>
+              <div class="card-value" style="color: #10B981;">${formatMoney(metrics.totalIn)}</div>
+            </div>
+            <div class="card">
+              <div class="card-title">إجمالي المصاريف والمدفوعات</div>
+              <div class="card-value" style="color: #EF4444;">${formatMoney(metrics.totalOut)}</div>
+            </div>
+            <div class="card">
+              <div class="card-title">صافي التدفق النقدي</div>
+              <div class="card-value" style="color: #3B82F6;">${formatMoney(metrics.netCashFlow)}</div>
+            </div>
+            <div class="card">
+              <div class="card-title">النقدية المتوقعة بالدرج</div>
+              <div class="card-value">${formatMoney(metrics.cashInDrawer)}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>التاريخ والوقت</th>
+                <th>اتجاه الحركة</th>
+                <th>التصنيف</th>
+                <th>البيان والتفاصيل</th>
+                <th>قناة الدفع</th>
+                <th>المبلغ (ج.م)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 500);
+  };
+
+  const masterLedgerColumns = [
+    {
+      header: 'التاريخ والوقت',
+      accessor: (row: FinancialEntry) => new Date(row.date).toLocaleString('ar-EG'),
+      key: 'date',
+      sortable: true,
+    },
+    {
+      header: 'اتجاه الحركة',
+      accessor: (row: FinancialEntry) => (
+        <Badge variant={row.type === 'IN' ? 'success' : 'danger'} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          {row.type === 'IN' ? <ArrowDownLeft size={12} /> : <ArrowUpRight size={12} />}
+          {row.type === 'IN' ? 'دخل / مقبوضات' : 'خرج / مدفوعات'}
+        </Badge>
+      ),
+      key: 'type',
+    },
+    {
+      header: 'التصنيف',
+      accessor: (row: FinancialEntry) => (
+        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{row.category}</span>
+      ),
+      key: 'category',
+    },
+    {
+      header: 'البيان والتفاصيل',
+      accessor: (row: FinancialEntry) => row.description,
+      key: 'description',
+    },
+    {
+      header: 'قناة الدفع',
+      accessor: (row: FinancialEntry) => {
+        if (row.paymentMethod === 'CASH') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Wallet size={14} color="#10B981" /> درج الكاشير</span>;
+        if (row.paymentMethod === 'BANK') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><CreditCard size={14} color="#3B82F6" /> بنكي / شبكة</span>;
+        if (row.paymentMethod === 'INSTAPAY') return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Building2 size={14} color="#8B5CF6" /> إنستاباي</span>;
+        return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Smartphone size={14} color="#EC4899" /> فودافون كاش</span>;
+      },
+      key: 'paymentMethod',
+    },
+    {
+      header: 'المبلغ',
+      accessor: (row: FinancialEntry) => (
+        <span style={{ fontWeight: 'bold', fontSize: '1rem', color: row.type === 'IN' ? 'var(--color-success)' : 'var(--color-danger)' }}>
+          {row.type === 'IN' ? '+' : '-'}{formatMoney(row.amount)}
+        </span>
+      ),
+      key: 'amount',
+      sortable: true,
+    },
+    {
+      header: 'المسئول',
+      accessor: (row: FinancialEntry) => row.user || 'النظام',
+      key: 'user',
+    },
+  ];
+
   const expensesColumns = [
     { header: 'التاريخ', accessor: 'date' as const, key: 'date', sortable: true },
-    { 
-      header: 'التصنيف', 
+    {
+      header: 'التصنيف',
       accessor: (row: any) => {
         if (row.category === 'RENT') return 'إيجار المقر';
         if (row.category === 'SALARY') return 'رواتب الموظفين';
         if (row.category === 'UTILITIES') return 'مرافق (كهرباء/إنترنت)';
         if (row.category === 'SUPPLIES') return 'مستلزمات وبضائع للمحل';
-        return 'أخرى / تشغيلي عام';
+        if (row.category === 'OTHER') return 'أخرى / تشغيلي عام';
+        return row.category;
       },
-      key: 'category', 
-      sortable: true 
+      key: 'category',
+      sortable: true,
     },
     { header: 'البيان / الوصف', accessor: 'description' as const, key: 'description' },
-    { 
-      header: 'القيمة', 
-      accessor: (row: any) => `$${row.amount.toFixed(2)}`, 
-      key: 'amount', 
-      sortable: true 
+    {
+      header: 'القيمة',
+      accessor: (row: any) => formatMoney(row.amount),
+      key: 'amount',
+      sortable: true,
     },
-    { 
-      header: 'الدفع من حـ/', 
-      accessor: (row: any) => row.paidFrom === 'BANK' ? 'الحساب البنكي' : 'النقدية بالدرج', 
-      key: 'paidFrom' 
-    }
+    {
+      header: 'الدفع من حـ/',
+      accessor: (row: any) => (row.paidFrom === 'BANK' ? 'الحساب البنكي' : 'النقدية بالدرج'),
+      key: 'paidFrom',
+    },
+    {
+      header: 'إجراءات',
+      accessor: (row: any) => (
+        <Can permission={PERMISSIONS.FINANCE_DELETE_EXPENSE}>
+          <Button
+            onClick={() => {
+              if (confirm('هل أنت متأكد من رغبتك في حذف هذا المصروف؟')) {
+                deleteExpense(row.id);
+              }
+            }}
+            variant="danger"
+            size="sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px' }}
+          >
+            <Trash2 size={12} /> حذف
+          </Button>
+        </Can>
+      ),
+      key: 'actions',
+    },
+  ];
+
+  const depositsColumns = [
+    { header: 'التاريخ', accessor: 'date' as const, key: 'date', sortable: true },
+    {
+      header: 'مصدر الإيداع',
+      accessor: (row: any) => {
+        if (row.source === 'OWNER_INJECTION') return 'إيداع من المالك';
+        if (row.source === 'LOAN') return 'قرض أو تمويل';
+        if (row.source === 'FLOAT_TOPUP') return 'تعزيز رصيد الدرج';
+        if (row.source === 'OTHER') return 'أخرى';
+        return row.source;
+      },
+      key: 'source',
+      sortable: true,
+    },
+    { header: 'البيان / الوصف', accessor: 'description' as const, key: 'description' },
+    {
+      header: 'القيمة',
+      accessor: (row: any) => formatMoney(row.amount),
+      key: 'amount',
+      sortable: true,
+    },
+    {
+      header: 'الإيداع في حـ/',
+      accessor: (row: any) => (row.depositedTo === 'BANK' ? 'الحساب البنكي' : 'النقدية بالدرج'),
+      key: 'depositedTo',
+    },
+    {
+      header: 'إجراءات',
+      accessor: (row: any) => (
+        <Can permission={PERMISSIONS.FINANCE_DELETE_DEPOSIT}>
+          <Button
+            onClick={() => {
+              if (confirm('هل أنت متأكد من رغبتك في حذف هذا الإيداع؟')) {
+                deleteDeposit(row.id);
+              }
+            }}
+            variant="danger"
+            size="sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px' }}
+          >
+            <Trash2 size={12} /> حذف
+          </Button>
+        </Can>
+      ),
+      key: 'actions',
+    },
   ];
 
   const closingsColumns = [
-    { header: 'تاريخ الوردية', accessor: 'date' as const, key: 'date', sortable: true },
-    { 
-      header: 'الرصيد الدفتري المتوقع ($)', 
-      accessor: (row: any) => `$${row.systemExpected.toFixed(2)}`, 
-      key: 'systemExpected' 
-    },
-    { 
-      header: 'العد النقدي الفعلي ($)', 
-      accessor: (row: any) => `$${row.physicalActual.toFixed(2)}`, 
-      key: 'physicalActual' 
+    { header: 'تاريخ اليومية', accessor: 'date' as const, key: 'date', sortable: true },
+    {
+      header: 'مبيعات كاش',
+      accessor: (row: any) => formatMoney(row.cashSalesTotal || 0),
+      key: 'cashSalesTotal',
     },
     {
-      header: 'الفارق النقدي ($)',
+      header: 'مبيعات فيزا',
+      accessor: (row: any) => formatMoney(row.cardSalesTotal || 0),
+      key: 'cardSalesTotal',
+    },
+    {
+      header: 'إنستاباي',
+      accessor: (row: any) => formatMoney(row.instapaySalesTotal || 0),
+      key: 'instapaySalesTotal',
+    },
+    {
+      header: 'فودافون كاش',
+      accessor: (row: any) => formatMoney(row.vodafoneSalesTotal || 0),
+      key: 'vodafoneSalesTotal',
+    },
+    {
+      header: 'إجمالي المبيعات',
+      accessor: (row: any) => formatMoney(row.totalSales || 0),
+      key: 'totalSales',
+    },
+    {
+      header: 'التوصيل',
+      accessor: (row: any) => `${formatMoney(row.deliveryFeesTotal || 0)} (${row.deliveryOrdersCount || 0})`,
+      key: 'deliveryFeesTotal',
+    },
+    {
+      header: 'إجمالي المتوقع بالنظام (ج.م)',
+      accessor: (row: any) => formatMoney(row.systemExpected),
+      key: 'systemExpected',
+    },
+    {
+      header: 'المبلغ الفعلي المجرود (ج.م)',
+      accessor: (row: any) => formatMoney(row.physicalActual),
+      key: 'physicalActual',
+    },
+    {
+      header: 'الفرق (عجز/زيادة) (ج.م)',
       accessor: (row: any) => {
         const isDiff = row.difference !== 0;
         return (
           <span style={{ color: isDiff ? 'var(--color-danger)' : 'var(--color-success)', fontWeight: 'bold' }}>
-            {row.difference === 0 ? '$0.00' : `${row.difference > 0 ? '+' : ''}$${row.difference.toFixed(2)}`}
+            {row.difference === 0 ? formatMoney(0) : formatMoney(row.difference, { signed: true })}
           </span>
         );
       },
-      key: 'difference'
+      key: 'difference',
     },
     {
-      header: 'تدقيق الحسابات',
+      header: 'حالة المطابقة',
       accessor: (row: any) => (
         <Badge variant={row.difference === 0 ? 'success' : 'danger'}>
-          {row.difference === 0 ? 'متطابق' : 'فروقات تطلب مراجعة'}
+          {row.difference === 0 ? 'متطابق' : 'يوجد فرق يحتاج تسوية'}
         </Badge>
       ),
-      key: 'auditCheck'
-    }
-  ];
-
-  // Dynamic double-entry generation based on recent sales & refunds
-  const dynamicJournals = [...(sales || [])].reverse().slice(0, 15).flatMap((s) => {
-    const dateStr = s.date.split('T')[0];
-    const isRefunded = s.status === 'REFUNDED';
-    
-    const entries = [
-      {
-        id: `j-sale-${s.id}`,
-        date: dateStr,
-        desc: `مبيعات عملاء - فاتورة ${s.saleNumber}`,
-        debit: s.paymentMethod === 'CASH' ? 'أصل (صندوق النقدية بالدرج)' : 'أصل (حساب البنك Operating)',
-        credit: 'إيراد (مبيعات منتجات POS)',
-        val: s.totalAmount
-      }
-    ];
-
-    if (isRefunded) {
-      entries.unshift({
-        id: `j-ref-${s.id}`,
-        date: dateStr,
-        desc: `عكس قيد مبيعات - إرجاع فاتورة ${s.saleNumber} بالكامل`,
-        debit: 'إيراد (مبيعات منتجات POS)',
-        credit: s.paymentMethod === 'CASH' ? 'أصل (صندوق النقدية بالدرج)' : 'أصل (حساب البنك Operating)',
-        val: s.totalAmount
-      });
-    }
-
-    return entries;
-  });
-
-  const allJournalEntries = [
-    ...dynamicJournals,
-    { id: 'j-init-3', date: '2026-07-05', desc: 'إيداع نقدي من الدرج لحساب البنك Corporate', debit: 'أصل (حساب البنك Operating)', credit: 'أصل (صندوق النقدية بالدرج)', val: 120.00 },
-    { id: 'j-init-4', date: '2026-07-01', desc: 'سداد إيجار مقر المحل الشهري للفرع', debit: 'مصروف (حساب الإيجارات)', credit: 'أصل (حساب البنك Operating)', val: 1500.00 }
-  ];
-
-  const journalColumns = [
-    { header: 'تاريخ الترحيل', accessor: 'date' as const, key: 'date' },
-    { header: 'البيان / الوصف', accessor: 'desc' as const, key: 'desc' },
-    { header: 'الجانب المدين (حـ/)', accessor: 'debit' as const, key: 'debit' },
-    { header: 'الجانب الدائن (حـ/)', accessor: 'credit' as const, key: 'credit' },
-    { 
-      header: 'القيمة المالية ($)', 
-      accessor: (row: any) => `$${row.val.toFixed(2)}`, 
-      key: 'val' 
-    }
-  ];
-
-  const auditColumns = [
-    { header: 'التاريخ والوقت', accessor: 'timestamp' as const, key: 'timestamp', sortable: true },
-    { header: 'الموظف المسؤول', accessor: 'employeeName' as const, key: 'employeeName', sortable: true },
-    { 
-      header: 'نوع العملية', 
-      accessor: (row: any) => (
-        <Badge variant={row.action === 'REFUND' ? 'danger' : row.action === 'LOGIN' ? 'info' : 'warning'}>
-          {row.action === 'REFUND' ? 'إلغاء ومرتجع' : row.action === 'LOGIN' ? 'تسجيل دخول' : 'تعديل جرد'}
-        </Badge>
-      ), 
-      key: 'action', 
-      sortable: true 
+      key: 'auditCheck',
     },
-    { header: 'تفاصيل الإجراء والمراقبة الأمنية', accessor: 'message' as const, key: 'message' }
   ];
+
+  if (loadingExpenses || loadingClosings || (canViewDeposits && loadingDeposits)) {
+    return (
+      <div className="workspace">
+        <div className="skeleton" style={{ height: '40px' }} />
+      </div>
+    );
+  }
 
   return (
-    <div className="workspace">
-      <PageHeader 
-        title="الدفتر المالي والعمليات المحاسبية" 
-        subtitle="مراقبة قيود اليومية المزدوجة، إغلاق ورديات الكاشير، وتسجيل المصاريف"
+    <div className="workspace" style={{ gap: 'var(--spacing-4)' }}>
+      <PageHeader
+        title="الدفتر المالي الرقابي وحركة الأموال (360° Money Flow)"
+        subtitle="رقابة فورية على كل جنيه دخل وكل جنيه خرج بالتفاصيل المملة"
         actions={
-          <Button onClick={() => setShowExpenseModal(true)} variant="primary" size="sm">
-            <PlusCircle size={14} /> تسجيل مصروف تشغيلي جديد
-          </Button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button onClick={handlePrintAuditReport} variant="secondary" size="sm">
+              <Printer size={14} /> طباعة كشف التدفق النقدي
+            </Button>
+            <Can permission={PERMISSIONS.FINANCE_ADD_EXPENSE}>
+              <Button onClick={() => setShowExpenseModal(true)} variant="primary" size="sm">
+                <PlusCircle size={14} /> تسجيل مصروف تشغيلي جديد
+              </Button>
+            </Can>
+            <Can permission={PERMISSIONS.FINANCE_ADD_DEPOSIT}>
+              <Button onClick={() => setShowDepositModal(true)} variant="primary" size="sm">
+                <PiggyBank size={14} /> تسجيل إيداع نقدي جديد
+              </Button>
+            </Can>
+          </div>
         }
       />
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', gap: 'var(--spacing-2)', paddingBottom: '4px' }}>
+      {/* 4 Financial Control KPI Summary Cards */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 'var(--spacing-3)',
+        }}
+      >
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--spacing-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(16, 185, 129, 0.15)',
+              color: '#10B981',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <ArrowDownLeft size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              إجمالي الدواخل والمقبوضات 📥
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#10B981' }}>
+              {formatMoney(metrics.totalIn)}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--spacing-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(239, 68, 68, 0.15)',
+              color: '#EF4444',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <ArrowUpRight size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              إجمالي المصاريف والمدفوعات 📤
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#EF4444' }}>
+              {formatMoney(metrics.totalOut)}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--spacing-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(59, 130, 246, 0.15)',
+              color: '#3B82F6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Wallet size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              صافي التدفق الخزينة (Net Cash)
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--color-primary)' }}>
+              {formatMoney(metrics.netCashFlow)}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--spacing-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(245, 158, 11, 0.15)',
+              color: '#F59E0B',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <TrendingUp size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              صافي أرباح المحل الفعلية (Net Profit)
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#F59E0B' }}>
+              {formatMoney(metrics.realizedNetProfit)}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--spacing-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+          }}
+        >
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(139, 92, 246, 0.15)',
+              color: '#8B5CF6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Truck size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              طلبات الدليفري ({deliveryMetrics.deliveryOrdersCount}) — رسوم التوصيل
+            </div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#8B5CF6' }}>
+              {formatMoney(deliveryMetrics.deliveryFeesTotal)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Sub-Tabs */}
+      <div
+        style={{
+          display: 'flex',
+          borderBottom: '1px solid var(--color-border)',
+          gap: 'var(--spacing-2)',
+          paddingBottom: '4px',
+        }}
+      >
+        <button
+          onClick={() => setActiveSubTab('MASTER_LEDGER')}
+          className="btn-ghost"
+          style={{
+            fontSize: 'var(--font-size-sm)',
+            padding: '6px 16px',
+            borderBottom: activeSubTab === 'MASTER_LEDGER' ? '2px solid var(--color-primary)' : 'none',
+            color: activeSubTab === 'MASTER_LEDGER' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            fontWeight: activeSubTab === 'MASTER_LEDGER' ? 'bold' : 'normal',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+        >
+          <Receipt size={16} /> كشف حركة الخزينة والتدفق المالي التفصيلي
+        </button>
         <button
           onClick={() => setActiveSubTab('EXPENSES')}
           className="btn-ghost"
@@ -198,11 +892,31 @@ export const Finance: React.FC = () => {
             borderBottom: activeSubTab === 'EXPENSES' ? '2px solid var(--color-primary)' : 'none',
             color: activeSubTab === 'EXPENSES' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
             fontWeight: activeSubTab === 'EXPENSES' ? 'bold' : 'normal',
-            display: 'flex', alignItems: 'center', gap: '6px'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
           }}
         >
           <Landmark size={16} /> النفقات والمصاريف التشغيلية
         </button>
+        <Can permission={PERMISSIONS.FINANCE_VIEW_DEPOSITS}>
+          <button
+            onClick={() => setActiveSubTab('DEPOSITS')}
+            className="btn-ghost"
+            style={{
+              fontSize: 'var(--font-size-sm)',
+              padding: '6px 16px',
+              borderBottom: activeSubTab === 'DEPOSITS' ? '2px solid var(--color-primary)' : 'none',
+              color: activeSubTab === 'DEPOSITS' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              fontWeight: activeSubTab === 'DEPOSITS' ? 'bold' : 'normal',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <PiggyBank size={16} /> الإيداعات النقدية
+          </button>
+        </Can>
         <button
           onClick={() => setActiveSubTab('CLOSINGS')}
           className="btn-ghost"
@@ -212,43 +926,99 @@ export const Finance: React.FC = () => {
             borderBottom: activeSubTab === 'CLOSINGS' ? '2px solid var(--color-primary)' : 'none',
             color: activeSubTab === 'CLOSINGS' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
             fontWeight: activeSubTab === 'CLOSINGS' ? 'bold' : 'normal',
-            display: 'flex', alignItems: 'center', gap: '6px'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
           }}
         >
           <FileSpreadsheet size={16} /> إغلاقات درج الكاشير اليومية
         </button>
         <button
-          onClick={() => setActiveSubTab('JOURNAL')}
+          onClick={() => setActiveSubTab('PAYABLE')}
           className="btn-ghost"
           style={{
             fontSize: 'var(--font-size-sm)',
             padding: '6px 16px',
-            borderBottom: activeSubTab === 'JOURNAL' ? '2px solid var(--color-primary)' : 'none',
-            color: activeSubTab === 'JOURNAL' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            fontWeight: activeSubTab === 'JOURNAL' ? 'bold' : 'normal',
-            display: 'flex', alignItems: 'center', gap: '6px'
+            borderBottom: activeSubTab === 'PAYABLE' ? '2px solid var(--color-primary)' : 'none',
+            color: activeSubTab === 'PAYABLE' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            fontWeight: activeSubTab === 'PAYABLE' ? 'bold' : 'normal',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
           }}
         >
-          <BookOpen size={16} /> قيود اليومية المزدوجة
-        </button>
-        <button
-          onClick={() => setActiveSubTab('AUDIT')}
-          className="btn-ghost"
-          style={{
-            fontSize: 'var(--font-size-sm)',
-            padding: '6px 16px',
-            borderBottom: activeSubTab === 'AUDIT' ? '2px solid var(--color-primary)' : 'none',
-            color: activeSubTab === 'AUDIT' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            fontWeight: activeSubTab === 'AUDIT' ? 'bold' : 'normal',
-            display: 'flex', alignItems: 'center', gap: '6px'
-          }}
-        >
-          <ShieldAlert size={16} /> سجل رقابة وتدقيق العمليات أمنياً
+          <HandCoins size={16} /> حسابات الموردين (أجل)
         </button>
       </div>
 
-      {/* Content */}
+      {/* Main Tab Views */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {activeSubTab === 'MASTER_LEDGER' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+            {/* Filter Bar */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+                background: 'var(--color-surface)',
+                padding: 'var(--spacing-2) var(--spacing-3)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>اتجاه الحركة:</span>
+                <Select
+                  value={ledgerTypeFilter}
+                  onChange={(e) => setLedgerTypeFilter(e.target.value as any)}
+                  options={[
+                    { value: 'ALL', label: 'جميع الحركات (دواخل ومخارج)' },
+                    { value: 'IN', label: '📥 مقبوضات ودواخل فقط' },
+                    { value: 'OUT', label: '📤 مصاريف ومخارج فقط' },
+                  ]}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>قناة الدفع:</span>
+                <Select
+                  value={ledgerMethodFilter}
+                  onChange={(e) => setLedgerMethodFilter(e.target.value)}
+                  options={[
+                    { value: 'ALL', label: 'جميع الحسابات' },
+                    { value: 'CASH', label: 'درج الكاشير النقدي' },
+                    { value: 'BANK', label: 'الحساب البنكي / الشبكة' },
+                    { value: 'INSTAPAY', label: 'إنستاباي (InstaPay)' },
+                    { value: 'VODAFONE_CASH', label: 'فودافون كاش' },
+                  ]}
+                />
+              </div>
+            </div>
+
+            {restrictedSalesScope && (
+              <div style={{
+                padding: 'var(--spacing-2) var(--spacing-3)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px dashed var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+              }}>
+                لأسباب الأمان والسرية، تفاصيل فواتير المبيعات الفردية لا تظهر هنا. لإرجاع أو مراجعة فاتورة معينة، افتح شاشة "الفواتير" واكتب أو امسح رقم الفاتورة.
+              </div>
+            )}
+            <DataTable
+              data={visibleLedger}
+              columns={masterLedgerColumns}
+              rowKey="id"
+              searchField="description"
+              searchPlaceholder="ابحث بالبيان، اسم الفاتورة، أو اسم العميل..."
+            />
+          </div>
+        )}
+
         {activeSubTab === 'EXPENSES' && (
           <DataTable
             data={[...(expenses || [])].reverse()}
@@ -258,45 +1028,36 @@ export const Finance: React.FC = () => {
             searchPlaceholder="ابحث ببيان أو وصف المصروف..."
           />
         )}
-        
+
+        {activeSubTab === 'DEPOSITS' && (
+          <DataTable
+            data={[...(deposits || [])].reverse()}
+            columns={depositsColumns}
+            rowKey="id"
+            searchField="description"
+            searchPlaceholder="ابحث ببيان أو وصف الإيداع..."
+          />
+        )}
+
         {activeSubTab === 'CLOSINGS' && (
-          <DataTable
-            data={[...(closings || [])].reverse()}
-            columns={closingsColumns}
-            rowKey="id"
-          />
+          <DataTable data={[...(closings || [])].reverse()} columns={closingsColumns} rowKey="id" />
         )}
 
-        {activeSubTab === 'JOURNAL' && (
-          <DataTable
-            data={allJournalEntries}
-            columns={journalColumns}
-            rowKey="id"
-            searchField="desc"
-            searchPlaceholder="ابحث بالبيان المحاسبي للقيود..."
-          />
-        )}
-
-        {activeSubTab === 'AUDIT' && (
-          <DataTable
-            data={auditLogs || []}
-            columns={auditColumns}
-            rowKey="id"
-            searchField="message"
-            searchPlaceholder="ابحث في سجل تدقيق العمليات..."
-          />
-        )}
+        {activeSubTab === 'PAYABLE' && <AccountsPayablePanel />}
       </div>
 
-      {/* RECORD EXPENSE MODAL */}
       <Modal
         isOpen={showExpenseModal}
         onClose={() => setShowExpenseModal(false)}
         title="تسجيل مصروف تشغيلي جديد"
         footer={
           <div style={{ display: 'flex', gap: '8px' }}>
-            <Button onClick={() => setShowExpenseModal(false)} variant="secondary">إلغاء</Button>
-            <Button onClick={handleRecordExpense} disabled={logging} variant="primary">حفظ وتسجيل المصروف</Button>
+            <Button onClick={() => setShowExpenseModal(false)} variant="secondary">
+              إلغاء
+            </Button>
+            <Button onClick={handleRecordExpense} disabled={logging} variant="primary">
+              حفظ وتسجيل المصروف
+            </Button>
           </div>
         }
       >
@@ -304,18 +1065,28 @@ export const Finance: React.FC = () => {
           <Select
             label="تصنيف المصروف"
             value={expCategory}
-            onChange={(e) => setExpCategory(e.target.value as any)}
+            onChange={(e) => setExpCategory(e.target.value)}
             options={[
               { value: 'SUPPLIES', label: 'مستلزمات وبضائع للمحل والحيوانات' },
               { value: 'RENT', label: 'إيجار مقر الفرع' },
               { value: 'SALARY', label: 'رواتب وأجور الموظفين' },
               { value: 'UTILITIES', label: 'فواتير ومرافق (كهرباء/إنترنت/مياه)' },
-              { value: 'OTHER', label: 'نفقات تشغيلية أخرى عامة' }
+              { value: 'OTHER', label: 'نفقات تشغيلية أخرى عامة' },
+              { value: 'CUSTOM', label: 'تصنيف مخصص... (أدخل اسماً مخصصاً)' },
             ]}
           />
 
+          {expCategory === 'CUSTOM' && (
+            <Input
+              label="اسم التصنيف المخصص"
+              value={customCategory}
+              onChange={(e) => setCustomCategory(e.target.value)}
+              placeholder="مثال: مصاريف شخصية مروان، نظافة، ضيافة..."
+            />
+          )}
+
           <Input
-            label="قيمة المصروف ($)"
+            label="قيمة المصروف (ج.م)"
             value={expAmount}
             onChange={(e) => setExpAmount(e.target.value)}
             placeholder="0.00"
@@ -334,7 +1105,71 @@ export const Finance: React.FC = () => {
             onChange={(e) => setExpSource(e.target.value as any)}
             options={[
               { value: 'BANK', label: 'الحساب البنكي الرئيسي للمؤسسة' },
-              { value: 'CASH', label: 'درج الكاشير النقدي بالفرع' }
+              { value: 'CASH', label: 'درج الكاشير النقدي بالفرع' },
+            ]}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDepositModal}
+        onClose={() => setShowDepositModal(false)}
+        title="تسجيل إيداع نقدي جديد"
+        footer={
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button onClick={() => setShowDepositModal(false)} variant="secondary">
+              إلغاء
+            </Button>
+            <Button onClick={handleRecordDeposit} disabled={loggingDeposit} variant="primary">
+              حفظ وتسجيل الإيداع
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+          <Select
+            label="مصدر الإيداع"
+            value={depSource}
+            onChange={(e) => setDepSource(e.target.value)}
+            options={[
+              { value: 'OWNER_INJECTION', label: 'إيداع من المالك (رأس مال إضافي)' },
+              { value: 'LOAN', label: 'قرض أو تمويل خارجي' },
+              { value: 'FLOAT_TOPUP', label: 'تعزيز رصيد درج الكاشير' },
+              { value: 'OTHER', label: 'مصدر آخر' },
+              { value: 'CUSTOM', label: 'تصنيف مخصص... (أدخل اسماً مخصصاً)' },
+            ]}
+          />
+
+          {depSource === 'CUSTOM' && (
+            <Input
+              label="اسم المصدر المخصص"
+              value={customDepSource}
+              onChange={(e) => setCustomDepSource(e.target.value)}
+              placeholder="مثال: تسوية عهدة، استرداد من مورد..."
+            />
+          )}
+
+          <Input
+            label="قيمة الإيداع (ج.م)"
+            value={depAmount}
+            onChange={(e) => setDepAmount(e.target.value)}
+            placeholder="0.00"
+          />
+
+          <Input
+            label="بيان أو وصف الإيداع"
+            value={depDescription}
+            onChange={(e) => setDepDescription(e.target.value)}
+            placeholder="مثال: تعزيز رصيد الدرج بداية الوردية"
+          />
+
+          <Select
+            label="الإيداع في حساب"
+            value={depTarget}
+            onChange={(e) => setDepTarget(e.target.value as any)}
+            options={[
+              { value: 'CASH', label: 'درج الكاشير النقدي بالفرع' },
+              { value: 'BANK', label: 'الحساب البنكي الرئيسي للمؤسسة' },
             ]}
           />
         </div>
