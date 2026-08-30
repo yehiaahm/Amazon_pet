@@ -22,28 +22,41 @@
         </encoder>
     </appender>
 
-    <!-- ${LOG_FILE} is populated by Spring Boot from logging.file.name
-         (see application-production.yml) before this config is parsed. -->
-    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_FILE:-./logs/animasys-backend.log}</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_FILE:-./logs/animasys-backend}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>50MB</maxFileSize>
-            <maxHistory>14</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
-        </rollingPolicy>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <includeMdcKeyName>requestId</includeMdcKeyName>
-            <includeMdcKeyName>tenantId</includeMdcKeyName>
-            <includeMdcKeyName>employeeId</includeMdcKeyName>
-            <customFields>{"service":"animasys-backend"}</customFields>
-        </encoder>
-    </appender>
+    <!-- Opt-in file logging for deployments with a persistent volume mounted at the
+         log path (see docker-compose.yml's backend-logs volume) — activate with the
+         extra "file-logging" profile alongside "production". Deliberately NOT active
+         on plain "production" alone (e.g. Railway's ephemeral, non-root container has
+         no writable /app/logs) — Logback starts every appender it parses immediately,
+         so the appender definition itself has to be behind this conditional, not just
+         its appender-ref below; a bare ref wouldn't stop the file from being opened.
+         ${LOG_FILE} is populated by Spring Boot from logging.file.name (see
+         application-production.yml) before this config is parsed. -->
+    <springProfile name="production &amp; file-logging">
+        <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_FILE:-./logs/animasys-backend.log}</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_FILE:-./logs/animasys-backend}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+                <maxFileSize>50MB</maxFileSize>
+                <maxHistory>14</maxHistory>
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>requestId</includeMdcKeyName>
+                <includeMdcKeyName>tenantId</includeMdcKeyName>
+                <includeMdcKeyName>employeeId</includeMdcKeyName>
+                <customFields>{"service":"animasys-backend"}</customFields>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON_FILE"/>
+        </root>
+    </springProfile>
 
+    <!-- Plain "production" (Railway, or any deployment without the file-logging
+         profile): stdout JSON only — no file, no writable-directory dependency. -->
     <springProfile name="production">
         <root level="INFO">
             <appender-ref ref="JSON"/>
-            <appender-ref ref="JSON_FILE"/>
         </root>
     </springProfile>
 

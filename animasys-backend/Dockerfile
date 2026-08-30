@@ -24,7 +24,11 @@ RUN apt-get update \
 RUN groupadd -r animasys && useradd -r -g animasys animasys
 
 COPY --from=build /build/target/animasys-backend-1.0.0.jar app.jar
-RUN chown animasys:animasys app.jar
+# ./logs only gets written to when the "file-logging" profile is explicitly active
+# (see logback-spring.xml / docker-compose.yml) — pre-create it owned by the
+# non-root user so a mounted volume (e.g. docker-compose's backend-logs) inherits
+# writable ownership instead of defaulting to root. Not used on Railway.
+RUN mkdir -p logs && chown -R animasys:animasys app.jar logs
 
 USER animasys
 

@@ -24,7 +24,9 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      SPRING_PROFILES_ACTIVE: production
+      # "file-logging" opts into the JSON_FILE appender (see logback-spring.xml) —
+      # safe here because the backend-logs volume below gives it somewhere to write.
+      SPRING_PROFILES_ACTIVE: production,file-logging
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/animasys_erp?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?set SPRING_DATASOURCE_PASSWORD in .env}
