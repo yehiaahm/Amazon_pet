@@ -5,7 +5,7 @@
     "dockerfilePath": "animasys-backend/Dockerfile"
   },
   "deploy": {
-    "healthcheckPath": "/api/actuator/health",
+    "healthcheckPath": "/actuator/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3

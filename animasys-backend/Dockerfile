@@ -37,6 +37,6 @@ EXPOSE 8080
 # Health check hits the actuator endpoint added for production observability.
 # Shell form so ${PORT} (injected by PaaS hosts like Railway) is honored; falls back to 8080 locally.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8080}/api/actuator/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8080}/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

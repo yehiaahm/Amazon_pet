@@ -1,8 +1,13 @@
 server:
   # Railway (and most PaaS hosts) inject PORT at runtime; keep 8080 as the local/desktop default.
   port: ${PORT:8080}
-  servlet:
-    context-path: /api
+  # No servlet context-path: it would also shift static resource serving (the SPA's
+  # index.html/assets), which are registered at the servlet container root, so the
+  # SPA would only be reachable under that prefix instead of the site's actual root
+  # (confirmed in production: bare domain 404'd, only /api/ served index.html, and
+  # its ./assets/* references then resolved to /assets/* — outside any prefix — since
+  # /api has no trailing slash). Controllers keep their plain /v1/... mappings, which
+  # is also what SecurityConfig/EndpointPermissionRegistry already match against.
 
 spring:
   application:
