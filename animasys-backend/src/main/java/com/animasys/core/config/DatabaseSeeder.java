@@ -61,6 +61,7 @@ public class DatabaseSeeder implements CommandLineRunner {
     private final BankAccountRepository bankAccountRepository;
     private final PasswordEncoder passwordEncoder;
     private final RoleBootstrapService roleBootstrapService;
+    private final OwnerPinRecoveryService ownerPinRecoveryService;
 
     @Value("${app.seed-demo-data:false}")
     private boolean seedDemoData;
@@ -91,6 +92,9 @@ public class DatabaseSeeder implements CommandLineRunner {
             syncKnownAccountPins();
             syncKnownAccountProfiles();
         }
+
+        // Last: recovery for a hosted deployment whose one-time generated PINs were lost.
+        ownerPinRecoveryService.applyIfRequested();
 
         if (seedDemoData) {
             seedStandardServices(tenant);
