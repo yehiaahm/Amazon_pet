@@ -59,4 +59,21 @@ public final class ConditionalDdl {
             throw e;
         }
     }
+
+    /**
+     * Same message-matching approach as {@link #addConstraintIfMissing}: MySQL raises
+     * "Duplicate key name", H2 raises "already exists" — neither has a single portable
+     * INFORMATION_SCHEMA shape for plain (non-unique) indexes worth checking up front.
+     */
+    public static void addIndexIfMissing(Connection conn, String createIndexSql) throws SQLException {
+        try (Statement st = conn.createStatement()) {
+            st.execute(createIndexSql);
+        } catch (SQLException e) {
+            String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (msg.contains("duplicate") || msg.contains("already exists")) {
+                return;
+            }
+            throw e;
+        }
+    }
 }

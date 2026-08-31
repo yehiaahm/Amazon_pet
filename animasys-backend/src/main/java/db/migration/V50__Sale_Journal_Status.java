@@ -35,7 +35,7 @@ public class V50__Sale_Journal_Status extends BaseJavaMigration {
                         WHERE j.description = CONCAT('Customer POS checkout invoice: ', s.sale_number)
                       )
                     """);
-            st.execute("CREATE INDEX idx_sales_journal_status ON sales(journal_status)");
         }
+        ConditionalDdl.addIndexIfMissing(conn, "CREATE INDEX idx_sales_journal_status ON sales(journal_status)");
     }
 }
