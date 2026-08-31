@@ -18,11 +18,13 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.beans.factory.annotation.Value;
 
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -75,16 +77,51 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Beyond the explicit APP_CORS_ALLOWED_ORIGINS list, also allow whatever origin the
+     * request itself came from IF that origin's host matches this request's own Host
+     * header — i.e. the browser is loading this same site's own domain (true for every
+     * production deploy per this app's same-origin architecture, see backendUrl.ts).
+     * This is safe: the Origin header is set by the browser and cannot be forged by page
+     * script, so a genuine cross-site request still carries the attacker's real origin and
+     * still fails this check — it only ever reflects a domain back at itself. Added after
+     * a real incident: a fresh Railway deploy's own domain wasn't in APP_CORS_ALLOWED_ORIGINS
+     * yet, which 403'd its own <script type="module"> tags (always CORS-mode, even same-origin)
+     * and its own login POST — i.e. the app couldn't talk to itself until that env var was set.
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(parseAllowedOrigins());
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Cache-Control", "X-Requested-With", "X-Request-Id", "Idempotency-Key"));
-        configuration.setAllowCredentials(true);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
+        List<String> explicitOrigins = parseAllowedOrigins();
+        return request -> {
+            CorsConfiguration configuration = new CorsConfiguration();
+            List<String> origins = new ArrayList<>(explicitOrigins);
+            String requestOrigin = request.getHeader(HttpHeaders.ORIGIN);
+            if (requestOrigin != null && isSameHost(requestOrigin, request.getHeader(HttpHeaders.HOST))
+                    && origins.stream().noneMatch(requestOrigin::equalsIgnoreCase)) {
+                origins.add(requestOrigin);
+            }
+            configuration.setAllowedOrigins(origins);
+            configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+            configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Cache-Control", "X-Requested-With", "X-Request-Id", "Idempotency-Key"));
+            configuration.setAllowCredentials(true);
+            return configuration;
+        };
+    }
+
+    /** Compares hostnames only (ignores scheme/port) since TLS-terminating proxies like
+     * Railway forward requests to this app over plain HTTP, making request.getScheme()
+     * unreliable for reconstructing the browser's real https:// origin. */
+    static boolean isSameHost(String origin, String hostHeader) {
+        if (hostHeader == null || hostHeader.isBlank()) {
+            return false;
+        }
+        try {
+            String originHost = URI.create(origin).getHost();
+            String requestHost = hostHeader.split(":", 2)[0].trim();
+            return originHost != null && originHost.equalsIgnoreCase(requestHost);
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     private List<String> parseAllowedOrigins() {
