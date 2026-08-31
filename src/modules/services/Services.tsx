@@ -405,13 +405,13 @@ export const Services: React.FC = () => {
       />
 
       <div
+        className="grid-split"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(320px, 400px) 1fr',
+          '--split-ratio': 'minmax(320px, 400px) 1fr',
           gap: 'var(--spacing-4)',
           flex: 1,
           minHeight: 0,
-        }}
+        } as React.CSSProperties}
       >
         <div
           style={{
@@ -464,7 +464,7 @@ export const Services: React.FC = () => {
         title="حجز موعد لحيوان أليف"
         maxWidth="520px"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowBookModal(false)} variant="secondary">
               إلغاء
             </Button>
@@ -536,7 +536,7 @@ export const Services: React.FC = () => {
         title="إضافة خدمة جديدة للمحل"
         maxWidth="460px"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowServiceModal(false)} variant="secondary">
               إلغاء
             </Button>
@@ -581,7 +581,7 @@ export const Services: React.FC = () => {
         title="تعديل بيانات الخدمة"
         maxWidth="460px"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowEditServiceModal(false)} variant="secondary">
               إلغاء
             </Button>

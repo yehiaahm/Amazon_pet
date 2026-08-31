@@ -335,7 +335,7 @@ const BarcodeAdminPanel: React.FC = () => {
                 gap: '10px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>الباركود الحالي بالنظام:</span>
                 {selectedVariant.barcode ? (
                   <Badge variant="primary" style={{ fontSize: '13px', padding: '4px 10px', fontFamily: 'monospace' }}>
@@ -347,8 +347,8 @@ const BarcodeAdminPanel: React.FC = () => {
               </div>
 
               {/* Custom Barcode Input */}
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-end' }}>
+                <div style={{ flex: '1 1 200px' }}>
                   <Input
                     label="تعيين أو تعديل الباركود يدوياً (مثلاً باركود المصنع EAN-13)"
                     value={customBarcodeVal}
@@ -368,7 +368,7 @@ const BarcodeAdminPanel: React.FC = () => {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: '12px' } as React.CSSProperties}>
             <Input
               label="عدد الملصقات المطلوب طباعتها"
               value={printQty}

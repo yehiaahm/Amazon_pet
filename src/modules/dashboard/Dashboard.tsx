@@ -29,6 +29,7 @@ import {
   trendFromPct,
 } from '../../core/utils/periodFinance';
 import Can from '../../components/ui/Can';
+import { useIsMobile } from '../../core/hooks/useMediaQuery';
 import { usePermissions } from '../../core/permissions/usePermissions';
 import { hasRestrictedSalesScope } from '../../core/permissions/salesAuth';
 import { PERMISSIONS } from '../../core/permissions/permissions';
@@ -149,6 +150,7 @@ export const Dashboard: React.FC = () => {
   const setPendingInventoryTab = useUIStore(s => s.setPendingInventoryTab);
   const { hasPermission, canAccessModule } = usePermissions();
   const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
+  const isMobile = useIsMobile();
 
   // Dashboard KPI drill-down: navigates to the existing page that explains a KPI,
   // carrying over the same date range/context the KPI card used to compute its number.
@@ -446,7 +448,7 @@ export const Dashboard: React.FC = () => {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--spacing-6)', alignItems: 'start' }}>
+        <div className="grid-split" style={{ '--split-ratio': '2fr 1fr', gap: 'var(--spacing-6)', alignItems: 'start' } as React.CSSProperties}>
           <Card title="إجمالي المبيعات مقابل المصاريف التشغيلية">
             <div style={{ width: '100%', height: 260 }}>
               {chartData.every(p => p.Sales === 0 && p.Expenses === 0) ? (
@@ -457,7 +459,7 @@ export const Dashboard: React.FC = () => {
                 <ResponsiveContainer>
                   <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                    <XAxis dataKey="name" stroke="var(--color-text-secondary)" fontSize={11} />
+                    <XAxis dataKey="name" stroke="var(--color-text-secondary)" fontSize={11} interval={isMobile ? 1 : 0} />
                     <YAxis stroke="var(--color-text-secondary)" fontSize={11} />
                     <Tooltip
                       formatter={(value: number, key: string) => [
@@ -570,7 +572,7 @@ export const Dashboard: React.FC = () => {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-6)' }}>
+        <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: 'var(--spacing-6)' } as React.CSSProperties}>
           <Card title="آخر الفواتير الصادرة من نقاط البيع">
             {restrictedSalesScope ? (
               <div style={{ padding: 'var(--spacing-3) 0', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
@@ -676,7 +678,7 @@ export const Dashboard: React.FC = () => {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-6)', alignItems: 'start' }}>
+        <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: 'var(--spacing-6)', alignItems: 'start' } as React.CSSProperties}>
           <Card title="مساهمة مبيعات المنتجات مقابل الخدمات">
             <div style={{ width: '100%', height: 260 }}>
               {productServiceChart.length === 0 || productServiceChart.every(p => p.Products === 0 && p.Services === 0) ? (
@@ -687,7 +689,7 @@ export const Dashboard: React.FC = () => {
                 <ResponsiveContainer>
                   <BarChart data={productServiceChart} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                    <XAxis dataKey="name" stroke="var(--color-text-secondary)" fontSize={11} />
+                    <XAxis dataKey="name" stroke="var(--color-text-secondary)" fontSize={11} interval={isMobile ? 1 : 0} />
                     <YAxis stroke="var(--color-text-secondary)" fontSize={11} />
                     <Tooltip formatter={(value: number) => formatMoney(Number(value))} />
                     <Legend verticalAlign="top" height={36} iconType="square" fontSize={11} />
@@ -747,7 +749,7 @@ export const Dashboard: React.FC = () => {
           <StatCard title="المنتجات الراكدة" value={kpis?.deadStockCount || 0} description="لم تباع منذ 30 يوماً" icon={<AlertTriangle size={18} />} onClick={goToInventory('STOCK')} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 'var(--spacing-6)' }}>
+        <div className="grid-split" style={{ '--split-ratio': '1.5fr 1fr', gap: 'var(--spacing-6)' } as React.CSSProperties}>
           <Card title="حالة وجرد السلع في المخزن">
             <div className="table-container">
               <table className="erp-table">

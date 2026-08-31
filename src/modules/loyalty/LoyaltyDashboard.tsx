@@ -121,7 +121,7 @@ export const LoyaltyDashboard: React.FC = () => {
       <Card
         title="كل العملاء ورصيد الولاء"
         extra={
-          <div style={{ position: 'relative', width: '260px' }}>
+          <div style={{ position: 'relative', width: '100%', maxWidth: '260px' }}>
             <Search size={14} style={{ position: 'absolute', insetInlineStart: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} />
             <Input
               placeholder="ابحث بالاسم أو رقم الهاتف..."

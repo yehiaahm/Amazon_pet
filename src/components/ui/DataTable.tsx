@@ -194,9 +194,9 @@ export function DataTable<T extends Record<string, any>>({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', width: '100%' }}>
       {/* Search and Filters Toolbar */}
       <div className="workspace-toolbar" style={{ flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flex: 1, minWidth: '240px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
           {searchField && (
-            <div style={{ position: 'relative', width: '100%', maxWidth: '320px' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: '320px', flex: '1 1 200px' }}>
               <Search 
                 size={16} 
                 style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} 
@@ -228,7 +228,7 @@ export function DataTable<T extends Record<string, any>>({
         </div>
 
         {/* Action buttons (CSV, Print, Cols Visibility) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap', position: 'relative' }}>
           <Button onClick={() => setShowColMenu(!showColMenu)} variant="secondary" size="sm">
             <Eye size={14} /> Columns
           </Button>
@@ -237,7 +237,7 @@ export function DataTable<T extends Record<string, any>>({
             <div style={{
               position: 'absolute',
               top: '36px',
-              right: '180px',
+              right: 0,
               backgroundColor: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-md)',
@@ -247,7 +247,10 @@ export function DataTable<T extends Record<string, any>>({
               display: 'flex',
               flexDirection: 'column',
               gap: '4px',
-              minWidth: '150px'
+              minWidth: '150px',
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: '60vh',
+              overflowY: 'auto'
             }}>
               {columns.map(c => (
                 <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: 'var(--font-size-xs)', cursor: 'pointer', padding: '4px' }}>
@@ -380,7 +383,7 @@ export function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Pagination Controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--font-size-xs)', padding: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--font-size-xs)', padding: '4px', flexWrap: 'wrap', gap: '8px' }}>
         <span style={{ color: 'var(--color-text-secondary)' }}>
           Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredData.length)} of {filteredData.length} records
         </span>

@@ -18,11 +18,13 @@ import DatePicker from '../../components/ui/DatePicker';
 import Modal from '../../components/ui/Modal';
 import Select from '../../components/ui/Select';
 import { formatMoney } from '../../core/utils/money';
+import { useIsMobile } from '../../core/hooks/useMediaQuery';
 import type { PurchaseInvoiceInstallment, SupplierPayableSummary } from '../../types/erp';
 
 type InstallmentDraft = { installmentNumber: number; dueDate: string; amount: string; notes: string };
 
 const AccountsPayablePanel: React.FC = () => {
+  const isMobile = useIsMobile();
   const { data: dashboard, isLoading } = useAccountsPayableDashboard();
   const { data: invoices = [] } = usePurchaseInvoices();
   const { mutate: payInstallment, isPending: paying } = usePayInstallment();
@@ -246,7 +248,7 @@ const AccountsPayablePanel: React.FC = () => {
 
       {/* Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             onClick={() => setActiveView('PRIORITY')}
             className="btn-ghost"
@@ -272,7 +274,7 @@ const AccountsPayablePanel: React.FC = () => {
             ملخص الموردين
           </button>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <Button variant="secondary" size="sm" onClick={() => { setReminderDays(String(dashboard.reminderDaysBeforeDue)); setShowSettings(true); }}>
             <Settings2 size={14} /> إعدادات التنبيه ({dashboard.reminderDaysBeforeDue} يوم)
           </Button>
@@ -308,7 +310,7 @@ const AccountsPayablePanel: React.FC = () => {
         onClose={() => setPayingItem(null)}
         title={`سداد دفعة — ${payingItem?.supplierName}`}
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button variant="secondary" onClick={() => setPayingItem(null)}>إلغاء</Button>
             <Button variant="primary" onClick={handlePay} disabled={paying}>تسجيل السداد</Button>
           </div>
@@ -354,7 +356,7 @@ const AccountsPayablePanel: React.FC = () => {
         onClose={() => setShowSettings(false)}
         title="إعدادات تنبيهات السداد"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button variant="secondary" onClick={() => setShowSettings(false)}>إلغاء</Button>
             <Button variant="primary" onClick={handleSaveSettings} disabled={savingSettings}>حفظ</Button>
           </div>
@@ -378,7 +380,7 @@ const AccountsPayablePanel: React.FC = () => {
         title="جدولة دفعات الفاتورة"
         maxWidth="640px"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button variant="secondary" onClick={() => setShowScheduleModal(false)}>إلغاء</Button>
             <Button variant="primary" onClick={handleSaveSchedule} disabled={savingSchedule}>حفظ الجدول</Button>
           </div>
@@ -428,7 +430,7 @@ const AccountsPayablePanel: React.FC = () => {
             {installmentDrafts.map((draft, idx) => (
               <div key={idx} style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr auto',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr auto',
                 gap: '8px',
                 alignItems: 'end',
                 padding: '8px',
@@ -468,6 +470,7 @@ const AccountsPayablePanel: React.FC = () => {
                   <Button
                     variant="danger"
                     size="sm"
+                    style={isMobile ? { justifySelf: 'end' } : undefined}
                     onClick={() => setInstallmentDrafts(prev => prev.filter((_, i) => i !== idx))}
                   >
                     <Trash2 size={12} />

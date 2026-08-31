@@ -10,8 +10,8 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      height: '100vh',
-      width: '100vw',
+      minHeight: '100dvh',
+      width: '100%',
       backgroundColor: 'var(--color-bg)'
     }}>
       <div style={{

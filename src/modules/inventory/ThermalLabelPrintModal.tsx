@@ -268,7 +268,7 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
         {/* Content Body */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Form controls */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: '16px' } as React.CSSProperties}>
             <Select
               label="مقاس ملصق الرول الحراري"
               value={selectedSize}
@@ -322,18 +322,23 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
               flexDirection: 'column',
               alignItems: 'center',
               gap: '10px',
+              width: '100%',
+              boxSizing: 'border-box',
+              overflowX: 'auto',
             }}
           >
             <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--color-text-secondary)' }}>
               معاينة حية للملصق الحراري ({currentSizeObj.widthMm}mm × {currentSizeObj.heightMm}mm):
             </span>
 
-            {/* Scale card proportional to mm */}
+            {/* Scale card proportional to mm — kept at a true physical size for print accuracy;
+                the parent container above scrolls horizontally instead of the page overflowing. */}
             <div
               ref={printAreaRef}
               style={{
                 width: `${currentSizeObj.widthMm * 5}px`,
                 height: `${currentSizeObj.heightMm * 5}px`,
+                flexShrink: 0,
                 background: '#ffffff',
                 color: '#000000',
                 borderRadius: '4px',
@@ -393,6 +398,8 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
             padding: '16px 20px',
             borderTop: '1px solid var(--color-border)',
             display: 'flex',
+            flexWrap: 'wrap',
+            gap: '10px',
             justifyContent: 'space-between',
             alignItems: 'center',
             background: 'var(--color-surface)',
@@ -404,7 +411,7 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
             <Code size={16} /> {loadingZpl ? 'جاري التوليد...' : 'تصدير كود ZPL'}
           </Button>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <Button variant="secondary" onClick={onClose}>
               إلغاء
             </Button>

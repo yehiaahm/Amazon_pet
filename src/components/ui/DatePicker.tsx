@@ -156,7 +156,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
           borderRadius: 'var(--radius-md)',
           boxShadow: 'var(--shadow-lg)',
           padding: 'var(--spacing-3)',
-          width: '280px',
+          width: 'min(280px, 88vw)',
+          maxWidth: 'calc(100vw - 24px)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--spacing-2)' }}>
             <button type="button" onClick={goPrevMonth} className="btn-ghost" style={{ border: 'none', borderRadius: 'var(--radius-md)', padding: '4px', cursor: 'pointer' }}>

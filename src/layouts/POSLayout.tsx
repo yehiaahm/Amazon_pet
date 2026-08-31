@@ -41,37 +41,40 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', backgroundColor: 'var(--color-bg)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', width: '100%', overflow: 'hidden', backgroundColor: 'var(--color-bg)' }}>
       {/* POS Topbar */}
       <header style={{
-        height: '48px',
+        minHeight: '48px',
         backgroundColor: 'var(--color-surface)',
         borderBottom: '1px solid var(--color-border)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 var(--spacing-4)',
+        flexWrap: 'wrap',
+        rowGap: '4px',
+        padding: 'var(--spacing-1) var(--spacing-3)',
         zIndex: 100
       }}>
         {/* Left: Exit and Navigation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap', minWidth: 0 }}>
           {canLeavePos && (
             <>
-              <button 
+              <button
                 onClick={() => setActiveModule('dashboard-executive')}
                 className="btn-ghost"
-                style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', border: 'none', fontWeight: 'var(--font-weight-semibold)' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', border: 'none', fontWeight: 'var(--font-weight-semibold)', whiteSpace: 'nowrap' }}
               >
-                <ArrowLeft size={16} /> الخروج من شاشة المبيعات
+                <ArrowLeft size={16} />
+                <span className="hide-mobile">الخروج من شاشة المبيعات</span>
               </button>
-              <span style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
+              <span className="hide-mobile" style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
             </>
           )}
-          <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>
+          <span className="hide-mobile" style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>
             شاشة الكاشير ونقاط البيع (POS)
           </span>
           {visibleQuickNav.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
               {visibleQuickNav.map((item) => (
                 <button
                   key={item.id}
@@ -101,12 +104,12 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
 
         {/* Center: Shift & Session Status */}
         {activeSession ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="responsive-row" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', flexWrap: 'wrap' }}>
+            <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Clock size={14} />
               <span>بدء الوردية: {new Date(activeSession.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Landmark size={14} />
               <span>عهدة الدرج: <strong>{formatMoney(activeSession.openingBalance)}</strong></span>
             </div>
@@ -117,19 +120,19 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
         )}
 
         {/* Right: Cashier Identity & Theme Toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-          <button 
-            onClick={toggleTheme} 
-            className="btn-ghost" 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+          <button
+            onClick={toggleTheme}
+            className="btn-ghost"
             style={{ padding: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
             title={theme === 'light' ? 'تفعيل الوضع الداكن (Dark Mode)' : 'تفعيل الوضع المضيء (Light Mode)'}
           >
             {theme === 'light' ? <Moon size={16} style={{ color: 'var(--color-text-secondary)' }} /> : <Sun size={16} style={{ color: 'var(--color-warning)' }} />}
           </button>
-          
-          <span style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+          <span className="hide-mobile" style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
+
+          <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
             <div style={{
               width: '24px',
               height: '24px',
@@ -140,7 +143,8 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '10px',
-              fontWeight: 'bold'
+              fontWeight: 'bold',
+              flexShrink: 0
             }}>
               <User size={12} />
             </div>
@@ -149,7 +153,7 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
             </span>
           </div>
 
-          <span style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
+          <span className="hide-mobile" style={{ height: '16px', width: '1px', backgroundColor: 'var(--color-border)' }} />
 
           <button
             onClick={handleLogout}
@@ -168,13 +172,13 @@ export const POSLayout: React.FC<POSLayoutProps> = ({ children }) => {
             title="تسجيل الخروج"
           >
             <LogOut size={14} />
-            تسجيل الخروج
+            <span className="hide-mobile">تسجيل الخروج</span>
           </button>
         </div>
       </header>
 
       {/* POS Screen area (No sidebar) */}
-      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {children}
       </main>
     </div>

@@ -46,7 +46,7 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
             &times;
           </button>
         </div>
-        <div style={{ padding: 'var(--spacing-4)', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+        <div style={{ padding: 'var(--spacing-4)', overflowY: 'auto', overflowX: 'hidden', flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', minWidth: 0 }}>
           {children}
         </div>
       </div>

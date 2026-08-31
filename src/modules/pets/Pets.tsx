@@ -62,7 +62,7 @@ export const Pets: React.FC = () => {
           return <span style={{ color: 'var(--color-text-secondary)' }}>—</span>;
         }
         return (
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
             {summary.overdueCount > 0 && <Badge variant="danger">متأخر {summary.overdueCount}</Badge>}
             {summary.dueSoonCount > 0 && <Badge variant="warning">قريب {summary.dueSoonCount}</Badge>}
           </div>
@@ -184,7 +184,7 @@ export const Pets: React.FC = () => {
         onClose={() => setShowSettings(false)}
         title="إعدادات تنبيهات المتابعة"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button variant="secondary" onClick={() => setShowSettings(false)}>إلغاء</Button>
             <Button
               variant="primary"

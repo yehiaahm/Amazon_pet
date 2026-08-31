@@ -13,6 +13,7 @@ import { usePermissions } from '../core/permissions/usePermissions';
 import { PERMISSIONS } from '../core/permissions/permissions';
 import Can from '../components/ui/Can';
 import { logout } from '../core/auth/logout';
+import { useIsTabletDown } from '../core/hooks/useMediaQuery';
 
 interface ExecutiveLayoutProps {
   children: React.ReactNode;
@@ -25,6 +26,23 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
   const setActiveModule = useUIStore(s => s.setActiveModule);
   const theme = useUIStore(s => s.theme);
   const toggleTheme = useUIStore(s => s.toggleTheme);
+
+  const isTabletDown = useIsTabletDown();
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const showSidebarLabels = isTabletDown ? true : !sidebarCollapsed;
+
+  const handleHamburgerClick = () => {
+    if (isTabletDown) {
+      setMobileNavOpen(o => !o);
+    } else {
+      toggleSidebar();
+    }
+  };
+
+  const handleNavItemClick = (moduleId: string) => {
+    setActiveModule(moduleId);
+    if (isTabletDown) setMobileNavOpen(false);
+  };
   
   const currentEmployee = useUIStore(s => s.currentEmployee);
   const setAutoOpenCloseShiftModal = useUIStore(s => s.setAutoOpenCloseShiftModal);
@@ -89,20 +107,20 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
   return (
     <div className="erp-app">
       <header className="erp-topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-          <button onClick={toggleSidebar} className="btn-ghost" style={{ padding: '6px', border: 'none' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', minWidth: 0 }}>
+          <button onClick={handleHamburgerClick} className="btn-ghost" style={{ padding: '6px', border: 'none', flexShrink: 0 }}>
             <Menu size={18} />
           </button>
-          <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
              نظام Amazon Pet
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexShrink: 0 }}>
           <div>
-            <button 
-              onClick={toggleTheme} 
-              className="btn-ghost" 
+            <button
+              onClick={toggleTheme}
+              className="btn-ghost"
               style={{ padding: '6px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               title={theme === 'light' ? 'تفعيل الوضع الداكن (Dark Mode)' : 'تفعيل الوضع المضيء (Light Mode)'}
             >
@@ -110,12 +128,12 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', borderLeft: '1px solid var(--color-border)', paddingLeft: 'var(--spacing-4)' }}>
+          <div className="responsive-row" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', borderLeft: '1px solid var(--color-border)', paddingLeft: 'var(--spacing-3)', flexWrap: 'nowrap' }}>
             <Can permission={PERMISSIONS.SETTINGS_FACTORY_RESET}>
               <button
                 onClick={handleSystemReset}
                 disabled={resetting}
-                className="btn-ghost"
+                className="btn-ghost hide-mobile"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -135,7 +153,7 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
               </button>
             </Can>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', fontSize: 'var(--font-size-xs)', fontWeight: 'bold', color: 'var(--color-text-primary)' }}>
+            <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', fontSize: 'var(--font-size-xs)', fontWeight: 'bold', color: 'var(--color-text-primary)' }}>
               <UserCheck size={16} style={{ color: 'var(--color-text-secondary)' }} />
               <span>{currentEmployee?.fullName}</span>
             </div>
@@ -161,29 +179,34 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
                 padding: '4px 8px',
                 cursor: 'pointer',
                 fontSize: 'var(--font-size-xs)',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                whiteSpace: 'nowrap'
               }}
               title="تسجيل الخروج"
             >
               <LogOut size={14} />
-              تسجيل الخروج
+              <span className="hide-mobile">تسجيل الخروج</span>
             </button>
           </div>
         </div>
       </header>
 
-      <aside className={`erp-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+      {isTabletDown && mobileNavOpen && (
+        <div className="erp-sidebar-backdrop visible" onClick={() => setMobileNavOpen(false)} />
+      )}
+
+      <aside className={`erp-sidebar ${sidebarCollapsed && !isTabletDown ? 'collapsed' : ''} ${isTabletDown && mobileNavOpen ? 'mobile-open' : ''}`}>
         <div style={{ flex: 1, padding: 'var(--spacing-2) 0' }}>
           {filteredMenuGroups.map((group, gIdx) => (
             <div key={group.title} style={{ marginBottom: 'var(--spacing-4)' }}>
               {gIdx > 0 && <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 'var(--spacing-2) var(--spacing-4)' }} />}
-              
-              {!sidebarCollapsed && (
-                <div style={{ 
-                  fontSize: '10px', 
-                  fontWeight: 'var(--font-weight-semibold)', 
-                  textTransform: 'uppercase', 
-                  color: 'var(--color-text-secondary)', 
+
+              {showSidebarLabels && (
+                <div style={{
+                  fontSize: '10px',
+                  fontWeight: 'var(--font-weight-semibold)',
+                  textTransform: 'uppercase',
+                  color: 'var(--color-text-secondary)',
                   padding: 'var(--spacing-1) var(--spacing-4)',
                   letterSpacing: '0.05em'
                 }}>
@@ -196,7 +219,7 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
                 return (
                   <button
                     key={item.id}
-                    onClick={() => setActiveModule(item.id)}
+                    onClick={() => handleNavItemClick(item.id)}
                     style={{
                       width: '100%',
                       textAlign: 'left',
@@ -210,12 +233,12 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
                       borderRadius: 0,
                       cursor: 'pointer'
                     }}
-                    title={sidebarCollapsed ? item.name : undefined}
+                    title={!showSidebarLabels ? item.name : undefined}
                   >
                     <div style={{ display: 'flex', color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}>
                       {item.icon}
                     </div>
-                    {!sidebarCollapsed && (
+                    {showSidebarLabels && (
                       <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: isActive ? 'var(--font-weight-semibold)' : 'var(--font-weight-normal)' }}>
                         {item.name}
                       </span>
@@ -226,16 +249,18 @@ export const ExecutiveLayout: React.FC<ExecutiveLayoutProps> = ({ children }) =>
             </div>
           ))}
         </div>
-        
-        <div style={{ borderTop: '1px solid var(--color-border)', padding: 'var(--spacing-2)' }}>
-          <button 
-            onClick={toggleSidebar} 
-            className="btn-ghost" 
-            style={{ width: '100%', border: 'none', display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-end', padding: '4px' }}
-          >
-            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        </div>
+
+        {!isTabletDown && (
+          <div style={{ borderTop: '1px solid var(--color-border)', padding: 'var(--spacing-2)' }}>
+            <button
+              onClick={toggleSidebar}
+              className="btn-ghost"
+              style={{ width: '100%', border: 'none', display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-end', padding: '4px' }}
+            >
+              {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            </button>
+          </div>
+        )}
       </aside>
 
       <main className="erp-content">

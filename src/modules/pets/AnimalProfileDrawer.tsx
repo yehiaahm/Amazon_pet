@@ -48,7 +48,7 @@ export const AnimalProfileDrawer: React.FC<AnimalProfileDrawerProps> = ({ petId,
                 )}
               </div>
               {view.owner?.phone && (
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <Button variant="secondary" size="sm" onClick={() => window.open(`tel:${view.owner!.phone}`, '_self')}>
                     <Phone size={12} /> اتصال
                   </Button>
@@ -73,37 +73,39 @@ export const AnimalProfileDrawer: React.FC<AnimalProfileDrawerProps> = ({ petId,
                 لا توجد تطعيمات مسجلة لهذا الحيوان.
               </div>
             ) : (
-              <table style={{ width: '100%', fontSize: 'var(--font-size-xs)', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ color: 'var(--color-text-secondary)' }}>
-                    <th style={{ textAlign: 'right', fontWeight: 'normal', padding: '4px' }}>التطعيم</th>
-                    <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>آخر جرعة</th>
-                    <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>الموعد القادم</th>
-                    <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>الحالة</th>
-                    <th style={{ textAlign: 'left', fontWeight: 'normal', padding: '4px' }}>إجراء</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.vaccinations.map(v => (
-                    <tr key={v.id} style={{ borderTop: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 4px' }}>{v.vaccineName}</td>
-                      <td style={{ textAlign: 'center', padding: '6px 4px' }}>{formatDate(v.lastAdministeredDate)}</td>
-                      <td style={{ textAlign: 'center', padding: '6px 4px' }}>{formatDate(v.nextDueDate)}</td>
-                      <td style={{ textAlign: 'center', padding: '6px 4px' }}>{followUpStatusBadge(v.status, v.daysUntilDue)}</td>
-                      <td style={{ textAlign: 'left', padding: '6px 4px' }}>
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-                          <Button variant="primary" size="sm" onClick={() => setAdministering(v)}>
-                            <Syringe size={12} /> تسجيل
-                          </Button>
-                          <Button variant="danger" size="sm" onClick={() => deleteVaccination(v.id)}>
-                            <Trash2 size={12} />
-                          </Button>
-                        </div>
-                      </td>
+              <div className="table-container">
+                <table style={{ width: '100%', fontSize: 'var(--font-size-xs)', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ color: 'var(--color-text-secondary)' }}>
+                      <th style={{ textAlign: 'right', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>التطعيم</th>
+                      <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>آخر جرعة</th>
+                      <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>الموعد القادم</th>
+                      <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>الحالة</th>
+                      <th style={{ textAlign: 'left', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>إجراء</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {view.vaccinations.map(v => (
+                      <tr key={v.id} style={{ borderTop: '1px solid var(--color-border)' }}>
+                        <td style={{ padding: '6px 4px' }}>{v.vaccineName}</td>
+                        <td style={{ textAlign: 'center', padding: '6px 4px', whiteSpace: 'nowrap' }}>{formatDate(v.lastAdministeredDate)}</td>
+                        <td style={{ textAlign: 'center', padding: '6px 4px', whiteSpace: 'nowrap' }}>{formatDate(v.nextDueDate)}</td>
+                        <td style={{ textAlign: 'center', padding: '6px 4px' }}>{followUpStatusBadge(v.status, v.daysUntilDue)}</td>
+                        <td style={{ textAlign: 'left', padding: '6px 4px' }}>
+                          <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <Button variant="primary" size="sm" onClick={() => setAdministering(v)}>
+                              <Syringe size={12} /> تسجيل
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => deleteVaccination(v.id)}>
+                              <Trash2 size={12} />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {/* General reminders */}
@@ -118,42 +120,44 @@ export const AnimalProfileDrawer: React.FC<AnimalProfileDrawerProps> = ({ petId,
                 لا توجد تذكيرات مسجلة لهذا الحيوان.
               </div>
             ) : (
-              <table style={{ width: '100%', fontSize: 'var(--font-size-xs)', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ color: 'var(--color-text-secondary)' }}>
-                    <th style={{ textAlign: 'right', fontWeight: 'normal', padding: '4px' }}>التذكير</th>
-                    <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>تاريخ الاستحقاق</th>
-                    <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px' }}>الحالة</th>
-                    <th style={{ textAlign: 'left', fontWeight: 'normal', padding: '4px' }}>إجراء</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.reminders.map(r => (
-                    <tr key={r.id} style={{ borderTop: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 4px' }}>
-                        {r.title}
-                        {r.description && (
-                          <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>{r.description}</div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'center', padding: '6px 4px' }}>{formatDate(r.dueDate)}</td>
-                      <td style={{ textAlign: 'center', padding: '6px 4px' }}>{followUpStatusBadge(r.status, r.daysUntilDue)}</td>
-                      <td style={{ textAlign: 'left', padding: '6px 4px' }}>
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-                          {r.status !== 'COMPLETED' && (
-                            <Button variant="primary" size="sm" onClick={() => completeReminder(r.id)}>
-                              <CheckCircle2 size={12} /> إتمام
-                            </Button>
-                          )}
-                          <Button variant="danger" size="sm" onClick={() => deleteReminder(r.id)}>
-                            <Trash2 size={12} />
-                          </Button>
-                        </div>
-                      </td>
+              <div className="table-container">
+                <table style={{ width: '100%', fontSize: 'var(--font-size-xs)', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ color: 'var(--color-text-secondary)' }}>
+                      <th style={{ textAlign: 'right', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>التذكير</th>
+                      <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>تاريخ الاستحقاق</th>
+                      <th style={{ textAlign: 'center', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>الحالة</th>
+                      <th style={{ textAlign: 'left', fontWeight: 'normal', padding: '4px', whiteSpace: 'nowrap' }}>إجراء</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {view.reminders.map(r => (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--color-border)' }}>
+                        <td style={{ padding: '6px 4px' }}>
+                          {r.title}
+                          {r.description && (
+                            <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>{r.description}</div>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '6px 4px', whiteSpace: 'nowrap' }}>{formatDate(r.dueDate)}</td>
+                        <td style={{ textAlign: 'center', padding: '6px 4px' }}>{followUpStatusBadge(r.status, r.daysUntilDue)}</td>
+                        <td style={{ textAlign: 'left', padding: '6px 4px' }}>
+                          <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            {r.status !== 'COMPLETED' && (
+                              <Button variant="primary" size="sm" onClick={() => completeReminder(r.id)}>
+                                <CheckCircle2 size={12} /> إتمام
+                              </Button>
+                            )}
+                            <Button variant="danger" size="sm" onClick={() => deleteReminder(r.id)}>
+                              <Trash2 size={12} />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}

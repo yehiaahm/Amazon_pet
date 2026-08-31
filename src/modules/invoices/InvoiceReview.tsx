@@ -4,6 +4,7 @@ import {
   useSales, useSale, useCustomers, useRefundSale, useVariants, useProducts, useServices, useEmployeesList
 } from '../../core/hooks/useERPData';
 import { useUIStore } from '../../core/stores/uiStore';
+import { useMediaQuery } from '../../core/hooks/useMediaQuery';
 import { useCartStore } from '../../core/stores/cartStore';
 import {
   saleRevenue,
@@ -45,6 +46,11 @@ export const InvoiceReview: React.FC = () => {
   const currentEmployee = useUIStore(s => s.currentEmployee)!;
   const { hasPermission } = usePermissions();
   const restrictedSalesScope = hasRestrictedSalesScope(hasPermission);
+  // The table/detail split below uses a fixed height on desktop to keep the sticky
+  // header + scrollable table + pagination footer laid out tightly; once .grid-split
+  // collapses the two panels into a single stacked column (<=900px) a fixed height no
+  // longer makes sense, so we switch it to auto at that same breakpoint.
+  const isStackedWorkspace = useMediaQuery('(max-width: 900px)');
   const canRefundSales = hasPermission(PERMISSIONS.SALES_REFUND);
   const canPrintThermal = hasPermission(PERMISSIONS.SALES_THERMAL);
   const canPrintA4 = hasPermission(PERMISSIONS.SALES_A4);
@@ -868,7 +874,7 @@ export const InvoiceReview: React.FC = () => {
 
       {/* 2. ADVANCED FILTERS PANEL (Requirement 1) */}
       <div className="card" style={{ padding: 'var(--spacing-4)', gap: 'var(--spacing-3)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: restrictedSalesScope ? '2fr 1fr 1fr' : '2fr 1fr 1fr 1fr 1.5fr', gap: 'var(--spacing-3)' }}>
+        <div className="grid-split" style={{ '--split-ratio': restrictedSalesScope ? '2fr 1fr 1fr' : '2fr 1fr 1fr 1fr 1.5fr', gap: 'var(--spacing-3)' } as React.CSSProperties}>
           {/* Main search input */}
           <div style={{ position: 'relative' }}>
             <Search 
@@ -915,7 +921,7 @@ export const InvoiceReview: React.FC = () => {
 
           {/* Date range quick filters — owner/manager only */}
           {!restrictedSalesScope && (
-            <div style={{ display: 'flex', gap: '4px' }}>
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
               {(['ALL', 'TODAY', 'YESTERDAY', 'WEEK', 'MONTH'] as const).map(tab => (
                 <button
                   key={tab}
@@ -985,12 +991,12 @@ export const InvoiceReview: React.FC = () => {
       </div>
 
       {/* 3. SPLIT WORKSPACE: TABLE vs DETAILED PREVIEW */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 'var(--spacing-4)', height: '550px', alignItems: 'stretch' }}>
+      <div className="grid-split" style={{ '--split-ratio': '1.4fr 1fr', gap: 'var(--spacing-4)', height: isStackedWorkspace ? 'auto' : '550px', alignItems: 'stretch' } as React.CSSProperties}>
         
         {/* LEFT COLUMN: PROFESSIONAL TABLE (Requirement 2 & 8) */}
         <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           
-          <div style={{ overflowY: 'auto', flex: 1 }}>
+          <div style={{ overflowY: 'auto', overflowX: 'auto', flex: 1 }}>
             <table className="erp-table" style={{ width: '100%', direction: 'rtl', borderCollapse: 'collapse', textAlign: 'right' }}>
               <thead>
                 <tr style={{ position: 'sticky', top: 0, background: 'var(--color-surface)', zIndex: 10 }}>
@@ -1089,14 +1095,16 @@ export const InvoiceReview: React.FC = () => {
           </div>
 
           {/* PAGINATION TOOLBAR */}
-          <div style={{ 
-            padding: 'var(--spacing-3) var(--spacing-4)', 
-            borderTop: '1px solid var(--color-border)', 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
+          <div style={{
+            padding: 'var(--spacing-3) var(--spacing-4)',
+            borderTop: '1px solid var(--color-border)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
             backgroundColor: 'var(--color-surface)',
-            fontSize: 'var(--font-size-xs)'
+            fontSize: 'var(--font-size-xs)',
+            flexWrap: 'wrap',
+            gap: 'var(--spacing-2)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>إظهار</span>
@@ -1154,12 +1162,12 @@ export const InvoiceReview: React.FC = () => {
         {/* RIGHT COLUMN: DETAILED INVOICE REPORT PANEL (Requirement 3, 4, 5, 6) */}
         <div className="card" style={{ padding: 'var(--spacing-3)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {selectedSale ? (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', height: isStackedWorkspace ? 'auto' : '100%' }}>
               
               {/* Toolbar & Actions */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(6, 1fr)',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(64px, 1fr))',
                 gap: '4px',
                 borderBottom: '1px solid var(--color-border)',
                 paddingBottom: 'var(--spacing-2)',
@@ -1204,7 +1212,7 @@ export const InvoiceReview: React.FC = () => {
               </div>
 
               {/* Extra operations in dropdown-like bar */}
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                 {canRefundSales && (
                   <button onClick={handleExchange} disabled={isFullyRefundedSale(selectedSale) || isRefunding} className="btn-ghost" style={{ padding: '2px 8px', fontSize: '9px', border: '1px solid var(--color-border)', opacity: isFullyRefundedSale(selectedSale) || isRefunding ? 0.6 : 1 }}>
                     <ArrowLeftRight size={10} /> استبدال سلع
@@ -1239,13 +1247,15 @@ export const InvoiceReview: React.FC = () => {
               </div>
 
               {/* PAGING NAVIGATION BUTTONS inside report panel (Requirement 3) */}
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center', 
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 marginTop: 'var(--spacing-2)',
                 borderTop: '1px solid var(--color-border)',
-                paddingTop: 'var(--spacing-2)'
+                paddingTop: 'var(--spacing-2)',
+                flexWrap: 'wrap',
+                gap: 'var(--spacing-2)'
               }}>
                 <Button 
                   onClick={handleGoToFirst} 
@@ -1301,7 +1311,7 @@ export const InvoiceReview: React.FC = () => {
         onClose={() => setShowShareModal(false)}
         title={shareType === 'WHATSAPP' ? 'مشاركة الفاتورة عبر الواتساب' : 'إرسال الفاتورة بالبريد الإلكتروني'}
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowShareModal(false)} variant="secondary">إلغاء</Button>
             <Button onClick={handleConfirmShare} variant="primary">
               <Send size={14} /> إرسال الآن
@@ -1330,7 +1340,7 @@ export const InvoiceReview: React.FC = () => {
         onClose={() => { if (!isRefunding) { setShowRefundConfirmModal(false); setExchangeMode(false); } }}
         title={exchangeMode ? 'استبدال السلع — اختر الأصناف المرتجعة' : 'تأكيد إرجاع الفاتورة'}
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => { setShowRefundConfirmModal(false); setExchangeMode(false); }} variant="secondary" disabled={isRefunding}>
               إلغاء
             </Button>
@@ -1358,9 +1368,11 @@ export const InvoiceReview: React.FC = () => {
                   padding: 'var(--spacing-2)',
                   border: '1px solid var(--color-border)',
                   borderRadius: 'var(--radius-md)',
+                  flexWrap: 'wrap',
+                  gap: '8px',
                 }}
               >
-                <div>
+                <div style={{ flex: '1 1 160px' }}>
                   <div style={{ fontWeight: 'bold' }}>{item.name}</div>
                   <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>
                     متاح للإرجاع: {maxQ}
@@ -1375,7 +1387,7 @@ export const InvoiceReview: React.FC = () => {
                     const v = Math.max(0, Math.min(maxQ, parseInt(e.target.value, 10) || 0));
                     setRefundQuantities((prev) => ({ ...prev, [item.id]: v }));
                   }}
-                  style={{ width: '72px' }}
+                  style={{ width: '72px', flexShrink: 0 }}
                 />
               </div>
             );
@@ -1405,7 +1417,7 @@ export const InvoiceReview: React.FC = () => {
         onClose={() => setShowManagerAuthModal(false)}
         title="تطلب موافقة المدير - صلاحية إرجاع الفاتورة"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowManagerAuthModal(false)} variant="secondary">إلغاء</Button>
             <Button onClick={handleManagerAuthSubmit} variant="danger">تأكيد الرمز والمتابعة</Button>
           </div>

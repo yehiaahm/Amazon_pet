@@ -201,7 +201,7 @@ export const CommandPalette: React.FC = () => {
         </div>
         
         {/* Footer */}
-        <div style={{ padding: '8px var(--spacing-4)', borderTop: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+        <div className="hide-mobile" style={{ padding: '8px var(--spacing-4)', borderTop: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
           <span>Use ↑↓ keys to navigate, Enter to select</span>
           <span>Ctrl + K to toggle anywhere</span>
         </div>

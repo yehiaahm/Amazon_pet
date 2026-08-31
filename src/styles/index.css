@@ -298,6 +298,8 @@ table.erp-table tr.selected td {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: var(--spacing-4);
+  overflow-y: auto;
 }
 .modal-content {
   background-color: var(--color-surface);
@@ -306,7 +308,7 @@ table.erp-table tr.selected td {
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 500px;
-  max-height: 90vh;
+  max-height: min(90vh, 90dvh);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -390,4 +392,161 @@ table.erp-table tr.selected td {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   Responsive framework
+   Breakpoints: mobile <=640px, tablet 641-1024px, desktop >1024px
+   Sidebar becomes an off-canvas drawer at <=1024px (tablet + mobile).
+   ========================================================================== */
+
+/* Safety net: nothing should ever cause page-level horizontal scrolling */
+html, body, #root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+img, video, svg, canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Use dvh so mobile browser toolbars don't clip the app shell */
+.erp-app { height: 100dvh; }
+.erp-sidebar,
+.erp-content { height: calc(100dvh - 48px); }
+
+/* Comfortable tap targets + prevent iOS auto-zoom-on-focus, app-wide.
+   min-height is additive to any inline padding, so this applies even to
+   the many hand-styled inline-style buttons throughout the modules. */
+@media (max-width: 640px) {
+  button {
+    min-height: 40px;
+  }
+  input, select, textarea {
+    font-size: 16px;
+    min-height: 40px;
+  }
+  input[type="checkbox"], input[type="radio"] {
+    min-height: 0;
+    min-width: 18px;
+    min-height: 18px;
+  }
+}
+
+/* Off-canvas sidebar for tablet + mobile */
+.erp-sidebar-backdrop {
+  display: none;
+}
+@media (max-width: 1024px) {
+  .erp-app {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "content";
+  }
+  .erp-sidebar {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    bottom: 0;
+    width: 260px !important;
+    max-width: 82vw;
+    transform: translateX(-100%);
+    transition: transform var(--transition-normal);
+    z-index: 300;
+  }
+  .erp-sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+  .erp-sidebar-backdrop.visible {
+    display: block;
+    position: fixed;
+    inset: 48px 0 0 0;
+    background-color: rgba(17, 24, 39, 0.45);
+    z-index: 250;
+  }
+}
+
+/* Workspace + toolbar + header reflow */
+@media (max-width: 640px) {
+  .workspace {
+    padding: var(--spacing-3);
+    gap: var(--spacing-4);
+  }
+  .workspace-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-3);
+  }
+  .workspace-header > *:last-child {
+    width: 100%;
+  }
+  .workspace-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .erp-topbar {
+    padding: 0 var(--spacing-2);
+    gap: var(--spacing-2);
+  }
+  .card {
+    padding: var(--spacing-3);
+  }
+}
+
+/* Utility classes for JSX to opt individual elements in/out of mobile display,
+   and to give dense multi-column rows a responsive fallback without needing
+   per-file media queries. */
+.hide-mobile { }
+.show-mobile { display: none; }
+@media (max-width: 640px) {
+  .hide-mobile { display: none !important; }
+  .show-mobile { display: inline-flex; }
+}
+.hide-tablet-down { }
+@media (max-width: 1024px) {
+  .hide-tablet-down { display: none !important; }
+}
+
+/* Generic responsive row: wraps children and lets them shrink instead of
+   overflowing. Apply alongside inline flex styles where a row of controls
+   (filters, actions, stat groups) needs to reflow on narrow screens. */
+.responsive-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* Responsive auto-fit grid: collapses toward 1 column as width shrinks,
+   with no media query needed. Default column minimum can be overridden
+   with the --grid-min custom property. */
+.responsive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--grid-min, 220px), 1fr));
+}
+
+/* Two/three-panel layout split (e.g. chart + side panel, form + summary).
+   Pass the desired desktop ratio via the --split-ratio custom property
+   (e.g. style={{ '--split-ratio': '2fr 1fr' }}); it collapses to a single
+   stacked column at tablet width and below. Using a custom property (rather
+   than setting grid-template-columns inline) keeps the collapse reachable
+   by media query even though the ratio itself is set inline per-instance. */
+.grid-split {
+  display: grid;
+  grid-template-columns: var(--split-ratio, 1fr 1fr);
+}
+@media (max-width: 900px) {
+  .grid-split {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Tables: on very small screens allow a bit more breathing room while still
+   relying on .table-container's overflow-x: auto for the scroll fallback. */
+@media (max-width: 640px) {
+  table.erp-table th,
+  table.erp-table td {
+    padding: 8px var(--spacing-2);
+    font-size: var(--font-size-xs);
+  }
 }

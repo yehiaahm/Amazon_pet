@@ -253,7 +253,7 @@ export const Employees: React.FC = () => {
       accessor: (row: any) => {
         const isCurrent = currentEmployee?.id === row.id;
         return (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Can permission={PERMISSIONS.EMPLOYEES_EDIT}>
               <Button
                 onClick={() => {
@@ -342,7 +342,7 @@ export const Employees: React.FC = () => {
         onClose={() => setShowAddModal(false)}
         title="تسجيل حساب موظف جديد"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowAddModal(false)} variant="secondary">إلغاء</Button>
             <Button onClick={handleAddEmployeeSubmit} disabled={adding} variant="primary">إضافة الموظف</Button>
           </div>
@@ -417,7 +417,7 @@ export const Employees: React.FC = () => {
         onClose={() => { setShowPasswordModal(false); setSelectedEmp(null); }}
         title={`تحديث كلمة مرور الموظف: ${selectedEmp?.fullName || ''}`}
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => { setShowPasswordModal(false); setSelectedEmp(null); }} variant="secondary">إلغاء</Button>
             <Button onClick={handleChangePasswordSubmit} disabled={changingPassword} variant="primary">تحديث كلمة المرور</Button>
           </div>
@@ -460,7 +460,7 @@ export const Employees: React.FC = () => {
         onClose={() => setShowEditModal(false)}
         title="تعديل بيانات وحساب الموظف"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowEditModal(false)} variant="secondary">إلغاء</Button>
             <Button onClick={handleEditEmployeeSubmit} disabled={updating} variant="primary">حفظ التغييرات</Button>
           </div>

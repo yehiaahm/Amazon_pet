@@ -249,7 +249,7 @@ export const RolesPermissions: React.FC = () => {
                 }}
               >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Shield size={20} color="var(--color-primary)" />
                       <strong>{translated.name}</strong>
@@ -261,7 +261,7 @@ export const RolesPermissions: React.FC = () => {
                     {translated.description || role.code}
                   </p>
 
-                  <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-size-sm)', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 'var(--font-size-sm)', marginBottom: 12, flexWrap: 'wrap' }}>
                     <span><strong>{assignedEmps.length}</strong> موظف</span>
                     <span><strong>{role.permissionCount}</strong> صلاحية</span>
                   </div>
@@ -291,7 +291,7 @@ export const RolesPermissions: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-primary)', fontWeight: 'bold' }}>
                     تعديل صلاحيات {assignedEmps.length > 0 ? assignedEmps[0].fullName : translated.name} ←
                   </span>
@@ -321,7 +321,7 @@ export const RolesPermissions: React.FC = () => {
             <Input label="رمز الدور (بالإنجليزية)" value={newCode} onChange={(e) => setNewCode(e.target.value.toUpperCase())} placeholder="SUPERVISOR" />
             <Input label="اسم الدور" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="مشرف" />
             <Input label="الوصف" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} />
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={() => setShowCreateModal(false)}>إلغاء</Button>
               <Button onClick={handleCreateRole} disabled={creating}>إنشاء</Button>
             </div>
@@ -358,7 +358,7 @@ export const RolesPermissions: React.FC = () => {
             : activeRoleTranslated?.description || roleDetail?.description || roleDetail?.code
         }
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Button variant="ghost" onClick={() => { setSelectedRoleId(null); setSelectedEmpId(null); setDirty(false); }}>
               <ChevronLeft size={16} /> رجوع للأدوار والموظفين
             </Button>
@@ -425,7 +425,7 @@ export const RolesPermissions: React.FC = () => {
               const someSelected = codes.some((c: string) => draftCodes.has(c));
               return (
                 <div key={group.module} className="card" style={{ padding: 'var(--spacing-4)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                     <h3 style={{ margin: 0 }}>{translateModuleName(group.module)}</h3>
                     <Can permission={PERMISSIONS.ROLES_ASSIGN}>
                       <Button

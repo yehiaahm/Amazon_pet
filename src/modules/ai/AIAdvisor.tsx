@@ -107,7 +107,7 @@ export const AIAdvisor: React.FC = () => {
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 'var(--spacing-6)', alignItems: 'start' }}>
+      <div className="grid-split" style={{ '--split-ratio': '1.4fr 1fr', gap: 'var(--spacing-6)', alignItems: 'start' } as React.CSSProperties}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-6)' }}>
           <Card title="الملخص التشغيلي والتنفيذي">
             <p style={{ lineHeight: '1.7', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', whiteSpace: 'pre-wrap' }}>
@@ -137,7 +137,7 @@ export const AIAdvisor: React.FC = () => {
           <Card title="توصيات وإجراءات تشغيل مقترحة">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
               {insights.recommendations.map((rec, i) => (
-                <div key={i} style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 'var(--spacing-3)', display: 'grid', gridTemplateColumns: '1.5fr 1.2fr', gap: 'var(--spacing-4)', backgroundColor: 'var(--color-bg)' }}>
+                <div key={i} className="grid-split" style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 'var(--spacing-3)', '--split-ratio': '1.5fr 1.2fr', gap: 'var(--spacing-4)', backgroundColor: 'var(--color-bg)' } as React.CSSProperties}>
                   <div>
                     <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold' }}>{rec.title}</div>
                     <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>الإجراء: {rec.action}</div>
@@ -196,7 +196,7 @@ export const AIAdvisor: React.FC = () => {
                 لا توجد بيانات مبيعات منتجات بعد
               </p>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: '12px' } as React.CSSProperties}>
 
                 {/* Best sellers */}
                 <div>

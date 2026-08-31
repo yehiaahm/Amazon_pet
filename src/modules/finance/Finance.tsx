@@ -656,7 +656,7 @@ export const Finance: React.FC = () => {
         title="الدفتر المالي الرقابي وحركة الأموال (360° Money Flow)"
         subtitle="رقابة فورية على كل جنيه دخل وكل جنيه خرج بالتفاصيل المملة"
         actions={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={handlePrintAuditReport} variant="secondary" size="sm">
               <Printer size={14} /> طباعة كشف التدفق النقدي
             </Button>
@@ -865,6 +865,7 @@ export const Finance: React.FC = () => {
           borderBottom: '1px solid var(--color-border)',
           gap: 'var(--spacing-2)',
           paddingBottom: '4px',
+          flexWrap: 'wrap',
         }}
       >
         <button
@@ -1051,7 +1052,7 @@ export const Finance: React.FC = () => {
         onClose={() => setShowExpenseModal(false)}
         title="تسجيل مصروف تشغيلي جديد"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowExpenseModal(false)} variant="secondary">
               إلغاء
             </Button>
@@ -1116,7 +1117,7 @@ export const Finance: React.FC = () => {
         onClose={() => setShowDepositModal(false)}
         title="تسجيل إيداع نقدي جديد"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowDepositModal(false)} variant="secondary">
               إلغاء
             </Button>

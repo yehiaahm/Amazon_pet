@@ -32,28 +32,30 @@ export const SaleBatchAllocationsPanel: React.FC<Props> = ({ rows, loading }) =>
       }}
     >
       <strong style={{ display: 'block', marginBottom: '6px' }}>تخصيص الدفعات (FIFO/FEFO) و COGS</strong>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'right' }}>
-            <th style={{ padding: '4px' }}>الصنف</th>
-            <th style={{ padding: '4px' }}>Batch</th>
-            <th style={{ padding: '4px' }}>كمية</th>
-            <th style={{ padding: '4px' }}>ت. وحدة</th>
-            <th style={{ padding: '4px' }}>COGS</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={`${row.saleItemId}-${row.inventoryBatchId}-${idx}`}>
-              <td style={{ padding: '4px' }}>{row.productName}</td>
-              <td style={{ padding: '4px', direction: 'ltr' }}>{row.batchNumber || row.inventoryBatchId}</td>
-              <td style={{ padding: '4px' }}>{row.quantityAllocated}</td>
-              <td style={{ padding: '4px' }}>{formatMoney(Number(row.unitCostAtSale || 0))}</td>
-              <td style={{ padding: '4px' }}>{formatMoney(Number(row.totalAllocatedCost || 0))}</td>
+      <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '420px' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'right' }}>
+              <th style={{ padding: '4px' }}>الصنف</th>
+              <th style={{ padding: '4px' }}>Batch</th>
+              <th style={{ padding: '4px' }}>كمية</th>
+              <th style={{ padding: '4px' }}>ت. وحدة</th>
+              <th style={{ padding: '4px' }}>COGS</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => (
+              <tr key={`${row.saleItemId}-${row.inventoryBatchId}-${idx}`}>
+                <td style={{ padding: '4px' }}>{row.productName}</td>
+                <td style={{ padding: '4px', direction: 'ltr' }}>{row.batchNumber || row.inventoryBatchId}</td>
+                <td style={{ padding: '4px' }}>{row.quantityAllocated}</td>
+                <td style={{ padding: '4px' }}>{formatMoney(Number(row.unitCostAtSale || 0))}</td>
+                <td style={{ padding: '4px' }}>{formatMoney(Number(row.totalAllocatedCost || 0))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

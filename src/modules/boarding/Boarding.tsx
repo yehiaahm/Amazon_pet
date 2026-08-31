@@ -258,6 +258,7 @@ export const Boarding: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
+          flexWrap: 'wrap',
           color: '#723b13',
           fontSize: 'var(--font-size-sm)'
         }}>
@@ -284,7 +285,7 @@ export const Boarding: React.FC = () => {
         onClose={() => !saving && setShowAddModal(false)}
         title="تسجيل حجز إقامة (فندق/إقامة)"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button disabled={saving} onClick={() => setShowAddModal(false)} variant="secondary">إلغاء</Button>
             <Button disabled={saving} onClick={handleCreate} variant="primary">حفظ وتأكيد حجز الغرفة</Button>
           </div>
@@ -307,7 +308,7 @@ export const Boarding: React.FC = () => {
             ]}
           />
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: '12px' } as React.CSSProperties}>
             <Input
               label="تاريخ ووقت الدخول"
               type="datetime-local"
@@ -344,7 +345,7 @@ export const Boarding: React.FC = () => {
         onClose={() => setConfirmAction(null)}
         title={confirmAction?.type === 'checkout' ? 'تأكيد إتمام المغادرة' : 'تأكيد حذف الحجز'}
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setConfirmAction(null)} variant="secondary">إلغاء</Button>
             <Button
               onClick={executeConfirmAction}

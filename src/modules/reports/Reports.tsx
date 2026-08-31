@@ -573,7 +573,7 @@ export const Reports: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--spacing-4)' }}>
           {[1, 2, 3, 4].map(i => <div key={i} className="skeleton" style={{ height: '110px' }} />)}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-4)' }}>
+        <div className="grid-split" style={{ '--split-ratio': '1fr 1fr', gap: 'var(--spacing-4)' } as React.CSSProperties}>
           <div className="skeleton" style={{ height: '300px' }} />
           <div className="skeleton" style={{ height: '300px' }} />
         </div>
@@ -643,7 +643,7 @@ export const Reports: React.FC = () => {
           title="التقارير المالية والمحاسبية" 
           subtitle="تقارير الأداء التشغيلي المالي، كشف المبيعات والمصاريف والأرباح" 
           actions={
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+            <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
               <Can anyOf={[PERMISSIONS.REPORTS_EXPORT_EXCEL]}>
                 <Button onClick={() => void handleExcelExport(activeTab)} variant="secondary" size="sm">
                   <Download size={14} /> تصدير إكسل ({activeTab === 'PL' ? 'كشف الأرباح' : 'الجدول'})
@@ -663,9 +663,9 @@ export const Reports: React.FC = () => {
 
       {/* Filters Toolbar */}
       <div className="workspace-toolbar no-print" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-4)', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold', color: 'var(--color-text-secondary)' }}>الفترة المحددة:</span>
-          <Select 
+          <Select
             value={datePreset}
             onChange={(e) => setDatePreset(e.target.value)}
             options={[
@@ -678,30 +678,30 @@ export const Reports: React.FC = () => {
               { value: 'THIS_YEAR', label: 'السنة الحالية الكاملة' },
               { value: 'CUSTOM', label: 'تحديد فترة مخصصة...' },
             ]}
-            style={{ width: '220px' }}
+            style={{ width: '100%', maxWidth: '220px' }}
           />
         </div>
 
         {datePreset === 'CUSTOM' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-            <Input 
-              type="date" 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+            <Input
+              type="date"
               value={customStart}
               onChange={(e) => setCustomStart(e.target.value)}
               label="من تاريخ"
-              containerStyle={{ width: '150px' }}
+              containerStyle={{ width: '100%', maxWidth: '150px' }}
             />
-            <Input 
-              type="date" 
+            <Input
+              type="date"
               value={customEnd}
               onChange={(e) => setCustomEnd(e.target.value)}
               label="إلى تاريخ"
-              containerStyle={{ width: '150px' }}
+              containerStyle={{ width: '100%', maxWidth: '150px' }}
             />
           </div>
         )}
 
-        <div style={{ marginRight: 'auto', display: 'flex', gap: 'var(--spacing-2)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
+        <div style={{ marginRight: 'auto', display: 'flex', gap: 'var(--spacing-2)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', flexWrap: 'wrap' }}>
           <span>نطاق البحث المالي:</span>
           <strong>{dateRange.start}</strong> إلى <strong>{dateRange.end}</strong>
         </div>
@@ -810,7 +810,7 @@ export const Reports: React.FC = () => {
       ) : (
         <>
           {/* Charts Section */}
-          <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: 'var(--spacing-4)', marginTop: 'var(--spacing-6)' }}>
+          <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(450px, 100%), 1fr))', gap: 'var(--spacing-4)', marginTop: 'var(--spacing-6)' }}>
             {/* Chart 1: Revenue vs Expenses Timeline */}
             <Card title="مقارنة الإيرادات بالمصاريف والأرباح">
               <div style={{ width: '100%', height: 260 }}>
@@ -944,7 +944,7 @@ export const Reports: React.FC = () => {
           </div>
 
           {/* Subtabs for Details */}
-          <div className="tabs-container no-print" style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', gap: 'var(--spacing-2)', paddingBottom: '4px', marginTop: 'var(--spacing-6)' }}>
+          <div className="tabs-container no-print" style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--color-border)', gap: 'var(--spacing-2)', paddingBottom: '4px', marginTop: 'var(--spacing-6)' }}>
             <button
               onClick={() => setActiveTab('SALES')}
               className="btn-ghost"
@@ -1121,7 +1121,7 @@ export const Reports: React.FC = () => {
               </div>
 
               {/* Statement Footer Signatures */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '50px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', padding: '0 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '50px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', padding: '0 20px', flexWrap: 'wrap', gap: '24px' }}>
                 <div style={{ textAlign: 'center' }}>
                   <p>توقيع المدير المالي المحاسب</p>
                   <div style={{ borderBottom: '1px solid var(--color-text-secondary)', width: '120px', height: '40px', margin: '0 auto' }} />

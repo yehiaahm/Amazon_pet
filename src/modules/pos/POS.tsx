@@ -57,6 +57,7 @@ import {
   filterCatalogItems,
 } from './buildPosCatalog';
 import { PosVirtualCatalogGrid } from './PosVirtualCatalogGrid';
+import { useIsTabletDown } from '../../core/hooks/useMediaQuery';
 
 export const POS: React.FC = () => {
   const currentEmployee = useUIStore(s => s.currentEmployee)!;
@@ -152,6 +153,8 @@ export const POS: React.FC = () => {
   const [newPetAge, setNewPetAge] = useState('');
 
   // Local state
+  const isTabletDown = useIsTabletDown();
+  const [mobilePane, setMobilePane] = useState<'catalog' | 'cart'>('catalog');
   const [openingFloat, setOpeningFloat] = useState('150.00');
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 280);
@@ -1188,13 +1191,21 @@ export const POS: React.FC = () => {
   // VIEW: MAIN ACTIVE POS CART SCREEN
   // ==========================================
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', flex: 1, overflow: 'hidden' }}>
-      
+    <div style={{
+      display: isTabletDown ? 'flex' : 'grid',
+      flexDirection: isTabletDown ? 'column' : undefined,
+      gridTemplateColumns: isTabletDown ? undefined : '1.2fr 1fr',
+      flex: 1,
+      overflow: 'hidden',
+    }}>
+
       {/* LEFT: Product Catalog Section */}
       <div style={{
-        display: 'flex',
+        display: isTabletDown ? (mobilePane === 'catalog' ? 'flex' : 'none') : 'flex',
         flexDirection: 'column',
-        borderRight: '1px solid var(--color-border)',
+        flex: isTabletDown ? 1 : undefined,
+        minHeight: isTabletDown ? 0 : undefined,
+        borderRight: isTabletDown ? 'none' : '1px solid var(--color-border)',
         overflow: 'hidden',
         backgroundColor: 'var(--color-surface)'
       }}>
@@ -1309,7 +1320,7 @@ export const POS: React.FC = () => {
           )}
 
           {/* Catalog Filter Tabs */}
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+          <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             {(['ALL', 'PRODUCTS', 'SERVICES', 'INVOICES'] as const).map(tab => (
               <button
                 key={tab}
@@ -1460,8 +1471,10 @@ export const POS: React.FC = () => {
 
       {/* RIGHT: POS Shopping Cart Section */}
       <div style={{
-        display: 'flex',
+        display: isTabletDown ? (mobilePane === 'cart' ? 'flex' : 'none') : 'flex',
         flexDirection: 'column',
+        flex: isTabletDown ? 1 : undefined,
+        minHeight: isTabletDown ? 0 : undefined,
         justifyContent: 'space-between',
         backgroundColor: 'var(--color-bg)',
         overflow: 'hidden'
@@ -2147,6 +2160,52 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
+      {/* Mobile-only pane switcher: catalog vs. cart, side-by-side layout above collapses to one pane at a time */}
+      {isTabletDown && (
+        <div
+          style={{
+            display: 'flex',
+            flexShrink: 0,
+            borderTop: '1px solid var(--color-border)',
+            backgroundColor: 'var(--color-surface)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setMobilePane('catalog')}
+            className={mobilePane === 'catalog' ? 'btn-primary' : 'btn-secondary'}
+            style={{
+              flex: 1,
+              borderRadius: 0,
+              padding: 'var(--spacing-3)',
+              fontWeight: 700,
+              fontSize: 'var(--font-size-sm)',
+            }}
+          >
+            الكتالوج
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane('cart')}
+            className={mobilePane === 'cart' ? 'btn-primary' : 'btn-secondary'}
+            style={{
+              flex: 1,
+              borderRadius: 0,
+              padding: 'var(--spacing-2) var(--spacing-3)',
+              fontWeight: 700,
+              fontSize: 'var(--font-size-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '2px',
+            }}
+          >
+            <span>السلة ({cartItems.length})</span>
+            <span style={{ fontSize: '11px', fontWeight: 400 }}>{formatMoney(totals.total)} ج.م</span>
+          </button>
+        </div>
+      )}
+
       {/* 1. MOCK RECEIPT DIALOG VIEW */}
       <Modal
         isOpen={activeReceipt !== null}
@@ -2301,28 +2360,30 @@ export const POS: React.FC = () => {
                 fontSize: '11px',
               }}>
                 <strong style={{ display: 'block', marginBottom: '6px' }}>تخصيص الدفعات (FIFO/FEFO) و COGS</strong>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ textAlign: 'right', borderBottom: '1px solid var(--color-border)' }}>
-                      <th style={{ padding: '4px' }}>الصنف</th>
-                      <th style={{ padding: '4px' }}>Batch</th>
-                      <th style={{ padding: '4px' }}>الكمية</th>
-                      <th style={{ padding: '4px' }}>تكلفة الوحدة</th>
-                      <th style={{ padding: '4px' }}>COGS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(receiptBatchAllocations as SaleBatchAllocationRow[]).map((row, idx) => (
-                      <tr key={`${row.saleItemId}-${row.inventoryBatchId}-${idx}`}>
-                        <td style={{ padding: '4px' }}>{row.productName}</td>
-                        <td style={{ padding: '4px', direction: 'ltr' }}>{row.batchNumber || row.inventoryBatchId}</td>
-                        <td style={{ padding: '4px' }}>{row.quantityAllocated}</td>
-                        <td style={{ padding: '4px' }}>{formatMoney(Number(row.unitCostAtSale || 0))}</td>
-                        <td style={{ padding: '4px' }}>{formatMoney(Number(row.totalAllocatedCost || 0))}</td>
+                <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '420px' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'right', borderBottom: '1px solid var(--color-border)' }}>
+                        <th style={{ padding: '4px' }}>الصنف</th>
+                        <th style={{ padding: '4px' }}>Batch</th>
+                        <th style={{ padding: '4px' }}>الكمية</th>
+                        <th style={{ padding: '4px' }}>تكلفة الوحدة</th>
+                        <th style={{ padding: '4px' }}>COGS</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {(receiptBatchAllocations as SaleBatchAllocationRow[]).map((row, idx) => (
+                        <tr key={`${row.saleItemId}-${row.inventoryBatchId}-${idx}`}>
+                          <td style={{ padding: '4px' }}>{row.productName}</td>
+                          <td style={{ padding: '4px', direction: 'ltr' }}>{row.batchNumber || row.inventoryBatchId}</td>
+                          <td style={{ padding: '4px' }}>{row.quantityAllocated}</td>
+                          <td style={{ padding: '4px' }}>{formatMoney(Number(row.unitCostAtSale || 0))}</td>
+                          <td style={{ padding: '4px' }}>{formatMoney(Number(row.totalAllocatedCost || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -2428,38 +2489,42 @@ export const POS: React.FC = () => {
                   📋 فواتير الوردية ({shiftSales.length} فاتورة)
                 </div>
                 <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', fontSize: 'var(--font-size-xs)' }}>
-                  {/* Table header */}
-                  <div style={{ ...rowStyle, backgroundColor: 'var(--color-surface)', fontWeight: 'bold', padding: '8px 12px', borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
-                    <span>رقم الفاتورة</span>
-                    <span>الوقت والتاريخ</span>
-                    <span style={{ textAlign: 'center' }}>طريقة الدفع</span>
-                    <span style={{ textAlign: 'left' }}>القيمة</span>
-                  </div>
-                  {/* Table rows */}
-                  {shiftSales.length === 0 ? (
-                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                      لا توجد فواتير في هذه الوردية
-                    </div>
-                  ) : (
-                    <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
-                      {shiftSales.map((s, idx) => (
-                        <div key={s.id} style={{ ...rowStyle, padding: '7px 12px', borderBottom: idx < shiftSales.length - 1 ? '1px solid var(--color-border)' : 'none', backgroundColor: idx % 2 === 0 ? 'transparent' : 'var(--color-bg)' }}>
-                          <span style={{ fontWeight: 'bold', color: 'var(--color-primary)' }}>{s.saleNumber}</span>
-                          <span style={{ color: 'var(--color-text-secondary)' }}>
-                            {new Date(s.date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            {' — '}
-                            {new Date(s.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          <span style={{ textAlign: 'center' }}>
-                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 'bold', color: '#fff', backgroundColor: payMethodBadgeColor(s.paymentMethod) }}>
-                              {payMethodLabel(s.paymentMethod)}
-                            </span>
-                          </span>
-                          <span style={{ textAlign: 'left', fontWeight: 'bold' }}>{formatMoney(s.totalAmount)}</span>
+                  <div style={{ overflowX: 'auto' }}>
+                    <div style={{ minWidth: '480px' }}>
+                      {/* Table header */}
+                      <div style={{ ...rowStyle, backgroundColor: 'var(--color-surface)', fontWeight: 'bold', padding: '8px 12px', borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                        <span>رقم الفاتورة</span>
+                        <span>الوقت والتاريخ</span>
+                        <span style={{ textAlign: 'center' }}>طريقة الدفع</span>
+                        <span style={{ textAlign: 'left' }}>القيمة</span>
+                      </div>
+                      {/* Table rows */}
+                      {shiftSales.length === 0 ? (
+                        <div style={{ padding: '16px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                          لا توجد فواتير في هذه الوردية
                         </div>
-                      ))}
+                      ) : (
+                        <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                          {shiftSales.map((s, idx) => (
+                            <div key={s.id} style={{ ...rowStyle, padding: '7px 12px', borderBottom: idx < shiftSales.length - 1 ? '1px solid var(--color-border)' : 'none', backgroundColor: idx % 2 === 0 ? 'transparent' : 'var(--color-bg)' }}>
+                              <span style={{ fontWeight: 'bold', color: 'var(--color-primary)' }}>{s.saleNumber}</span>
+                              <span style={{ color: 'var(--color-text-secondary)' }}>
+                                {new Date(s.date).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                {' — '}
+                                {new Date(s.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <span style={{ textAlign: 'center' }}>
+                                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 'bold', color: '#fff', backgroundColor: payMethodBadgeColor(s.paymentMethod) }}>
+                                  {payMethodLabel(s.paymentMethod)}
+                                </span>
+                              </span>
+                              <span style={{ textAlign: 'left', fontWeight: 'bold' }}>{formatMoney(s.totalAmount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
 

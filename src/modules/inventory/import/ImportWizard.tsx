@@ -277,7 +277,7 @@ export const ImportWizard: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-      <div style={{ display: 'flex', gap: 'var(--spacing-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
         {(['UPLOAD', 'MAPPING', 'PREVIEW', 'DONE'] as WizardStep[]).map((s, i) => (
           <React.Fragment key={s}>
             {i > 0 && <ArrowRight size={14} />}
@@ -297,13 +297,13 @@ export const ImportWizard: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
             <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'bold' }}>نوع عملية الاستيراد</span>
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
               <button
                 type="button"
                 onClick={() => setMode('ADD_STOCK')}
                 disabled={uploadMutation.isPending}
                 style={{
-                  flex: 1, textAlign: 'right', padding: 'var(--spacing-3)', borderRadius: 'var(--radius-md)',
+                  flex: '1 1 220px', textAlign: 'right', padding: 'var(--spacing-3)', borderRadius: 'var(--radius-md)',
                   border: `2px solid ${mode === 'ADD_STOCK' ? 'var(--color-primary)' : 'var(--color-border)'}`,
                   background: mode === 'ADD_STOCK' ? 'var(--color-primary-subtle, rgba(59,130,246,0.08))' : 'transparent',
                   cursor: 'pointer',
@@ -319,7 +319,7 @@ export const ImportWizard: React.FC = () => {
                 onClick={() => setMode('INVENTORY_COUNT')}
                 disabled={uploadMutation.isPending}
                 style={{
-                  flex: 1, textAlign: 'right', padding: 'var(--spacing-3)', borderRadius: 'var(--radius-md)',
+                  flex: '1 1 220px', textAlign: 'right', padding: 'var(--spacing-3)', borderRadius: 'var(--radius-md)',
                   border: `2px solid ${mode === 'INVENTORY_COUNT' ? 'var(--color-primary)' : 'var(--color-border)'}`,
                   background: mode === 'INVENTORY_COUNT' ? 'var(--color-primary-subtle, rgba(59,130,246,0.08))' : 'transparent',
                   cursor: 'pointer',
@@ -382,14 +382,16 @@ export const ImportWizard: React.FC = () => {
           )}
 
           {mappingPresetsQuery.data && mappingPresetsQuery.data.length > 0 && (
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', alignItems: 'center' }}>
               <FolderOpen size={14} />
               <span style={{ fontSize: 'var(--font-size-sm)' }}>تخطيطات محفوظة:</span>
-              <Select
-                value={selectedPresetId}
-                onChange={(e) => handleApplyPreset(e.target.value)}
-                options={[{ value: '', label: '— اختر تخطيطًا —' }, ...mappingPresetsQuery.data.map(p => ({ value: p.id, label: p.name }))]}
-              />
+              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                <Select
+                  value={selectedPresetId}
+                  onChange={(e) => handleApplyPreset(e.target.value)}
+                  options={[{ value: '', label: '— اختر تخطيطًا —' }, ...mappingPresetsQuery.data.map(p => ({ value: p.id, label: p.name }))]}
+                />
+              </div>
               {selectedPresetId && (
                 <Button size="sm" variant="secondary" onClick={() => handleDeletePreset(selectedPresetId)}>حذف</Button>
               )}
@@ -438,7 +440,7 @@ export const ImportWizard: React.FC = () => {
           </div>
 
           {!isCountMode && (
-            <div style={{ display: 'flex', gap: 'var(--spacing-4)', fontSize: 'var(--font-size-sm)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-4)', fontSize: 'var(--font-size-sm)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <input type="checkbox" checked={autoCreateSupplier} onChange={(e) => setAutoCreateSupplier(e.target.checked)} />
                 إنشاء الموردين تلقائيًا إذا لم يكونوا موجودين
@@ -450,13 +452,13 @@ export const ImportWizard: React.FC = () => {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', alignItems: 'center' }}>
             <input
               type="text"
               placeholder="اسم التخطيط لحفظه..."
               value={presetName}
               onChange={(e) => setPresetName(e.target.value)}
-              style={{ padding: 'var(--spacing-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              style={{ flex: '1 1 200px', minWidth: 0, padding: 'var(--spacing-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
             />
             <Button size="sm" variant="secondary" disabled={!presetName.trim() || savePresetMutation.isPending} onClick={handleSavePreset}>
               <Save size={14} /> حفظ التخطيط
@@ -475,7 +477,7 @@ export const ImportWizard: React.FC = () => {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={resetWizard}>إلغاء</Button>
             <Button variant="primary" disabled={!requiredFieldsMapped || mappingMutation.isPending} onClick={handleConfirmMapping}>
               {mappingMutation.isPending ? 'جارٍ التحقق من البيانات...' : 'التحقق من صحة البيانات ومتابعة'}
@@ -504,7 +506,7 @@ export const ImportWizard: React.FC = () => {
           {/* The wizard skips the mapping screen when auto-mapping succeeds, so anything it
               had to assume is surfaced here — the last stop before data is written. */}
           {!isCountMode && missingValueColumns.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--spacing-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
               <AlertTriangle size={14} />
               <span>لم يتم التعرف على عمود لـ: {missingValueColumns.join('، ')} — سيتم استيرادها بقيمة 0</span>
               <Button size="sm" variant="secondary" onClick={() => setStep('MAPPING')}>مراجعة ربط الأعمدة</Button>
@@ -519,7 +521,7 @@ export const ImportWizard: React.FC = () => {
           )}
 
           {!isCountMode && mappingSummary.duplicateRows > 0 && (
-            <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', alignItems: 'center' }}>
               <span style={{ fontSize: 'var(--font-size-sm)' }}>تطبيق على كل التكرارات:</span>
               <Button size="sm" variant="secondary" onClick={() => handleResolveAll('UPDATE_EXISTING')}>تحديث الموجود</Button>
               <Button size="sm" variant="secondary" onClick={() => handleResolveAll('SKIP')}>تخطي</Button>
@@ -527,7 +529,7 @@ export const ImportWizard: React.FC = () => {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
             {(isCountMode ? ['', 'COUNT_MATCHED', 'ERROR'] : ['', 'NEW', 'DUPLICATE', 'ERROR']).map(s => (
               <Button key={s || 'ALL'} size="sm" variant={statusFilter === s ? 'primary' : 'secondary'} onClick={() => setStatusFilter(s)}>
                 {s === '' ? 'الكل' : IMPORT_STATUS_LABELS[s]}
@@ -544,7 +546,7 @@ export const ImportWizard: React.FC = () => {
             pageSize={20}
           />
 
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
             <Button variant="secondary" onClick={() => setStep('MAPPING')}>رجوع</Button>
             <Button variant="primary" disabled={commitMutation.isPending} onClick={handleCommit}>
               {commitMutation.isPending
@@ -574,7 +576,7 @@ export const ImportWizard: React.FC = () => {
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
             زمن التنفيذ: {(summary.executionTimeMs / 1000).toFixed(1)} ثانية
           </span>
-          <div style={{ display: 'flex', gap: 'var(--spacing-2)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)', justifyContent: 'center' }}>
             {summary.failed > 0 && (
               <Button variant="secondary" disabled={downloadingReport} onClick={handleDownloadErrorReport}>
                 <Download size={14} /> {downloadingReport ? 'جارٍ التحميل...' : 'تحميل تقرير الأخطاء'}

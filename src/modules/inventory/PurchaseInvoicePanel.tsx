@@ -503,7 +503,7 @@ const PurchaseInvoicePanel: React.FC = () => {
       </div>
 
       {!quickMode && (
-      <div className="card" style={{ padding: 'var(--spacing-3)', overflowX: 'auto' }}>
+      <div className="card" style={{ padding: 'var(--spacing-3)' }}>
         <datalist id="purchase-invoice-sku-catalog">
           {skuOptions.map((o) => (
             <option key={o.sku} value={o.sku}>
@@ -511,6 +511,7 @@ const PurchaseInvoicePanel: React.FC = () => {
             </option>
           ))}
         </datalist>
+        <div className="table-container">
         <table className="erp-table" style={{ width: '100%', minWidth: '880px' }}>
           <thead>
             <tr>
@@ -604,6 +605,7 @@ const PurchaseInvoicePanel: React.FC = () => {
             ))}
           </tbody>
         </table>
+        </div>
         <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
           <Button variant="secondary" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
             <Plus size={14} /> إضافة بند
@@ -632,7 +634,7 @@ const PurchaseInvoicePanel: React.FC = () => {
         onClose={() => { if (!returningInvoice) closeReturnModal(); }}
         title={`إرجاع بضاعة — فاتورة ${returnInvoice?.invoiceNumber ?? ''}`}
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={closeReturnModal} variant="secondary" disabled={returningInvoice}>
               إلغاء
             </Button>
@@ -654,8 +656,10 @@ const PurchaseInvoicePanel: React.FC = () => {
                     key={item.id}
                     style={{
                       display: 'flex',
+                      flexWrap: 'wrap',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      gap: '8px',
                       padding: 'var(--spacing-2)',
                       border: '1px solid var(--color-border)',
                       borderRadius: 'var(--radius-md)',

@@ -577,7 +577,7 @@ export const CRM: React.FC = () => {
         title="دليل وحسابات العملاء (CRM)"
         subtitle="إدارة ملفات العملاء، سجلات الاتصال، وتخصيص بيانات الحيوانات الأليفة"
         actions={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Can permission={PERMISSIONS.CUSTOMERS_LOYALTY}>
               <Button onClick={() => setShowLoyaltySettings(true)} variant="secondary" size="sm">
                 <Settings2 size={14} /> إعدادات الولاء
@@ -603,6 +603,7 @@ export const CRM: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
+          flexWrap: 'wrap',
           color: '#9b1c1c',
           fontSize: 'var(--font-size-sm)'
         }}>
@@ -630,7 +631,7 @@ export const CRM: React.FC = () => {
         onClose={() => setShowAddModal(false)}
         title="إضافة عميل وحيوان أليف جديد"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={() => setShowAddModal(false)} variant="secondary">إلغاء</Button>
             <Button onClick={handleAddCustomer} disabled={adding} variant="primary">حفظ الملف</Button>
           </div>
@@ -739,7 +740,7 @@ export const CRM: React.FC = () => {
         onClose={closeEditModal}
         title="تعديل بيانات العميل"
         footer={
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button onClick={closeEditModal} variant="secondary">إلغاء</Button>
             <Button onClick={handleUpdateCustomer} disabled={updating || !editName.trim()} variant="primary">
               {updating ? 'جاري الحفظ...' : 'حفظ التعديلات'}
@@ -889,6 +890,7 @@ export const CRM: React.FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
+                          flexWrap: 'wrap',
                           gap: 'var(--spacing-3)',
                           padding: 'var(--spacing-2) var(--spacing-3)',
                           cursor: 'pointer',
@@ -920,7 +922,8 @@ export const CRM: React.FC = () => {
 
                       {isExpanded && (
                         <div style={{ padding: 'var(--spacing-2) var(--spacing-3)', borderTop: '1px solid var(--color-border)' }}>
-                          <table style={{ width: '100%', fontSize: 'var(--font-size-xs)' }}>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', minWidth: '360px', fontSize: 'var(--font-size-xs)' }}>
                             <thead>
                               <tr style={{ color: 'var(--color-text-secondary)' }}>
                                 <th style={{ textAlign: 'right', fontWeight: 'normal', padding: '4px' }}>الصنف</th>
@@ -949,6 +952,7 @@ export const CRM: React.FC = () => {
                               ))}
                             </tbody>
                           </table>
+                        </div>
                         </div>
                       )}
                     </div>
@@ -1025,8 +1029,8 @@ export const CRM: React.FC = () => {
                   لا توجد حركات ولاء مسجلة لهذا العميل حتى الآن.
                 </div>
               ) : (
-                <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                <div style={{ maxHeight: '40vh', overflowY: 'auto', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', minWidth: '480px', fontSize: '12px', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
                         <th style={{ textAlign: 'right', padding: '4px', fontWeight: 'normal' }}>التاريخ</th>
