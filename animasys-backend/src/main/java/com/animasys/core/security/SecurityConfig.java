@@ -55,7 +55,14 @@ public class SecurityConfig {
                 .frameOptions(frame -> frame.deny())
                 .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                 .contentSecurityPolicy(csp -> csp.policyDirectives(
-                        "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"))
+                        "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; " +
+                        "img-src 'self' data:; " +
+                        // 'unsafe-inline' is required here: the printable A4/thermal invoice
+                        // (amazonPetInvoice.ts) is rendered into an <iframe srcDoc="..."> with its
+                        // own inline <style> block and inline style="" badges, which inherits this
+                        // page's CSP — without it every invoice preview/print/PDF renders unstyled.
+                        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                        "font-src 'self' https://fonts.gstatic.com"))
             )
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint(JsonSecurityHandlers.authenticationEntryPoint())
