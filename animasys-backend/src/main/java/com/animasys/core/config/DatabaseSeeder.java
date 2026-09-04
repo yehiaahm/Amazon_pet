@@ -130,6 +130,13 @@ public class DatabaseSeeder implements CommandLineRunner {
                         .build()));
     }
 
+    /**
+     * Only "wh-shelf" is ever provisioned. A second "wh-main" warehouse used to be
+     * created here too, but this business operates a single stock location — having
+     * two warehouse records let stock silently land somewhere POS never sells from
+     * (see V56__Retire_Backroom_Warehouse, which folds any existing wh-main data back
+     * into wh-shelf). Never recreate wh-main here.
+     */
     private void ensureWarehouses(Branch branch) {
         if (!warehouseRepository.existsById("wh-shelf")) {
             warehouseRepository.save(Warehouse.builder()
@@ -137,14 +144,6 @@ public class DatabaseSeeder implements CommandLineRunner {
                     .branch(branch)
                     .name("Retail Shelves WH")
                     .code("WH-SHELF")
-                    .build());
-        }
-        if (!warehouseRepository.existsById("wh-main")) {
-            warehouseRepository.save(Warehouse.builder()
-                    .id("wh-main")
-                    .branch(branch)
-                    .name("Backroom Main Store")
-                    .code("WH-MAIN")
                     .build());
         }
     }

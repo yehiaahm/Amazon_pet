@@ -85,6 +85,7 @@ export const Inventory: React.FC = () => {
   const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
   const [adjustQty, setAdjustQty] = useState('');
   const [adjustReason, setAdjustReason] = useState('ADJUSTMENT');
+  const [adjustWarehouseId, setAdjustWarehouseId] = useState('');
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferSourceWh, setTransferSourceWh] = useState('');
   const [transferTargetWh, setTransferTargetWh] = useState('');
@@ -113,6 +114,15 @@ export const Inventory: React.FC = () => {
     if (!transferTargetWh && warehouses.length > 1) setTransferTargetWh(warehouses[1].id);
     else if (!transferTargetWh) setTransferTargetWh(warehouses[0].id);
   }, [warehouses, transferSourceWh, transferTargetWh]);
+
+  // Default to the sales/shelf warehouse — the one checkout actually deducts from —
+  // instead of an arbitrary "first" warehouse, so a manual adjustment can't silently
+  // land stock somewhere POS never sees (the item shows "available" but sale fails).
+  useEffect(() => {
+    if (!selectedVariant || !warehouses?.length) return;
+    const shelfWarehouse = warehouses.find((w) => w.id === 'wh-shelf');
+    setAdjustWarehouseId(shelfWarehouse ? shelfWarehouse.id : warehouses[0].id);
+  }, [selectedVariant, warehouses]);
 
   const warehouseOptions = useMemo(
     () => (warehouses || []).map((w) => ({ value: w.id, label: w.name || w.id })),
@@ -269,7 +279,7 @@ export const Inventory: React.FC = () => {
       refetchWarehouses();
       return;
     }
-    const warehouseId = warehouses?.[0]?.id;
+    const warehouseId = adjustWarehouseId || warehouses?.[0]?.id;
     if (!warehouseId) {
       addNotification('WARNINGS', 'لا يوجد مستودع', 'لم يتم العثور على مستودع افتراضي. تواصل مع الدعم الفني.');
       return;
@@ -548,6 +558,18 @@ export const Inventory: React.FC = () => {
                 { value: 'SALE', label: 'مرتجع مبيعات من عميل' },
               ]}
             />
+
+            <Select
+              label="المستودع"
+              value={adjustWarehouseId}
+              onChange={(e) => setAdjustWarehouseId(e.target.value)}
+              options={warehouseOptions.length ? warehouseOptions : [{ value: '', label: 'لا توجد مستودعات' }]}
+            />
+            {adjustWarehouseId && adjustWarehouseId !== 'wh-shelf' && (
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)' }}>
+                تنبيه: هذا ليس مستودع البيع. الكمية المضافة هنا لن تظهر كمتاحة في شاشة نقاط البيع (POS) حتى يتم تحويلها لمستودع البيع.
+              </div>
+            )}
           </div>
         )}
       </Modal>

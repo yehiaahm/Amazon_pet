@@ -70,7 +70,12 @@ public class InventoryController {
     @PreAuthorize("@authz.has('inventory.view')")
     public ResponseEntity<ApiResponseWrapper<List<Warehouse>>> getAllWarehouses() {
         String tenantId = SecurityUtils.requireTenantId();
-        List<Warehouse> warehouses = warehouseRepository.findByTenantId(tenantId);
+        // "wh-main" is retired (see V56__Retire_Backroom_Warehouse) but its row may still exist
+        // if historical stock-transfer records reference it (kept for audit integrity). Never
+        // surface it as a selectable warehouse regardless of whether the row was fully removed.
+        List<Warehouse> warehouses = warehouseRepository.findByTenantId(tenantId).stream()
+                .filter(w -> !"wh-main".equals(w.getId()))
+                .toList();
         return ResponseEntity.ok(ApiResponseWrapper.success(warehouses, "تم استرجاع قائمة المستودعات"));
     }
 

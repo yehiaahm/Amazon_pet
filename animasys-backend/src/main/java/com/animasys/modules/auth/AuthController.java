@@ -194,9 +194,10 @@ public class AuthController {
                 .build();
         branchRepository.save(branch);
 
-        // 3. Create default Warehouses
+        // 3. Create default Warehouse. Only one — a second "wh-main" warehouse used to be
+        // created here too, but this app models a single stock location per shop; having two
+        // let stock silently land somewhere POS never sells from (see V56__Retire_Backroom_Warehouse).
         warehouseRepository.save(Warehouse.builder().id("wh-shelf").branch(branch).name("رف المحل").code("WH-SHELF").build());
-        warehouseRepository.save(Warehouse.builder().id("wh-main").branch(branch).name("المخزن الرئيسي").code("WH-MAIN").build());
 
         // 4. Create Bank Account
         bankAccountRepository.save(BankAccount.builder().id("ba-1").tenant(tenant).name("الحساب الرئيسي").balance(BigDecimal.ZERO).build());

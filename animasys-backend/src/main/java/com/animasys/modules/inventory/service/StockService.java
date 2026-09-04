@@ -24,7 +24,6 @@ import java.util.Optional;
 @Transactional
 public class StockService {
     public static final String DEFAULT_SALES_WAREHOUSE = "wh-shelf";
-    public static final String DEFAULT_RECEIVING_WAREHOUSE = "wh-main";
 
     private static final String BLOCK_MSG =
             "تعديل المخزون المباشر غير مسموح. استخدم فاتورة الشراء، استيراد المنتجات، أو تعديل الكمية من شاشة المخزون (دفعات FIFO).";
