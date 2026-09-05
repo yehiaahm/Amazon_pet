@@ -162,9 +162,8 @@ function qrSvg(payload: string): string {
 }
 
 /**
- * Builds the shared invoice markup (same sections/wording/icons for both print formats).
- * Only the wrapping <style> differs between the A4 sheet and the 80mm thermal roll —
- * that's the only printer this shop actually owns, so it must show the exact same design.
+ * Builds the full branded invoice markup used for the A4 print. The 80mm thermal roll uses
+ * its own compact renderer instead (see renderCompactThermalBody) to save paper on every sale.
  */
 function renderInvoiceBody(data: AmazonPetInvoiceData): string {
   const { date, time } = fmtDateParts(data.date);
@@ -418,61 +417,99 @@ const A4_INVOICE_CSS = `
   @media print { body { background: #fff; } .sheet { padding: 0; max-width: none; } }
 `;
 
-/** 80mm thermal roll — the ONLY printer this shop owns, so it must carry the exact same design, single-column and scaled down. */
-const THERMAL_INVOICE_CSS = `
+/**
+ * Ultra-compact thermal receipt — plain text-style layout, no logo/QR/social icons/decorative
+ * boxes. Every duplicated line (phone/address/total) costs paper on every single sale, so this
+ * carries each fact exactly once. Used only for the 80mm roll; the A4 invoice keeps full branding.
+ */
+function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
+  const { date, time } = fmtDateParts(data.date);
+  const branch = data.branchName || 'Hadaeq El Ahram';
+  const amountPaid = data.amountPaid ?? data.total;
+  const changeDue = data.changeDue ?? 0;
+
+  const rows = data.items
+    .map((i) => {
+      const listPrice = typeof i.listPrice === 'number' ? i.listPrice : i.price;
+      const adjusted = Math.abs(i.price - listPrice) > 0.001;
+      const note = adjusted
+        ? `<div class="item-note">أساسي ${fmtNum(listPrice)}</div>`
+        : '';
+      return `
+      <tr>
+        <td>${esc(i.name)}${note}</td>
+        <td class="num">${esc(String(i.quantity))}</td>
+        <td class="num">${fmtNum(i.price)}</td>
+        <td class="num">${fmtNum(i.price * i.quantity)}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const refundBanner =
+    data.status === 'REFUNDED'
+      ? `<div class="refund-banner">REFUNDED / مرتجعة بالكامل</div>`
+      : data.status === 'PARTIALLY_REFUNDED'
+        ? `<div class="refund-banner partial">PARTIAL REFUND / مرتجع جزئي</div>`
+        : '';
+
+  return `
+  <div class="receipt">
+    ${refundBanner}
+    <div class="center">
+      <div class="shop-name">AMAZON PET SHOP</div>
+      <div class="shop-sub">${esc(branch)} — 431 El Geish St.</div>
+      <div class="shop-sub">01018412223</div>
+    </div>
+    <div class="divider"></div>
+    <div class="meta-line"><span>${esc(data.saleNumber)}</span><span>${esc(date)} ${esc(time)}</span></div>
+    <div class="meta-line"><span>Cashier: ${esc(data.cashierName)}</span></div>
+    <div class="meta-line"><span>Customer: ${esc(data.customerName)}</span>${data.customerPhone ? `<span>${esc(data.customerPhone)}</span>` : ''}</div>
+    ${data.isDelivery && data.deliveryAddress ? `<div class="meta-line"><span>Delivery: ${esc(data.deliveryAddress)}</span></div>` : ''}
+    <div class="divider"></div>
+    <table class="items-table">
+      <thead>
+        <tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        ${rows || `<tr><td colspan="4" class="center">No items</td></tr>`}
+      </tbody>
+    </table>
+    <div class="divider"></div>
+    <div class="totals">
+      <div class="row"><span>Subtotal</span><span>${fmtNum(data.subtotal)}</span></div>
+      ${data.discount ? `<div class="row"><span>Discount</span><span>-${fmtNum(data.discount)}</span></div>` : ''}
+      ${data.isDelivery && data.deliveryFee ? `<div class="row"><span>Delivery Fee</span><span>${fmtNum(data.deliveryFee)}</span></div>` : ''}
+      <div class="row total"><span>TOTAL</span><span>${fmtNum(data.total)} EGP</span></div>
+      ${data.paymentMethod ? `<div class="row"><span>Payment</span><span>${esc(data.paymentMethod)}</span></div>` : ''}
+      ${amountPaid !== data.total ? `<div class="row"><span>Paid</span><span>${fmtNum(amountPaid)}</span></div>` : ''}
+      ${changeDue > 0 ? `<div class="row"><span>Change</span><span>${fmtNum(changeDue)}</span></div>` : ''}
+    </div>
+    <div class="center thanks">Thank you for your trust ♥</div>
+    <div class="center policy">Returns/exchange within 14 days of purchase</div>
+  </div>`;
+}
+
+const COMPACT_THERMAL_CSS = `
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   @page { size: 80mm auto; margin: 0; }
-  body { background: #fff; width: 78mm; margin: 0 auto; }
-  .sheet { padding: 6px 6px 16px; position: relative; }
-  .header { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin-bottom: 12px; }
-  .brand { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-  .brand-logo svg { width: 48px; height: 42px; }
-  .brand-text h1 { font-size: 22px; letter-spacing: 1px; line-height: 1.1; }
-  .brand-sub { gap: 6px; margin-top: 3px; font-size: 12px; letter-spacing: 1.5px; }
-  .brand-sub::before, .brand-sub::after { min-width: 10px; }
-  .tagline { margin-top: 3px; font-size: 9.5px; }
-  .invoice-head { text-align: center; min-width: 0; width: 100%; }
-  .invoice-title { font-size: 20px; letter-spacing: 0.5px; gap: 4px; justify-content: center; }
-  .invoice-title .paw { font-size: 15px; }
-  .invoice-sub { border-bottom: 1.5px solid; font-size: 9.5px; letter-spacing: 1.5px; padding-bottom: 5px; margin-bottom: 8px; display: inline-block; }
-  .meta-box { border-radius: 8px; padding: 6px 9px; font-size: 11px; width: 100%; }
-  .meta-row { gap: 8px; padding: 4px 0; }
-  .meta-row .value-group { gap: 6px; }
-  .customer-box { border-radius: 8px; margin-bottom: 10px; max-width: none; width: 100%; }
-  .box-head { font-size: 11px; letter-spacing: 0.3px; padding: 7px 9px; }
-  .box-body { padding: 8px 9px; font-size: 11px; }
-  .box-body .row { padding: 3px 0; gap: 8px; }
-  table.items { margin: 6px 0 10px; font-size: 10.5px; }
-  table.items thead th { padding: 5px 5px; letter-spacing: 0.3px; }
-  table.items td { padding: 5px 5px; }
-  .list-price-note { font-size: 8px; }
-  .bottom { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 2px; }
-  .sum-row { padding: 5px 9px; font-size: 11px; }
-  .sum-row.change { letter-spacing: 0.3px; }
-  .contact-box { border-radius: 8px; margin-top: 8px; padding: 7px 9px; font-size: 10.5px; }
-  .contact-row { gap: 7px; padding: 3px 0; }
-  .total-card { border-radius: 10px; padding: 10px 10px 9px; border-width: 2px; }
-  .total-label { font-size: 10px; letter-spacing: 0.5px; margin-bottom: 6px; }
-  .total-value { font-size: 30px; letter-spacing: 0.3px; }
-  .total-currency { margin-top: 6px; letter-spacing: 2px; gap: 8px; font-size: 11px; }
-  .total-currency::before, .total-currency::after { width: 18px; }
-  .thanks { margin-top: 10px; font-size: 11.5px; }
-  .qr-wrap { margin-top: 8px; }
-  .qr-wrap svg { width: 76px; height: 76px; }
-  .shop-name { margin-top: 7px; letter-spacing: 0.3px; font-size: 11.5px; }
-  .socials { margin-top: 6px; gap: 7px; }
-  .socials svg { width: 19px; height: 19px; }
-  .footer { margin-top: 12px; border-radius: 8px; padding: 9px 10px; flex-direction: column; align-items: flex-start; gap: 6px; font-size: 9.5px; }
-  .footer-left { gap: 8px; }
-  .footer-phone { gap: 6px; font-size: 11px; }
-  .footer strong { font-size: 10.5px; }
-  .footer .muted { font-size: 8.5px; }
-  .footer-paw { right: -12px; }
-  .footer-paw svg { width: 54px; height: 54px; }
-  .badge-meta { width: 17px; height: 17px; } .badge-meta svg { width: 9px; height: 9px; }
-  .badge-box { width: 18px; height: 18px; } .badge-box svg { width: 10px; height: 10px; }
-  .badge-contact { width: 15px; height: 15px; } .badge-contact svg { width: 8.5px; height: 8.5px; }
-  .badge-footer { width: 19px; height: 19px; } .badge-footer svg { width: 10.5px; height: 10.5px; }
-  .refund-banner { padding: 6px; border-radius: 6px; margin-bottom: 8px; letter-spacing: 0.5px; font-size: 11px; }
+  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #111; width: 76mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .receipt { padding: 4px 6px 10px; font-size: 11px; line-height: 1.35; }
+  .center { text-align: center; }
+  .shop-name { font-size: 15px; font-weight: 800; letter-spacing: 0.5px; }
+  .shop-sub { font-size: 9.5px; color: #444; margin-top: 1px; }
+  .divider { border-top: 1px dashed #999; margin: 5px 0; }
+  .meta-line { display: flex; justify-content: space-between; gap: 6px; padding: 1px 0; }
+  .items-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  .items-table th { text-align: left; border-bottom: 1px solid #111; padding: 2px; font-weight: 700; }
+  .items-table th.num, .items-table td.num { text-align: right; }
+  .items-table td { padding: 3px 2px; vertical-align: top; }
+  .item-note { font-size: 8.5px; color: #555; }
+  .totals .row { display: flex; justify-content: space-between; padding: 1px 0; }
+  .totals .total { font-size: 13px; font-weight: 800; border-top: 1px dashed #111; margin-top: 3px; padding-top: 3px; }
+  .thanks { margin-top: 6px; font-size: 10.5px; }
+  .policy { font-size: 8.5px; color: #444; margin-top: 2px; }
+  .refund-banner { background: #000; color: #fff; text-align: center; font-weight: 800; padding: 3px; margin-bottom: 4px; font-size: 10.5px; }
+  .refund-banner.partial { background: #555; }
 `;
 
 export function buildAmazonPetInvoiceHtml(data: AmazonPetInvoiceData): string {
@@ -491,16 +528,16 @@ export function printAmazonPetInvoice(data: AmazonPetInvoiceData): void {
   printInvoiceHtml(buildAmazonPetInvoiceHtml(data), 'amazon-pet-invoice-print');
 }
 
-/** 80mm thermal receipt — the exact same branded invoice design as buildAmazonPetInvoiceHtml, laid out for the shop's actual printer. */
+/** 80mm thermal receipt — deliberately minimal (no logo/QR/social icons) to save paper on every print. */
 export function buildThermalReceiptHtml(data: AmazonPetInvoiceData): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <title>Invoice ${esc(data.saleNumber)}</title>
-<style>${SHARED_INVOICE_CSS}${THERMAL_INVOICE_CSS}</style>
+<style>${COMPACT_THERMAL_CSS}</style>
 </head>
-<body>${renderInvoiceBody(data)}</body>
+<body>${renderCompactThermalBody(data)}</body>
 </html>`;
 }
 
