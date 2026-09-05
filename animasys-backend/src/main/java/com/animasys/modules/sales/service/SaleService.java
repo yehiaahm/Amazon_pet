@@ -49,6 +49,7 @@ import com.animasys.core.security.UserPrincipal;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 
@@ -67,6 +68,10 @@ public class SaleService {
     private static final String SPLIT_PAYMENT_METHOD = "SPLIT";
 
     private static final BigDecimal PAYMENT_SUM_TOLERANCE = new BigDecimal("0.01");
+
+    /** Crockford Base32: no 0/O, 1/I/L confusion — safe for a human to read back over the phone. */
+    private static final char[] SALE_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".toCharArray();
+    private static final SecureRandom SALE_NUMBER_RANDOM = new SecureRandom();
 
     private final SaleRepository saleRepository;
     private final SaleItemRepository itemRepository;
@@ -328,7 +333,7 @@ public class SaleService {
 
         Sale sale = Sale.builder()
                 .id(UUID.randomUUID().toString())
-                .saleNumber("INV-" + UUID.randomUUID().toString().toUpperCase())
+                .saleNumber(generateSaleNumber())
                 .posSession(session)
                 .totalAmount(total)
                 .tax(tax)
@@ -615,6 +620,25 @@ public class SaleService {
             }
         }
         return true;
+    }
+
+    /** Short, unpredictable, and easy to read back over the phone — not a sequential counter. */
+    private String generateSaleNumber() {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String candidate = "INV-" + randomSaleNumberSegment() + "-" + randomSaleNumberSegment();
+            if (!saleRepository.existsBySaleNumber(candidate)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("تعذر توليد رقم فاتورة فريد");
+    }
+
+    private String randomSaleNumberSegment() {
+        StringBuilder segment = new StringBuilder(4);
+        for (int i = 0; i < 4; i++) {
+            segment.append(SALE_NUMBER_ALPHABET[SALE_NUMBER_RANDOM.nextInt(SALE_NUMBER_ALPHABET.length)]);
+        }
+        return segment.toString();
     }
 
     /** Prefer product title on the invoice; append variant only when it adds info. */

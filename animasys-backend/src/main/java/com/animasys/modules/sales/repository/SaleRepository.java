@@ -15,6 +15,8 @@ import java.util.Optional;
 public interface SaleRepository extends JpaRepository<Sale, String>, JpaSpecificationExecutor<Sale> {
     List<Sale> findByPosSession_Id(String posSessionId);
 
+    boolean existsBySaleNumber(String saleNumber);
+
     @Query("SELECT s FROM Sale s JOIN s.employee e WHERE e.tenant.id = :tenantId")
     List<Sale> findByTenantId(@Param("tenantId") String tenantId);
 
