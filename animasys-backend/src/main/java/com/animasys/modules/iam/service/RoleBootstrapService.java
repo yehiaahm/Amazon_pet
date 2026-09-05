@@ -94,7 +94,7 @@ public class RoleBootstrapService {
                         "sales.override_price", "sales.refund_sale", "sales.void_invoice", "sales.reprint_invoice",
                         "sales.print_thermal_receipt", "sales.print_a4_invoice",
                         "inventory.view", "products.view", "products.print_barcode",
-                        "customers.view", "customers.view_purchase_history", "customers.manage_loyalty",
+                        "customers.view", "customers.add", "customers.view_purchase_history", "customers.manage_loyalty",
                         "boarding.view_reservations", "boarding.create_reservation", "boarding.edit_reservation",
                         "grooming.view_appointments", "grooming.create_appointment", "grooming.edit_appointment",
                         "grooming.complete_appointment",
