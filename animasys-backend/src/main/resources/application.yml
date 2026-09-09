@@ -83,7 +83,9 @@ app:
   # Lockout recovery for hosted deployments: set APP_OWNER_PIN_RESET to the PIN the
   # owner account should get (e.g. 2026) and restart. Each distinct value is applied
   # exactly once — see OwnerPinRecoveryService. Unset it once you are back in.
-  owner-pin-reset: ${APP_OWNER_PIN_RESET:}
+  # TEMPORARY: defaulted to 2026 to recover a locked-out Railway deployment without
+  # touching dashboard variables. Revert this default back to empty once logged in.
+  owner-pin-reset: ${APP_OWNER_PIN_RESET:2026}
   # Comma-separated CORS origins for the API, e.g. http://localhost:5173,https://app.example.com
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:}
