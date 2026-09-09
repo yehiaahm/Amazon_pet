@@ -10,6 +10,7 @@ import {
 } from '../../core/hooks/useERPData';
 import { useUIStore } from '../../core/stores/uiStore';
 import { PERMISSIONS } from '../../core/permissions/permissions';
+import { isValidPin, PIN_POLICY_MESSAGE } from '../../core/auth/pinPolicy';
 import Can from '../../components/ui/Can';
 import { PlusCircle, Trash2, Key, AlertCircle, Edit } from 'lucide-react';
 import PageHeader from '../../components/ui/PageHeader';
@@ -89,6 +90,10 @@ export const Employees: React.FC = () => {
     setAddError('');
     if (!fullName.trim() || !username.trim() || !password.trim()) {
       setAddError('يرجى ملء جميع الحقول الإجبارية (الاسم، اسم المستخدم، كلمة المرور)');
+      return;
+    }
+    if (!isValidPin(password.trim())) {
+      setAddError(PIN_POLICY_MESSAGE);
       return;
     }
 
@@ -175,6 +180,10 @@ export const Employees: React.FC = () => {
     }
     if (newPassword !== confirmPassword) {
       setPasswordError('كلمتا المرور غير متطابقتين');
+      return;
+    }
+    if (!isValidPin(newPassword.trim())) {
+      setPasswordError(PIN_POLICY_MESSAGE);
       return;
     }
 
@@ -371,11 +380,13 @@ export const Employees: React.FC = () => {
           />
 
           <Input
-            label="الرمز السري / كلمة المرور (PIN رقمي أو كلمة مرور) *"
+            label="رمز الدخول السري (PIN) - 4 أرقام بالضبط *"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="مثال: 1234 أو كلمة مرور آمنة"
+            onChange={(e) => setPassword(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="مثال: 1234"
             type="password"
+            inputMode="numeric"
+            maxLength={4}
           />
 
           <Input
@@ -437,19 +448,23 @@ export const Employees: React.FC = () => {
           </div>
 
           <Input
-            label="رمز الدخول / كلمة المرور الجديدة *"
+            label="رمز الدخول السري الجديد (PIN) - 4 أرقام بالضبط *"
             value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="أدخل كلمة مرور أو رمز PIN جديد"
+            onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="مثال: 1234"
             type="password"
+            inputMode="numeric"
+            maxLength={4}
           />
 
           <Input
-            label="تأكيد كلمة المرور الجديدة *"
+            label="تأكيد رمز الدخول السري الجديد *"
             value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="أعد كتابة كلمة المرور للـتأكيد"
+            onChange={(e) => setConfirmPassword(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="أعد كتابة الرمز السري للـتأكيد"
             type="password"
+            inputMode="numeric"
+            maxLength={4}
           />
         </div>
       </Modal>

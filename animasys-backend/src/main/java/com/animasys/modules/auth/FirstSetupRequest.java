@@ -1,6 +1,8 @@
 package com.animasys.modules.auth;
 
+import com.animasys.core.security.PinPolicy;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -16,6 +18,6 @@ public class FirstSetupRequest {
     private String ownerFullName;
 
     @NotBlank(message = "رمز الدخول السري مطلوب")
-    @Size(min = 4, max = 4, message = "رمز الدخول السري يجب أن يكون 4 أرقام بالضبط")
+    @Pattern(regexp = PinPolicy.PIN_REGEX, message = "رمز الدخول السري يجب أن يكون 4 أرقام بالضبط")
     private String pin;
 }

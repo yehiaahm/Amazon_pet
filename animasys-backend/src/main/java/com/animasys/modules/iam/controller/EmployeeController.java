@@ -2,6 +2,7 @@ package com.animasys.modules.iam.controller;
 
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
+import com.animasys.core.security.PinPolicy;
 import com.animasys.core.security.SecurityUtils;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
@@ -44,6 +45,7 @@ public class EmployeeController {
         if (request.getPassword() == null || request.getPassword().trim().isEmpty()) {
             throw new BusinessRuleException("كلمة المرور مطلوبة");
         }
+        PinPolicy.validate(request.getPassword().trim());
         if (request.getFullName() == null || request.getFullName().trim().isEmpty()) {
             throw new BusinessRuleException("الاسم بالكامل مطلوب");
         }
@@ -176,13 +178,13 @@ public class EmployeeController {
         return ResponseEntity.ok(ApiResponseWrapper.success(null, "تم تغيير كلمة المرور بنجاح"));
     }
 
+    /**
+     * Every employee logs in through the same 4-digit numeric keypad (Login.tsx), so any
+     * PIN this endpoint accepts must be something that keypad can actually submit again —
+     * see {@link PinPolicy}.
+     */
     private void validatePasswordPolicy(String password) {
-        if (password.length() < 4) {
-            throw new BusinessRuleException("Password or PIN must be at least 4 characters");
-        }
-        if (password.length() > 128) {
-            throw new BusinessRuleException("Password is too long");
-        }
+        PinPolicy.validate(password);
     }
 
     @Data

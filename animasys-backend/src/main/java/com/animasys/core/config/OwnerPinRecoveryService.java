@@ -1,5 +1,6 @@
 package com.animasys.core.config;
 
+import com.animasys.core.security.PinPolicy;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,6 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * Owner PIN recovery for hosted deployments.
@@ -48,9 +48,6 @@ import java.util.regex.Pattern;
 @Slf4j
 public class OwnerPinRecoveryService {
 
-    /** Matches the PIN rules enforced by PinLoginRequest. */
-    private static final Pattern PIN_PATTERN = Pattern.compile("[0-9]{4,8}");
-
     private final EmployeeRepository employeeRepository;
     private final PasswordEncoder passwordEncoder;
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -67,8 +64,8 @@ public class OwnerPinRecoveryService {
 
         int separator = request.indexOf(':');
         String pin = separator < 0 ? request : request.substring(0, separator);
-        if (!PIN_PATTERN.matcher(pin).matches()) {
-            log.error("APP_OWNER_PIN_RESET is set but its PIN part is not 4-8 digits — ignoring it. " +
+        if (!PinPolicy.isValid(pin)) {
+            log.error("APP_OWNER_PIN_RESET is set but its PIN part is not exactly 4 digits — ignoring it. " +
                     "Expected e.g. '2026' or '2026:<nonce>'.");
             return;
         }

@@ -18,7 +18,9 @@ open with a SQL client. The result is a live shop with nobody able to log in.
    APP_OWNER_PIN_RESET=2026
    ```
 
-   Any 4–8 digit PIN works; `2026` matches what the shop is used to.
+   Must be exactly 4 digits (0-9) — that's the same shape every employee PIN uses,
+   since the login keypad can't submit anything else. `2026` matches what the shop
+   is used to.
 
 2. Save. Railway redeploys on a variable change; on any other host, restart the service.
 
@@ -58,5 +60,5 @@ APP_OWNER_PIN_RESET=2026:2
 
 * Only the OWNER account is touched (`owner_marwan`, falling back to employee `e-1`, then to the
   first `OWNER`-role employee). Cashier and groomer PINs are left alone.
-* A malformed value (PIN not 4–8 digits) is logged as an error and ignored — it never blocks boot.
+* A malformed value (PIN not exactly 4 digits) is logged as an error and ignored — it never blocks boot.
 * The PIN itself is never written to the log; it is already in the deployment's variables.
