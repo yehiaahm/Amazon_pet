@@ -464,7 +464,8 @@ function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
     <div class="meta-line"><span>${esc(data.saleNumber)}</span><span>${esc(date)} ${esc(time)}</span></div>
     <div class="meta-line"><span>Cashier: ${esc(data.cashierName)}</span></div>
     <div class="meta-line"><span>Customer: ${esc(data.customerName)}</span>${data.customerPhone ? `<span>${esc(data.customerPhone)}</span>` : ''}</div>
-    ${data.isDelivery && data.deliveryAddress ? `<div class="meta-line"><span>Delivery: ${esc(data.deliveryAddress)}</span></div>` : ''}
+    ${data.customerAddress ? `<div class="meta-line"><span>Address: ${esc(data.customerAddress)}</span></div>` : ''}
+    ${data.isDelivery && data.deliveryAddress && data.deliveryAddress !== data.customerAddress ? `<div class="meta-line"><span>Delivery: ${esc(data.deliveryAddress)}</span></div>` : ''}
     <div class="divider"></div>
     <table class="items-table">
       <thead>
@@ -491,24 +492,24 @@ function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
 
 const COMPACT_THERMAL_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  @page { size: 80mm auto; margin: 0; }
-  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #111; width: 76mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .receipt { padding: 4px 6px 10px; font-size: 11px; line-height: 1.35; }
+  @page { size: 160mm auto; margin: 0; }
+  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #111; width: 152mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .receipt { padding: 8px 12px 20px; font-size: 22px; line-height: 1.35; }
   .center { text-align: center; }
-  .shop-name { font-size: 15px; font-weight: 800; letter-spacing: 0.5px; }
-  .shop-sub { font-size: 9.5px; color: #444; margin-top: 1px; }
-  .divider { border-top: 1px dashed #999; margin: 5px 0; }
-  .meta-line { display: flex; justify-content: space-between; gap: 6px; padding: 1px 0; }
-  .items-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
-  .items-table th { text-align: left; border-bottom: 1px solid #111; padding: 2px; font-weight: 700; }
+  .shop-name { font-size: 30px; font-weight: 800; letter-spacing: 0.5px; }
+  .shop-sub { font-size: 19px; color: #444; margin-top: 2px; }
+  .divider { border-top: 2px dashed #999; margin: 10px 0; }
+  .meta-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .items-table { width: 100%; border-collapse: collapse; font-size: 21px; }
+  .items-table th { text-align: left; border-bottom: 2px solid #111; padding: 4px; font-weight: 700; }
   .items-table th.num, .items-table td.num { text-align: right; }
-  .items-table td { padding: 3px 2px; vertical-align: top; }
-  .item-note { font-size: 8.5px; color: #555; }
-  .totals .row { display: flex; justify-content: space-between; padding: 1px 0; }
-  .totals .total { font-size: 13px; font-weight: 800; border-top: 1px dashed #111; margin-top: 3px; padding-top: 3px; }
-  .thanks { margin-top: 6px; font-size: 10.5px; }
-  .policy { font-size: 8.5px; color: #444; margin-top: 2px; }
-  .refund-banner { background: #000; color: #fff; text-align: center; font-weight: 800; padding: 3px; margin-bottom: 4px; font-size: 10.5px; }
+  .items-table td { padding: 6px 4px; vertical-align: top; }
+  .item-note { font-size: 17px; color: #555; }
+  .totals .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .totals .total { font-size: 26px; font-weight: 800; border-top: 2px dashed #111; margin-top: 6px; padding-top: 6px; }
+  .thanks { margin-top: 12px; font-size: 21px; }
+  .policy { font-size: 17px; color: #444; margin-top: 4px; }
+  .refund-banner { background: #000; color: #fff; text-align: center; font-weight: 800; padding: 6px; margin-bottom: 8px; font-size: 21px; }
   .refund-banner.partial { background: #555; }
 `;
 
