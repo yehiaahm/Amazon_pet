@@ -492,14 +492,14 @@ function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
 
 const COMPACT_THERMAL_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  @page { size: 160mm auto; margin: 0; }
-  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #111; width: 152mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .receipt { padding: 8px 12px 20px; font-size: 22px; line-height: 1.35; }
+  @page { size: 80mm auto; margin: 0; }
+  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #111; width: 76mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .receipt { padding: 8px 10px 40px; font-size: 22px; line-height: 1.5; }
   .center { text-align: center; }
   .shop-name { font-size: 30px; font-weight: 800; letter-spacing: 0.5px; }
   .shop-sub { font-size: 19px; color: #444; margin-top: 2px; }
   .divider { border-top: 2px dashed #999; margin: 10px 0; }
-  .meta-line { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .meta-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 3px 0; }
   .items-table { width: 100%; border-collapse: collapse; font-size: 21px; }
   .items-table th { text-align: left; border-bottom: 2px solid #111; padding: 4px; font-weight: 700; }
   .items-table th.num, .items-table td.num { text-align: right; }
