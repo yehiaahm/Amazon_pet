@@ -251,6 +251,8 @@ public class SaleQueryService {
                 .quantity(item.getQuantity())
                 .price(item.getPrice())
                 .listPrice(item.getListPrice())
+                .discountPercent(item.getDiscountPercent())
+                .priceBeforeDiscount(item.getPriceBeforeDiscount())
                 .cost(item.getCost())
                 .cogs(item.getCogs())
                 .unitCogs(item.getUnitCogs())

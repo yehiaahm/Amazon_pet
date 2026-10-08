@@ -19,6 +19,8 @@ public class SaleItemSummaryDTO {
     private int quantity;
     private BigDecimal price;
     private BigDecimal listPrice;
+    private BigDecimal discountPercent;
+    private BigDecimal priceBeforeDiscount;
     private BigDecimal cost;
     private BigDecimal cogs;
     private BigDecimal unitCogs;

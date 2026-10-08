@@ -9,6 +9,10 @@ export type InvoiceLine = {
   price: number;
   /** Catalog price when sold at a different unit price */
   listPrice?: number;
+  /** Per-line discount percent; `price` is already the net unit price after it. */
+  discountPercent?: number;
+  /** Unit price before the per-line discount. */
+  priceBeforeDiscount?: number;
 };
 
 export type AmazonPetInvoiceData = {
@@ -90,6 +94,39 @@ function esc(s: string): string {
 
 function fmtNum(n: number): string {
   return (Number(n) || 0).toFixed(2);
+}
+
+function fmtPct(n: number): string {
+  return String(Number((Number(n) || 0).toFixed(2)));
+}
+
+/**
+ * Note lines shown under an item's price: the catalog price when the cashier sold it at a
+ * different price, and the per-line discount when one was applied.
+ */
+function lineNotes(i: InvoiceLine, opts: { withDelta: boolean }): Array<{ text: string; isDiscount: boolean }> {
+  const listPrice = typeof i.listPrice === 'number' ? i.listPrice : i.price;
+  const discountPercent = Number(i.discountPercent) || 0;
+  const priceBeforeDiscount = discountPercent > 0
+    ? (typeof i.priceBeforeDiscount === 'number' ? i.priceBeforeDiscount : listPrice)
+    : i.price;
+  const notes: Array<{ text: string; isDiscount: boolean }> = [];
+  const delta = priceBeforeDiscount - listPrice;
+  if (Math.abs(delta) > 0.001) {
+    notes.push({
+      text: opts.withDelta
+        ? `أساسي ${fmtNum(listPrice)} (${delta > 0 ? '+' : ''}${delta.toFixed(2)})`
+        : `أساسي ${fmtNum(listPrice)}`,
+      isDiscount: false,
+    });
+  }
+  if (discountPercent > 0) {
+    notes.push({
+      text: `خصم ${fmtPct(discountPercent)}% (قبل الخصم ${fmtNum(priceBeforeDiscount)})`,
+      isDiscount: true,
+    });
+  }
+  return notes;
 }
 
 function fmtDateParts(input: string | Date): { date: string; time: string } {
@@ -177,12 +214,9 @@ function renderInvoiceBody(data: AmazonPetInvoiceData): string {
   const rows = data.items
     .map(
       (i) => {
-        const listPrice = typeof i.listPrice === 'number' ? i.listPrice : i.price;
-        const adjusted = Math.abs(i.price - listPrice) > 0.001;
-        const delta = adjusted ? (i.price - listPrice).toFixed(2) : '';
-        const priceCell = adjusted
-          ? `${fmtNum(i.price)}<div class="list-price-note">أساسي ${fmtNum(listPrice)} (${Number(delta) > 0 ? '+' : ''}${delta})</div>`
-          : fmtNum(i.price);
+        const priceCell = fmtNum(i.price) + lineNotes(i, { withDelta: true })
+          .map((n) => `<div class="list-price-note" dir="auto"${n.isDiscount ? ' style="color:#b91c1c;font-weight:800"' : ''}>${n.text}</div>`)
+          .join('');
         return `
       <tr>
         <td class="item-name">${esc(i.name)}</td>
@@ -430,18 +464,17 @@ function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
 
   const rows = data.items
     .map((i) => {
-      const listPrice = typeof i.listPrice === 'number' ? i.listPrice : i.price;
-      const adjusted = Math.abs(i.price - listPrice) > 0.001;
-      const note = adjusted
-        ? `<div class="item-note">أساسي ${fmtNum(listPrice)}</div>`
-        : '';
+      const note = lineNotes(i, { withDelta: false })
+        .map((n) => `<div class="item-note" dir="auto"${n.isDiscount ? ' style="font-weight:800"' : ''}>${n.text}</div>`)
+        .join('');
+      // Name gets its own full-width line so the large thermal font never squeezes it into a
+      // one-word-per-line column; qty × price and the line total sit underneath.
       return `
-      <tr>
-        <td>${esc(i.name)}${note}</td>
-        <td class="num">${esc(String(i.quantity))}</td>
-        <td class="num">${fmtNum(i.price)}</td>
-        <td class="num">${fmtNum(i.price * i.quantity)}</td>
-      </tr>`;
+      <div class="item">
+        <div class="item-name" dir="auto">${esc(i.name)}</div>
+        ${note}
+        <div class="item-line"><span>${esc(String(i.quantity))} × ${fmtNum(i.price)}</span><span class="item-total">${fmtNum(i.price * i.quantity)}</span></div>
+      </div>`;
     })
     .join('');
 
@@ -462,19 +495,13 @@ function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
     </div>
     <div class="divider"></div>
     <div class="meta-line"><span>${esc(data.saleNumber)}</span><span>${esc(date)} ${esc(time)}</span></div>
-    <div class="meta-line"><span>Cashier: ${esc(data.cashierName)}</span></div>
-    <div class="meta-line"><span>Customer: ${esc(data.customerName)}</span>${data.customerPhone ? `<span>${esc(data.customerPhone)}</span>` : ''}</div>
-    ${data.customerAddress ? `<div class="meta-line"><span>Address: ${esc(data.customerAddress)}</span></div>` : ''}
-    ${data.isDelivery && data.deliveryAddress && data.deliveryAddress !== data.customerAddress ? `<div class="meta-line"><span>Delivery: ${esc(data.deliveryAddress)}</span></div>` : ''}
+    <div class="meta-line"><span>Cashier: <bdi>${esc(data.cashierName)}</bdi></span></div>
+    <div class="meta-line"><span>Customer: <bdi>${esc(data.customerName)}</bdi></span>${data.customerPhone ? `<span>${esc(data.customerPhone)}</span>` : ''}</div>
+    ${data.customerAddress ? `<div class="meta-line"><span>Address: <bdi>${esc(data.customerAddress)}</bdi></span></div>` : ''}
+    ${data.isDelivery && data.deliveryAddress && data.deliveryAddress !== data.customerAddress ? `<div class="meta-line"><span>Delivery: <bdi>${esc(data.deliveryAddress)}</bdi></span></div>` : ''}
     <div class="divider"></div>
-    <table class="items-table">
-      <thead>
-        <tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr>
-      </thead>
-      <tbody>
-        ${rows || `<tr><td colspan="4" class="center">No items</td></tr>`}
-      </tbody>
-    </table>
+    <div class="items-head"><span>Item · Qty × Price</span><span>Total</span></div>
+    <div class="items">${rows || `<div class="center item">No items</div>`}</div>
     <div class="divider"></div>
     <div class="totals">
       <div class="row"><span>Subtotal</span><span>${fmtNum(data.subtotal)}</span></div>
@@ -493,22 +520,24 @@ function renderCompactThermalBody(data: AmazonPetInvoiceData): string {
 const COMPACT_THERMAL_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   @page { size: 80mm auto; margin: 0; }
-  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #111; width: 76mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .receipt { padding: 8px 10px 40px; font-size: 22px; line-height: 1.5; }
+  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #000; width: 76mm; margin: 0 auto; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .receipt { padding: 8px 10px 40px; font-size: 22px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
   .center { text-align: center; }
   .shop-name { font-size: 30px; font-weight: 800; letter-spacing: 0.5px; }
-  .shop-sub { font-size: 19px; color: #444; margin-top: 2px; }
-  .divider { border-top: 2px dashed #999; margin: 10px 0; }
+  .shop-sub { font-size: 19px; margin-top: 2px; }
+  .divider { border-top: 2px dashed #000; margin: 10px 0; }
   .meta-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 3px 0; }
-  .items-table { width: 100%; border-collapse: collapse; font-size: 21px; }
-  .items-table th { text-align: left; border-bottom: 2px solid #111; padding: 4px; font-weight: 700; }
-  .items-table th.num, .items-table td.num { text-align: right; }
-  .items-table td { padding: 6px 4px; vertical-align: top; }
-  .item-note { font-size: 17px; color: #555; }
-  .totals .row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .totals .total { font-size: 26px; font-weight: 800; border-top: 2px dashed #111; margin-top: 6px; padding-top: 6px; }
+  .items-head { display: flex; justify-content: space-between; gap: 12px; font-size: 18px; font-weight: 800; border-bottom: 2px solid #000; padding-bottom: 4px; }
+  .item { padding: 6px 0; border-bottom: 1px dashed #000; }
+  .item:last-child { border-bottom: none; }
+  .item-name { font-weight: 800; text-align: start; }
+  .item-line { display: flex; justify-content: space-between; gap: 12px; }
+  .item-total { font-weight: 800; }
+  .item-note { font-size: 17px; text-align: start; }
+  .totals .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 12px; padding: 2px 0; }
+  .totals .total { font-size: 26px; font-weight: 800; border-top: 2px dashed #000; margin-top: 6px; padding-top: 6px; }
   .thanks { margin-top: 12px; font-size: 21px; }
-  .policy { font-size: 17px; color: #444; margin-top: 4px; }
+  .policy { font-size: 17px; margin-top: 4px; }
   .refund-banner { background: #000; color: #fff; text-align: center; font-weight: 800; padding: 6px; margin-bottom: 8px; font-size: 21px; }
   .refund-banner.partial { background: #555; }
 `;
@@ -621,7 +650,16 @@ export function saleToInvoiceData(opts: {
     date: string;
     customerId?: string;
     employeeId?: string;
-    items: Array<{ name?: string; quantity: number; price: number; listPrice?: number; itemId?: string; type?: string }>;
+    items: Array<{
+      name?: string;
+      quantity: number;
+      price: number;
+      listPrice?: number;
+      discountPercent?: number;
+      priceBeforeDiscount?: number;
+      itemId?: string;
+      type?: string;
+    }>;
     totalAmount: number;
     tax?: number;
     discount?: number;
@@ -667,6 +705,8 @@ export function saleToInvoiceData(opts: {
       quantity: i.quantity,
       price: Number(i.price) || 0,
       listPrice: typeof i.listPrice === 'number' ? Number(i.listPrice) : undefined,
+      discountPercent: i.discountPercent != null ? Number(i.discountPercent) : undefined,
+      priceBeforeDiscount: i.priceBeforeDiscount != null ? Number(i.priceBeforeDiscount) : undefined,
     };
   });
 

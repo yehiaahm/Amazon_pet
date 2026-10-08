@@ -239,4 +239,79 @@ public class SaleServiceTest {
 
         verify(saleRepository, never()).save(any(Sale.class));
     }
+
+    private void stubCheckoutHappyPath() {
+        when(sessionRepository.findById("s-1")).thenReturn(Optional.of(session));
+        when(employeeRepository.findById("e-1")).thenReturn(Optional.of(employee));
+        when(variantRepository.findByIdWithProduct("v-1")).thenReturn(Optional.of(variant));
+        when(saleRepository.save(any(Sale.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(itemRepository.save(any(SaleItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auditLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fifoCostingService.getAvailableBatchQuantity(eq("t-1"), eq("wh-1"), eq("v-1"))).thenReturn(5);
+        when(fifoCostingService.allocateSaleItemFifo(eq("t-1"), anyString(), any(), eq("e-1"))).thenReturn(List.of());
+        com.animasys.modules.inventory.domain.Warehouse wh = com.animasys.modules.inventory.domain.Warehouse.builder().id("wh-1").branch(session.getBranch()).name("Main WH").build();
+        when(warehouseRepository.findByBranchId("b-1")).thenReturn(List.of(wh));
+    }
+
+    @Test
+    public void testLineDiscountChargesNetPriceAndKeepsPreDiscountPrice() {
+        stubCheckoutHappyPath();
+        saleItem.setDiscountPercent(BigDecimal.TEN);
+
+        Sale sale = saleService.createSale("s-1", "e-1", null, new BigDecimal("9.00"), BigDecimal.ZERO,
+                BigDecimal.ZERO, "CASH", Collections.singletonList(saleItem));
+
+        SaleItem line = sale.getItems().get(0);
+        assertEquals(0, new BigDecimal("9.00").compareTo(line.getPrice()));
+        assertEquals(0, new BigDecimal("10.00").compareTo(line.getPriceBeforeDiscount()));
+        assertEquals(0, BigDecimal.TEN.compareTo(line.getDiscountPercent()));
+        assertEquals(0, new BigDecimal("9.00").compareTo(sale.getTotalAmount()));
+    }
+
+    @Test
+    public void testCashierLineDiscountBelowMinimumNeedsManagerApproval() {
+        stubCheckoutHappyPath();
+        // 50% off a 10.00 list price lands at 5.00, below the 20% cashier floor (8.00).
+        saleItem.setDiscountPercent(BigDecimal.valueOf(50));
+
+        assertThrows(com.animasys.core.exception.BusinessRuleException.class, () -> saleService.createSale(
+                "s-1", "e-1", null, new BigDecimal("5.00"), BigDecimal.ZERO,
+                BigDecimal.ZERO, "CASH", Collections.singletonList(saleItem)));
+        verify(saleRepository, never()).save(any(Sale.class));
+    }
+
+    @Test
+    public void testOwnerCanApplyFullLineDiscount() {
+        employee.setRole("OWNER");
+        stubCheckoutHappyPath();
+        saleItem.setDiscountPercent(BigDecimal.valueOf(100));
+
+        Sale sale = saleService.createSale("s-1", "e-1", null, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, "CASH", Collections.singletonList(saleItem));
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(sale.getItems().get(0).getPrice()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(sale.getTotalAmount()));
+    }
+
+    @Test
+    public void testCashierBillDiscountAboveTenPercentIsRejected() {
+        stubCheckoutHappyPath();
+
+        assertThrows(com.animasys.core.exception.BusinessRuleException.class, () -> saleService.createSale(
+                "s-1", "e-1", null, new BigDecimal("5.00"), BigDecimal.ZERO,
+                new BigDecimal("5.00"), "CASH", Collections.singletonList(saleItem)));
+        verify(saleRepository, never()).save(any(Sale.class));
+    }
+
+    @Test
+    public void testOwnerBillDiscountHasNoCap() {
+        employee.setRole("OWNER");
+        stubCheckoutHappyPath();
+
+        Sale sale = saleService.createSale("s-1", "e-1", null, new BigDecimal("4.00"), BigDecimal.ZERO,
+                new BigDecimal("6.00"), "CASH", Collections.singletonList(saleItem));
+
+        assertEquals(0, new BigDecimal("6.00").compareTo(sale.getDiscount()));
+        assertEquals(0, new BigDecimal("4.00").compareTo(sale.getTotalAmount()));
+    }
 }

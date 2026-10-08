@@ -61,6 +61,11 @@ public class SaleService {
     /** Cashier may lower unit price by at most this percent vs catalog price. */
     private static final BigDecimal MAX_PRICE_DISCOUNT_PERCENT = new BigDecimal("20");
 
+    /** Manual bill-level discount cap as a percent of subtotal; the owner is exempt. */
+    private static final BigDecimal MAX_MANUAL_DISCOUNT_PERCENT = BigDecimal.TEN;
+
+    private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
+
     private static final Set<String> ALLOWED_PAYMENT_METHODS =
             Set.of("CASH", "CARD", "MOBILE", "INSTAPAY", "VODAFONE_CASH");
 
@@ -228,6 +233,21 @@ public class SaleService {
                 unitPrice = raw.getPrice().setScale(2, RoundingMode.HALF_UP);
             }
 
+            // Per-line discount %: price is stored as the net unit price so refunds, reports and
+            // journals keep working off price × quantity; the pre-discount price is kept for the invoice.
+            BigDecimal lineDiscountPercent = null;
+            BigDecimal priceBeforeDiscount = null;
+            if (raw.getDiscountPercent() != null && raw.getDiscountPercent().compareTo(BigDecimal.ZERO) != 0) {
+                lineDiscountPercent = raw.getDiscountPercent().setScale(2, RoundingMode.HALF_UP);
+                if (lineDiscountPercent.compareTo(BigDecimal.ZERO) < 0
+                        || lineDiscountPercent.compareTo(ONE_HUNDRED) > 0) {
+                    throw new BusinessRuleException("نسبة خصم الصنف يجب أن تكون بين 0 و 100: " + displayName);
+                }
+                priceBeforeDiscount = unitPrice;
+                unitPrice = unitPrice.multiply(ONE_HUNDRED.subtract(lineDiscountPercent))
+                        .divide(ONE_HUNDRED, 2, RoundingMode.HALF_UP);
+            }
+
             BigDecimal minAllowed = catalogPrice.multiply(BigDecimal.valueOf(100).subtract(MAX_PRICE_DISCOUNT_PERCENT))
                     .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
             if (unitPrice.compareTo(minAllowed) < 0) {
@@ -245,13 +265,15 @@ public class SaleService {
                     .quantity(raw.getQuantity())
                     .price(unitPrice)
                     .listPrice(catalogPrice.setScale(2, RoundingMode.HALF_UP))
+                    .discountPercent(lineDiscountPercent)
+                    .priceBeforeDiscount(priceBeforeDiscount)
                     .cost(unitCost)
                     .build();
             validatedItems.add(line);
             subtotal = subtotal.add(unitPrice.multiply(BigDecimal.valueOf(raw.getQuantity())));
         }
 
-        // Loyalty from CRM + cashier manual discount (manual capped at 10% of subtotal)
+        // Loyalty from CRM + cashier manual discount (manual capped at 10% of subtotal, except for the owner)
         BigDecimal loyaltyPercent = BigDecimal.ZERO;
         if (customer != null && customer.getDiscount() != null && customer.getDiscount() > 0) {
             loyaltyPercent = BigDecimal.valueOf(Math.min(100, Math.max(0, customer.getDiscount())));
@@ -259,15 +281,17 @@ public class SaleService {
         BigDecimal loyaltyDiscount = subtotal.multiply(loyaltyPercent)
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
-        BigDecimal maxManualDiscount = subtotal.multiply(BigDecimal.TEN)
+        BigDecimal maxManualDiscount = subtotal.multiply(MAX_MANUAL_DISCOUNT_PERCENT)
                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
         BigDecimal clientDisc = clientDiscount != null ? clientDiscount.max(BigDecimal.ZERO) : BigDecimal.ZERO;
-        // Manual portion = anything the client asked beyond loyalty, capped at 10%
+        // Manual portion = anything the client asked beyond loyalty; the final discount is clamped to the subtotal below
         BigDecimal requestedManual = clientDisc.subtract(loyaltyDiscount).max(BigDecimal.ZERO);
-        if (requestedManual.compareTo(maxManualDiscount) > 0) {
+        boolean isOwner = "OWNER".equals(employeeRole);
+        if (!isOwner && requestedManual.compareTo(maxManualDiscount) > 0) {
             throw new BusinessRuleException(
-                    "خصم الكاشير لا يتجاوز 10% من إجمالي الفاتورة (الحد الأقصى: " + maxManualDiscount + ").");
+                    "خصم الكاشير لا يتجاوز " + MAX_MANUAL_DISCOUNT_PERCENT.toPlainString()
+                            + "% من إجمالي الفاتورة (الحد الأقصى: " + maxManualDiscount + ").");
         }
         BigDecimal discount = loyaltyDiscount.add(requestedManual).min(subtotal).setScale(2, RoundingMode.HALF_UP);
 

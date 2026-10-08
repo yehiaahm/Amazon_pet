@@ -3,6 +3,7 @@ import Input from '../ui/Input';
 import {
   MAX_POS_PRICE_DISCOUNT_PERCENT,
   isBelowMinAllowedSalePrice,
+  lineNetUnitPrice,
 } from '../../core/pos/priceOverride';
 
 export type CartLinePriceInputProps = {
@@ -10,6 +11,8 @@ export type CartLinePriceInputProps = {
   type: 'PRODUCT' | 'SERVICE';
   price: number;
   listPrice: number;
+  /** Per-line discount applied on top of the price; the minimum-price rule checks the net price. */
+  discountPercent?: number;
   minAllowedPrice: number;
   isElevated: boolean;
   onCommit: (
@@ -28,6 +31,7 @@ const CartLinePriceInput: React.FC<CartLinePriceInputProps> = ({
   type,
   price,
   listPrice,
+  discountPercent,
   minAllowedPrice,
   isElevated,
   onCommit,
@@ -50,7 +54,7 @@ const CartLinePriceInput: React.FC<CartLinePriceInputProps> = ({
       setDraft(String(listPrice > 0 ? listPrice : price));
       return;
     }
-    if (!isElevated && isBelowMinAllowedSalePrice(next, listPrice)) {
+    if (!isElevated && isBelowMinAllowedSalePrice(lineNetUnitPrice(next, discountPercent), listPrice)) {
       onRequireManagerApproval(itemId, type, next);
       setDraft(String(price));
       return;

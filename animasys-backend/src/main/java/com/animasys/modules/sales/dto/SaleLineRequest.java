@@ -26,6 +26,9 @@ public class SaleLineRequest {
 
     private BigDecimal listPrice;
 
+    /** Per-line discount percent (0–100) applied on top of {@link #price}. */
+    private BigDecimal discountPercent;
+
     @NotNull
     private BigDecimal cost;
 }

@@ -66,12 +66,9 @@ export const PosCatalogCard = memo(function PosCatalogCard({ item, onSelect }: P
         <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'bold', color: 'var(--color-primary)' }}>
           {formatMoney(item.price)}
         </span>
-        {item.stock !== null && (
-          <Badge
-            variant={item.stock < 10 ? 'danger' : 'success'}
-            style={{ fontSize: '9px', padding: '1px 4px' }}
-          >
-            {item.stock} متاح
+        {isOutOfStock && (
+          <Badge variant="danger" style={{ fontSize: '9px', padding: '1px 4px' }}>
+            نفد
           </Badge>
         )}
       </div>

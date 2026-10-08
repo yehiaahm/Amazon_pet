@@ -298,6 +298,13 @@ export interface SaleItem {
   price: number;
   /** Catalog / list price — never mutated by POS override. */
   listPrice?: number;
+  /**
+   * Per-line discount percent. In the POS cart it applies on top of `price`; on a saved
+   * sale `price` is already the net unit price and this only records the discount.
+   */
+  discountPercent?: number;
+  /** Saved sales only: unit price before the per-line discount. */
+  priceBeforeDiscount?: number;
   /** Set when manager approved a below-minimum unit price for this line. */
   priceBelowMinApproved?: boolean;
   cost: number; // for profit calculation

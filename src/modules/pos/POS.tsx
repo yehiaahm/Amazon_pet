@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useCartStore } from '../../core/stores/cartStore';
+import { useCartStore, MAX_POS_DISCOUNT_PERCENT } from '../../core/stores/cartStore';
 import { useSessionStore } from '../../core/stores/sessionStore';
 import { useUIStore } from '../../core/stores/uiStore';
 import { logout } from '../../core/auth/logout';
@@ -39,8 +39,10 @@ import {
   MAX_POS_PRICE_DISCOUNT_PERCENT,
   minAllowedSalePrice,
   isBelowMinAllowedSalePrice,
+  lineNetUnitPrice,
 } from '../../core/pos/priceOverride';
 import CartLinePriceInput from '../../components/sales/CartLinePriceInput';
+import CartLineDiscountInput from '../../components/sales/CartLineDiscountInput';
 import { useBarcodeWedgeListener } from '../../core/pos/useBarcodeWedgeListener';
 import { usePermissions } from '../../core/permissions/usePermissions';
 import { PERMISSIONS } from '../../core/permissions/permissions';
@@ -67,6 +69,8 @@ export const POS: React.FC = () => {
   const elevatedSalesPrivileges = canOverridePriceWithoutApproval(hasPermission);
   const canRefundSales = hasPermission(PERMISSIONS.SALES_REFUND);
   const canApplyDiscount = hasPermission(PERMISSIONS.SALES_DISCOUNT);
+  // Owner has no cap on the manual bill discount (backend enforces the same rule).
+  const isOwner = (currentEmployee.role || '').toUpperCase() === 'OWNER';
   const canPrintThermal = hasPermission(PERMISSIONS.SALES_THERMAL);
   const canPrintA4 = hasPermission(PERMISSIONS.SALES_A4);
   
@@ -81,10 +85,16 @@ export const POS: React.FC = () => {
   const removeItem = useCartStore(s => s.removeItem);
   const updateQuantity = useCartStore(s => s.updateQuantity);
   const updateUnitPrice = useCartStore(s => s.updateUnitPrice);
+  const updateLineDiscount = useCartStore(s => s.updateLineDiscount);
   const customerId = useCartStore(s => s.customerId);
   const setCustomerId = useCartStore(s => s.setCustomerId);
+  const discountMode = useCartStore(s => s.discountMode);
+  const setDiscountMode = useCartStore(s => s.setDiscountMode);
   const discountPercent = useCartStore(s => s.discountPercent);
   const setDiscountPercent = useCartStore(s => s.setDiscountPercent);
+  const discountAmount = useCartStore(s => s.discountAmount);
+  const setDiscountAmount = useCartStore(s => s.setDiscountAmount);
+  const setDiscountUnlimited = useCartStore(s => s.setDiscountUnlimited);
   const setLoyaltyPercent = useCartStore(s => s.setLoyaltyPercent);
   const loyaltyRedeemAmount = useCartStore(s => s.loyaltyRedeemAmount);
   const setLoyaltyRedeemAmount = useCartStore(s => s.setLoyaltyRedeemAmount);
@@ -105,11 +115,15 @@ export const POS: React.FC = () => {
   const deliveryAddress = useCartStore(s => s.deliveryAddress);
   const setDeliveryAddress = useCartStore(s => s.setDeliveryAddress);
 
+  useEffect(() => {
+    setDiscountUnlimited(isOwner);
+  }, [isOwner, setDiscountUnlimited]);
+
   const checkoutIdempotencyKeyRef = useRef(crypto.randomUUID());
 
   useEffect(() => {
     checkoutIdempotencyKeyRef.current = crypto.randomUUID();
-  }, [cartItems, customerId, paymentMethod, isSplitPayment, splitPayments, discountPercent, isDelivery, deliveryFee, deliveryAddress, loyaltyRedeemAmount]);
+  }, [cartItems, customerId, paymentMethod, isSplitPayment, splitPayments, discountMode, discountPercent, discountAmount, isDelivery, deliveryFee, deliveryAddress, loyaltyRedeemAmount]);
 
   // Queries & Mutations
   const { data: products } = useProducts();
@@ -173,7 +187,12 @@ export const POS: React.FC = () => {
   const [pendingPriceChange, setPendingPriceChange] = useState<{
     itemId: string;
     type: 'PRODUCT' | 'SERVICE';
+    /** New unit price to commit (price edits only). */
     price: number;
+    /** Set when the pending change is a per-line discount instead of a price edit. */
+    discountPercent?: number;
+    /** Resulting net unit price, shown in the approval prompt. */
+    netPrice: number;
     itemName?: string;
   } | null>(null);
   const [checkoutManagerCode, setCheckoutManagerCode] = useState('');
@@ -605,7 +624,32 @@ export const POS: React.FC = () => {
     price: number
   ) => {
     const item = cartItems.find((i) => i.itemId === itemId && i.type === type);
-    setPendingPriceChange({ itemId, type, price, itemName: item?.name });
+    setPendingPriceChange({
+      itemId,
+      type,
+      price,
+      netPrice: lineNetUnitPrice(price, item?.discountPercent),
+      itemName: item?.name,
+    });
+    setPriceManagerCode('');
+    setShowPriceManagerModal(true);
+  };
+
+  const handleRequireManagerDiscountApproval = (
+    itemId: string,
+    type: 'PRODUCT' | 'SERVICE',
+    percent: number
+  ) => {
+    const item = cartItems.find((i) => i.itemId === itemId && i.type === type);
+    if (!item) return;
+    setPendingPriceChange({
+      itemId,
+      type,
+      price: item.price,
+      discountPercent: percent,
+      netPrice: lineNetUnitPrice(item.price, percent),
+      itemName: item.name,
+    });
     setPriceManagerCode('');
     setShowPriceManagerModal(true);
   };
@@ -616,12 +660,21 @@ export const POS: React.FC = () => {
       addNotification('WARNINGS', 'رمز مطلوب', 'يرجى إدخال رمز المدير للموافقة على السعر.');
       return;
     }
-    updateUnitPrice(
-      pendingPriceChange.itemId,
-      pendingPriceChange.type,
-      pendingPriceChange.price,
-      { belowMinApproved: true }
-    );
+    if (pendingPriceChange.discountPercent !== undefined) {
+      updateLineDiscount(
+        pendingPriceChange.itemId,
+        pendingPriceChange.type,
+        pendingPriceChange.discountPercent,
+        { belowMinApproved: true }
+      );
+    } else {
+      updateUnitPrice(
+        pendingPriceChange.itemId,
+        pendingPriceChange.type,
+        pendingPriceChange.price,
+        { belowMinApproved: true }
+      );
+    }
     setBelowMinManagerPassword(priceManagerCode);
     setShowPriceManagerModal(false);
     setPendingPriceChange(null);
@@ -709,7 +762,7 @@ export const POS: React.FC = () => {
     }
 
     const hasBelowMinPrices = cartItems.some((item) =>
-      isBelowMinAllowedSalePrice(item.price, item.listPrice ?? item.price)
+      isBelowMinAllowedSalePrice(lineNetUnitPrice(item.price, item.discountPercent), item.listPrice ?? item.price)
     );
     if (!elevatedSalesPrivileges && hasBelowMinPrices && !belowMinManagerPassword) {
       setCheckoutManagerCode('');
@@ -1543,6 +1596,8 @@ export const POS: React.FC = () => {
               const minAllowed = minAllowedSalePrice(listPrice);
               const adjustment = formatPriceAdjustment(item.price, listPrice);
               const priceChanged = Math.abs(item.price - listPrice) > 0.001;
+              const lineDiscountPercent = item.discountPercent ?? 0;
+              const netUnitPrice = lineNetUnitPrice(item.price, lineDiscountPercent);
               return (
               <div 
                 key={`${item.type}-${item.itemId}`}
@@ -1568,6 +1623,11 @@ export const POS: React.FC = () => {
                           {' '}· بيع: {formatMoney(item.price)} ({adjustment} ج.م)
                         </span>
                       )}
+                      {lineDiscountPercent > 0 && (
+                        <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>
+                          {' '}· خصم {lineDiscountPercent}% ← {formatMoney(netUnitPrice)}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: '9px', color: 'var(--color-text-secondary)' }}>
                       الحد الأدنى: {formatMoney(minAllowed)} (خصم {MAX_POS_PRICE_DISCOUNT_PERCENT}% كحد أقصى)
@@ -1591,6 +1651,7 @@ export const POS: React.FC = () => {
                       type={item.type}
                       price={item.price}
                       listPrice={listPrice}
+                      discountPercent={lineDiscountPercent}
                       minAllowedPrice={minAllowed}
                       isElevated={elevatedSalesPrivileges}
                       onCommit={(id, t, p, opts) => updateUnitPrice(id, t, p, opts)}
@@ -1598,6 +1659,23 @@ export const POS: React.FC = () => {
                       onRequireManagerApproval={handleRequireManagerPriceApproval}
                     />
                   </label>
+
+                  {canApplyDiscount && (
+                    <label style={{ fontSize: '10px', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      خصم
+                      <CartLineDiscountInput
+                        itemId={item.itemId}
+                        type={item.type}
+                        price={item.price}
+                        listPrice={listPrice}
+                        discountPercent={lineDiscountPercent}
+                        isElevated={elevatedSalesPrivileges}
+                        onCommit={(id, t, pct) => updateLineDiscount(id, t, pct)}
+                        onWarn={(msg) => addNotification('WARNINGS', 'خصم الصنف', msg)}
+                        onRequireManagerApproval={handleRequireManagerDiscountApproval}
+                      />
+                    </label>
+                  )}
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', marginRight: 'auto' }}>
                     <button 
@@ -1625,8 +1703,13 @@ export const POS: React.FC = () => {
                     >
                       +
                     </button>
-                    <span style={{ fontSize: '11px', fontWeight: 'bold', minWidth: '56px', textAlign: 'left' }}>
-                      {formatMoney(item.price * item.quantity)}
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', minWidth: '56px', textAlign: 'left', display: 'flex', flexDirection: 'column' }}>
+                      {lineDiscountPercent > 0 && (
+                        <span style={{ fontSize: '9px', fontWeight: 'normal', color: 'var(--color-text-secondary)', textDecoration: 'line-through' }}>
+                          {formatMoney(item.price * item.quantity)}
+                        </span>
+                      )}
+                      {formatMoney(netUnitPrice * item.quantity)}
                     </span>
                   </div>
                 </div>
@@ -1877,36 +1960,93 @@ export const POS: React.FC = () => {
             </Button>
           </div>
 
-          {/* Discount Field — max 10% */}
+          {/* Bill discount — percent or EGP amount; capped at 10% except for the owner */}
           {canApplyDiscount && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
-                  خصم الكاشير (%)
+                  خصم على الفاتورة
                 </span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={10}
-                  step="0.5"
-                  value={discountPercent || ''}
-                  onChange={(e) => {
-                    const raw = parseFloat(e.target.value);
-                    if (!Number.isFinite(raw) || raw < 0) {
-                      setDiscountPercent(0);
-                      return;
-                    }
-                    if (raw > 10) {
-                      addNotification('WARNINGS', 'حد الخصم', 'نسبة خصم الكاشير لا تتجاوز 10% من إجمالي الفاتورة.');
-                      setDiscountPercent(10);
-                      return;
-                    }
-                    setDiscountPercent(raw);
-                  }}
-                  placeholder="0"
-                  style={{ padding: '4px var(--spacing-2)', maxWidth: '100px' }}
-                />
-                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>حد أقصى 10%</span>
+                <div style={{ display: 'flex', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0 }}>
+                  {(['PERCENT', 'AMOUNT'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setDiscountMode(mode)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        border: 'none',
+                        cursor: 'pointer',
+                        backgroundColor: discountMode === mode ? 'var(--color-primary)' : 'var(--color-surface)',
+                        color: discountMode === mode ? '#fff' : 'var(--color-text-secondary)',
+                      }}
+                    >
+                      {mode === 'PERCENT' ? '%' : 'ج.م'}
+                    </button>
+                  ))}
+                </div>
+                {discountMode === 'PERCENT' ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={isOwner ? 100 : MAX_POS_DISCOUNT_PERCENT}
+                    step="0.5"
+                    value={discountPercent || ''}
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value);
+                      if (!Number.isFinite(raw) || raw < 0) {
+                        setDiscountPercent(0);
+                        return;
+                      }
+                      const cap = isOwner ? 100 : MAX_POS_DISCOUNT_PERCENT;
+                      if (raw > cap) {
+                        addNotification('WARNINGS', 'حد الخصم', `نسبة الخصم لا تتجاوز ${cap}% من إجمالي الفاتورة.`);
+                        setDiscountPercent(cap);
+                        return;
+                      }
+                      setDiscountPercent(raw);
+                    }}
+                    placeholder="0"
+                    style={{ padding: '4px var(--spacing-2)', maxWidth: '100px' }}
+                  />
+                ) : (
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    value={discountAmount || ''}
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value);
+                      if (!Number.isFinite(raw) || raw < 0) {
+                        setDiscountAmount(0);
+                        return;
+                      }
+                      if (raw > totals.maxManualDiscount) {
+                        addNotification(
+                          'WARNINGS',
+                          'حد الخصم',
+                          isOwner
+                            ? 'الخصم لا يتجاوز إجمالي الفاتورة.'
+                            : `خصم الكاشير لا يتجاوز ${MAX_POS_DISCOUNT_PERCENT}% من إجمالي الفاتورة (${formatMoney(totals.maxManualDiscount)}).`
+                        );
+                        setDiscountAmount(totals.maxManualDiscount);
+                        return;
+                      }
+                      setDiscountAmount(raw);
+                    }}
+                    placeholder="0.00"
+                    style={{ padding: '4px var(--spacing-2)', maxWidth: '100px' }}
+                  />
+                )}
+                <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                  {isOwner
+                    ? 'بدون حد أقصى (المالك)'
+                    : discountMode === 'PERCENT'
+                      ? `حد أقصى ${MAX_POS_DISCOUNT_PERCENT}%`
+                      : `حد أقصى ${formatMoney(totals.maxManualDiscount)}`}
+                </span>
               </div>
               {totals.manualDiscount > 0 && (
                 <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>
@@ -2001,6 +2141,18 @@ export const POS: React.FC = () => {
 
           {/* Pricing Summary */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', borderTop: '1px dashed var(--color-border)', paddingTop: 'var(--spacing-2)' }}>
+            {totals.lineDiscount > 0 && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>الإجمالي قبل خصم الأصناف</span>
+                  <span>{formatMoney(totals.subtotal + totals.lineDiscount)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-danger)' }}>
+                  <span>خصم الأصناف</span>
+                  <span>{formatMoney(-totals.lineDiscount)}</span>
+                </div>
+              </>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>المجموع الفرعي</span>
               <span>{formatMoney(totals.subtotal)}</span>
@@ -2848,7 +3000,10 @@ export const POS: React.FC = () => {
           }}>
             <AlertTriangle size={16} />
             <span>
-              السعر المطلوب ({pendingPriceChange ? formatMoney(pendingPriceChange.price) : '—'})
+              {pendingPriceChange?.discountPercent !== undefined
+                ? `خصم ${pendingPriceChange.discountPercent}% يخلي السعر `
+                : 'السعر المطلوب '}
+              ({pendingPriceChange ? formatMoney(pendingPriceChange.netPrice) : '—'})
               أقل من الحد الأدنى المسموح للكاشير (خصم {MAX_POS_PRICE_DISCOUNT_PERCENT}%).
               {pendingPriceChange?.itemName ? ` — ${pendingPriceChange.itemName}` : ''}
             </span>

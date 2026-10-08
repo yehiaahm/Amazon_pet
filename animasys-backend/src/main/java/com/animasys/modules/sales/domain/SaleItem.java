@@ -46,6 +46,14 @@ public class SaleItem {
     @Column(name = "list_price", nullable = false)
     private BigDecimal listPrice;
 
+    /** Per-line discount percent applied at the POS; null when the line had none. */
+    @Column(name = "discount_percent", precision = 5, scale = 2)
+    private BigDecimal discountPercent;
+
+    /** Unit price before the per-line discount; {@link #price} is the net unit price actually charged. */
+    @Column(name = "price_before_discount", precision = 10, scale = 2)
+    private BigDecimal priceBeforeDiscount;
+
     @Column(nullable = false)
     private BigDecimal cost; // Reference cost at purchase line generation
 

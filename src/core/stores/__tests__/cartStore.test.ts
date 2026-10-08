@@ -26,6 +26,7 @@ function baseItem(overrides: TestItemOverrides = {}) {
 describe('cartStore', () => {
   beforeEach(() => {
     useCartStore.getState().clearCart();
+    useCartStore.getState().setDiscountUnlimited(false);
   });
 
   describe('addItem', () => {
@@ -108,6 +109,39 @@ describe('cartStore', () => {
     });
   });
 
+  describe('updateLineDiscount', () => {
+    it('charges the net price after the line discount', () => {
+      useCartStore.getState().addItem(baseItem({ price: 90, listPrice: 100 }));
+      useCartStore.getState().updateLineDiscount('v-1', 'PRODUCT', 10);
+      const totals = useCartStore.getState().getTotals();
+      expect(useCartStore.getState().cartItems[0].discountPercent).toBe(10);
+      expect(totals.subtotal).toBe(81);
+      expect(totals.lineDiscount).toBe(9);
+      expect(totals.total).toBe(81);
+    });
+
+    it('clamps the line discount to 0–100', () => {
+      useCartStore.getState().addItem(baseItem());
+      useCartStore.getState().updateLineDiscount('v-1', 'PRODUCT', 150);
+      expect(useCartStore.getState().cartItems[0].discountPercent).toBe(100);
+      useCartStore.getState().updateLineDiscount('v-1', 'PRODUCT', -5);
+      expect(useCartStore.getState().cartItems[0].discountPercent).toBe(0);
+    });
+
+    it('flags a line whose discounted price falls below the minimum', () => {
+      // listPrice 100 -> floor 80; 30% off lands at 70
+      useCartStore.getState().addItem(baseItem({ price: 100, listPrice: 100 }));
+      useCartStore.getState().updateLineDiscount('v-1', 'PRODUCT', 30);
+      expect(useCartStore.getState().getUnapprovedBelowMinLines()).toHaveLength(1);
+    });
+
+    it('accepts a below-minimum line discount once manager-approved', () => {
+      useCartStore.getState().addItem(baseItem({ price: 100, listPrice: 100 }));
+      useCartStore.getState().updateLineDiscount('v-1', 'PRODUCT', 30, { belowMinApproved: true });
+      expect(useCartStore.getState().getUnapprovedBelowMinLines()).toHaveLength(0);
+    });
+  });
+
   describe('setDiscountPercent', () => {
     it('clamps negative percentages to 0', () => {
       useCartStore.getState().setDiscountPercent(-20);
@@ -117,6 +151,49 @@ describe('cartStore', () => {
     it('clamps percentages above the cap', () => {
       useCartStore.getState().setDiscountPercent(999);
       expect(useCartStore.getState().discountPercent).toBe(MAX_POS_DISCOUNT_PERCENT);
+    });
+
+    it('lets the owner go past the cashier cap', () => {
+      useCartStore.getState().setDiscountUnlimited(true);
+      useCartStore.getState().setDiscountPercent(50);
+      expect(useCartStore.getState().discountPercent).toBe(50);
+    });
+
+    it('re-applies the cap when unlimited discount is switched off', () => {
+      useCartStore.getState().setDiscountUnlimited(true);
+      useCartStore.getState().setDiscountPercent(50);
+      useCartStore.getState().setDiscountUnlimited(false);
+      expect(useCartStore.getState().discountPercent).toBe(MAX_POS_DISCOUNT_PERCENT);
+    });
+  });
+
+  describe('discount in EGP (AMOUNT mode)', () => {
+    it('subtracts a fixed amount from the subtotal', () => {
+      useCartStore.getState().addItem(baseItem({ price: 100 }));
+      useCartStore.getState().setDiscountMode('AMOUNT');
+      useCartStore.getState().setDiscountAmount(7.5);
+      const totals = useCartStore.getState().getTotals();
+      expect(totals.manualDiscount).toBe(7.5);
+      expect(totals.total).toBe(92.5);
+    });
+
+    it('caps a cashier amount at 10% of the subtotal', () => {
+      useCartStore.getState().addItem(baseItem({ price: 100 }));
+      useCartStore.getState().setDiscountMode('AMOUNT');
+      useCartStore.getState().setDiscountAmount(40);
+      const totals = useCartStore.getState().getTotals();
+      expect(totals.maxManualDiscount).toBe(10);
+      expect(totals.manualDiscount).toBe(10);
+    });
+
+    it('lets the owner discount up to the whole subtotal', () => {
+      useCartStore.getState().setDiscountUnlimited(true);
+      useCartStore.getState().addItem(baseItem({ price: 100 }));
+      useCartStore.getState().setDiscountMode('AMOUNT');
+      useCartStore.getState().setDiscountAmount(150);
+      const totals = useCartStore.getState().getTotals();
+      expect(totals.manualDiscount).toBe(100);
+      expect(totals.total).toBe(0);
     });
   });
 
@@ -157,6 +234,8 @@ describe('cartStore', () => {
       const state = useCartStore.getState();
       expect(state.cartItems).toHaveLength(0);
       expect(state.discountPercent).toBe(0);
+      expect(state.discountAmount).toBe(0);
+      expect(state.discountMode).toBe('PERCENT');
       expect(state.loyaltyPercent).toBe(0);
       expect(state.paymentMethod).toBe('CASH');
     });

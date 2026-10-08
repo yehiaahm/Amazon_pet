@@ -599,6 +599,7 @@ export const api = {
       customerId: sale.customerId,
       delivery: sale.delivery ?? false,
       deliveryFee: sale.deliveryFee ?? 0,
+      ...(sale.deliveryAddress ? { deliveryAddress: sale.deliveryAddress } : {}),
       loyaltyRedeem: sale.loyaltyRedeem ?? 0,
       ...(sale.managerPassword ? { managerPassword: sale.managerPassword } : {}),
       ...(sale.managerUsername ? { managerUsername: sale.managerUsername } : {}),
@@ -609,6 +610,7 @@ export const api = {
         quantity: item.quantity,
         price: item.price,
         listPrice: item.listPrice ?? item.price,
+        discountPercent: item.discountPercent ?? 0,
         cost: item.cost ?? 0,
       })),
     };

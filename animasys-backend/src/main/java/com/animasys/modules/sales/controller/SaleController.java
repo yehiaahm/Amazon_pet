@@ -191,6 +191,7 @@ public class SaleController {
                     .quantity(line.getQuantity())
                     .price(line.getPrice())
                     .listPrice(listPrice)
+                    .discountPercent(line.getDiscountPercent())
                     .cost(line.getCost())
                     .build());
         }
