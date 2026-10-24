@@ -101,8 +101,12 @@ function fmtPct(n: number): string {
 }
 
 /**
- * Note lines shown under an item's price: the catalog price when the cashier sold it at a
- * different price, and the per-line discount when one was applied.
+ * Note lines shown under an item's price: the catalog price when the cashier sold it BELOW it,
+ * and the per-line discount when one was applied.
+ *
+ * A catalog price above the charged one is a saving, so the customer sees it. A catalog price
+ * *below* it is never printed: on a raised line the invoice shows the charged price only, with
+ * no "أساسي" note and no delta, because printing both reads to the customer as being overcharged.
  */
 function lineNotes(i: InvoiceLine, opts: { withDelta: boolean }): Array<{ text: string; isDiscount: boolean }> {
   const listPrice = typeof i.listPrice === 'number' ? i.listPrice : i.price;
@@ -112,10 +116,10 @@ function lineNotes(i: InvoiceLine, opts: { withDelta: boolean }): Array<{ text: 
     : i.price;
   const notes: Array<{ text: string; isDiscount: boolean }> = [];
   const delta = priceBeforeDiscount - listPrice;
-  if (Math.abs(delta) > 0.001) {
+  if (delta < -0.001) {
     notes.push({
       text: opts.withDelta
-        ? `أساسي ${fmtNum(listPrice)} (${delta > 0 ? '+' : ''}${delta.toFixed(2)})`
+        ? `أساسي ${fmtNum(listPrice)} (${delta.toFixed(2)})`
         : `أساسي ${fmtNum(listPrice)}`,
       isDiscount: false,
     });
