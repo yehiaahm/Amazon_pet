@@ -39,13 +39,10 @@ import com.animasys.modules.services.domain.GroomingService;
 import com.animasys.modules.services.repository.GroomingServiceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.animasys.core.security.UserPrincipal;
+import com.animasys.core.security.ElevatedApprovalService;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -93,7 +90,7 @@ public class SaleService {
     private final AuditLogRepository auditLogRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
-    private final AuthenticationManager authenticationManager;
+    private final ElevatedApprovalService elevatedApprovalService;
     private final LoyaltyService loyaltyService;
 
     public Sale createSale(String posSessionId, String employeeId, String customerId,
@@ -751,28 +748,10 @@ public class SaleService {
 
     private void requireElevatedApproval(String managerUsername, String managerPassword, String message, String tenantId) {
         if (managerPassword == null || managerPassword.isBlank()) {
+            // No approval was attempted at all: this is the POS prompting for a PIN, not a
+            // rejected guess, so it must not spend one of the approver's throttled attempts.
             throw new BusinessRuleException(message);
         }
-        String username = managerUsername;
-        if (username == null || username.isBlank()) {
-            username = employeeRepository.findByTenantId(tenantId).stream()
-                    .filter(e -> "OWNER".equalsIgnoreCase(e.getRole()) || "MANAGER".equalsIgnoreCase(e.getRole()))
-                    .map(Employee::getUsername)
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessRuleException("لا يوجد مدير متاح في النظام لطلب الموافقة."));
-        }
-        try {
-            Authentication auth = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(username, managerPassword));
-            UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
-            String elevatedRole = principal.getEmployee().getRole();
-            if (elevatedRole == null || !Set.of("OWNER", "MANAGER").contains(elevatedRole.toUpperCase(Locale.ROOT))) {
-                throw new BusinessRuleException("الرمز المدخل ليس لمدير أو مالك معتمد.");
-            }
-        } catch (BusinessRuleException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new BusinessRuleException("رمز المدير غير صحيح.");
-        }
+        elevatedApprovalService.require(managerUsername, managerPassword, tenantId, message);
     }
 }

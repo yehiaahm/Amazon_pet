@@ -2,8 +2,8 @@ package com.animasys.modules.sales.controller;
 
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
+import com.animasys.core.security.ElevatedApprovalService;
 import com.animasys.core.security.SecurityUtils;
-import com.animasys.core.security.UserPrincipal;
 import com.animasys.core.util.BusinessTimeZone;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.sales.domain.Sale;
@@ -22,7 +22,6 @@ import com.animasys.modules.sales.repository.SaleRepository;
 import com.animasys.modules.sales.service.IdempotentCheckoutService;
 import com.animasys.modules.sales.service.SaleQueryService;
 import com.animasys.modules.sales.service.SaleService;
-import com.animasys.modules.iam.repository.EmployeeRepository;
 import com.animasys.modules.sales.repository.SaleItemBatchAllocationRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,9 +30,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -43,7 +39,6 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/v1/sales")
@@ -56,8 +51,7 @@ public class SaleController {
     private final SaleQueryService saleQueryService;
     private final SaleRepository saleRepository;
     private final SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
-    private final AuthenticationManager authenticationManager;
-    private final EmployeeRepository employeeRepository;
+    private final ElevatedApprovalService elevatedApprovalService;
     private final IdempotentCheckoutService idempotentCheckoutService;
 
     @GetMapping
@@ -168,7 +162,8 @@ public class SaleController {
         if ("CASHIER".equals(role)) {
             String managerUsername = body != null ? body.getManagerUsername() : null;
             String managerPassword = body != null ? body.getManagerPassword() : null;
-            requireElevatedApproval(managerUsername, managerPassword, tenantId);
+            elevatedApprovalService.require(managerUsername, managerPassword, tenantId,
+                    "يلزم إدخال رمز المدير لإتمام الإرجاع.");
         }
 
         List<SaleRefundLineRequest> lines = body != null ? body.getLines() : null;
@@ -226,30 +221,4 @@ public class SaleController {
         return today.equals(saleDay);
     }
 
-    private void requireElevatedApproval(String managerUsername, String managerPassword, String tenantId) {
-        if (managerPassword == null || managerPassword.isBlank()) {
-            throw new BusinessRuleException("يلزم إدخال رمز المدير لإتمام الإرجاع.");
-        }
-        String username = managerUsername;
-        if (username == null || username.isBlank()) {
-            username = employeeRepository.findByTenantId(tenantId).stream()
-                    .filter(e -> "OWNER".equalsIgnoreCase(e.getRole()) || "MANAGER".equalsIgnoreCase(e.getRole()))
-                    .map(Employee::getUsername)
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessRuleException("لا يوجد مدير متاح في النظام لطلب الموافقة."));
-        }
-        try {
-            Authentication auth = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(username, managerPassword));
-            UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
-            String elevatedRole = principal.getEmployee().getRole();
-            if (elevatedRole == null || !Set.of("OWNER", "MANAGER").contains(elevatedRole.toUpperCase(Locale.ROOT))) {
-                throw new BusinessRuleException("الرمز المدخل ليس لمدير أو مالك معتمد.");
-            }
-        } catch (BusinessRuleException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new BusinessRuleException("رمز المدير غير صحيح.");
-        }
-    }
 }

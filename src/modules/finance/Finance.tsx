@@ -37,6 +37,7 @@ import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
 import DataTable from '../../components/ui/DataTable';
 import { formatMoney } from '../../core/utils/money';
+import { escapeHtml } from '../../core/utils/escapeHtml';
 import AccountsPayablePanel from './AccountsPayablePanel';
 import Can from '../../components/ui/Can';
 import { PERMISSIONS } from '../../core/permissions/permissions';
@@ -343,8 +344,8 @@ export const Finance: React.FC = () => {
           <td style="color: ${entry.type === 'IN' ? '#10B981' : '#EF4444'}; font-weight: bold;">
             ${entry.type === 'IN' ? '📥 مقبوضات (دخل)' : '📤 مدفوعات (خرج)'}
           </td>
-          <td>${entry.category}</td>
-          <td>${entry.description}</td>
+          <td>${escapeHtml(entry.category)}</td>
+          <td>${escapeHtml(entry.description)}</td>
           <td>${
             entry.paymentMethod === 'CASH'
               ? 'درج النقدية'

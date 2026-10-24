@@ -44,6 +44,7 @@ const JRE_DIR = path.join(BIN_DIR, 'jre');
 const BACKEND_JAR = path.join(BIN_DIR, 'animasys-backend-1.0.0.jar');
 
 const MYSQLD_EXE = path.join(MYSQL_DIR, 'bin', 'mysqld.exe');
+const MYSQL_EXE = path.join(MYSQL_DIR, 'bin', 'mysql.exe');
 const MYSQLADMIN_EXE = path.join(MYSQL_DIR, 'bin', 'mysqladmin.exe');
 const MYSQLDUMP_EXE = path.join(MYSQL_DIR, 'bin', 'mysqldump.exe');
 const JAVA_EXE = path.join(JRE_DIR, 'bin', 'javaw.exe');
@@ -243,12 +244,46 @@ async function startMySQL() {
   if (!isInitialized) {
     logElectron('Securing MySQL root account...');
     try {
-      spawnSync(MYSQLADMIN_EXE, ['-u', 'root', '--port=3308', 'password', appConfig.dbPassword], { stdio: 'ignore' });
+      secureMysqlRootAccount();
       logElectron('MySQL root password configured securely.');
     } catch (err) {
       logElectron(`[ERROR] Failed to secure MySQL user: ${err.message}`);
     }
   }
+}
+
+/**
+ * Sets the root password on a data directory that was just --initialize-insecure'd.
+ *
+ * Prefers the mysql client with the statement on stdin: `mysqladmin ... password <new>` can
+ * only take the new password as a command-line argument, where any local user can read it
+ * while the call runs. Falls back to mysqladmin when the client is not in the bundle — a
+ * password exposed for a few milliseconds at first launch is still far better than an
+ * install whose root account never gets a password at all.
+ *
+ * Inlining the literal is safe here: loadOrGenerateConfig() derives dbPassword from
+ * crypto.randomBytes and strips it to [A-Za-z0-9], so it cannot carry a quote. The guard
+ * below keeps that assumption honest if the generator is ever changed.
+ */
+function secureMysqlRootAccount() {
+  const password = appConfig.dbPassword;
+  if (!/^[A-Za-z0-9]+$/.test(password)) {
+    throw new Error('Generated database password has an unexpected shape; refusing to inline it');
+  }
+
+  if (fs.existsSync(MYSQL_EXE)) {
+    const result = spawnSync(MYSQL_EXE, ['-u', 'root', '--port=3308', '--protocol=TCP'], {
+      input: `ALTER USER 'root'@'localhost' IDENTIFIED BY '${password}'; FLUSH PRIVILEGES;\n`,
+      stdio: ['pipe', 'ignore', 'pipe']
+    });
+    if (result.status === 0) {
+      return;
+    }
+    const detail = result.stderr ? String(result.stderr).trim() : `exit ${result.status}`;
+    logElectron(`[WARN] mysql client could not set the root password (${detail}); falling back to mysqladmin.`);
+  }
+
+  spawnSync(MYSQLADMIN_EXE, ['-u', 'root', '--port=3308', 'password', password], { stdio: 'ignore' });
 }
 
 async function startBackend() {
@@ -266,10 +301,20 @@ async function startBackend() {
   // Keep default employee PINs aligned with DatabaseSeeder (e.g. 2026) on every desktop launch
   const shouldSyncDefaultPins = true;
 
+  // The database password is passed through the environment, never as a -D argument.
+  // A process's command line is readable by any local user for the whole life of the
+  // process (tasklist /v, WMI Win32_Process.CommandLine, Process Explorer), and this
+  // one runs for as long as the app is open — so -Dspring.datasource.password left the
+  // password on display all day. Reading another process's environment block needs
+  // PROCESS_VM_READ, which an ordinary user does not have for someone else's process.
+  // (config.json still holds the password at rest; that copy is unchanged.)
   const javaArgs = [
-    `-Dspring.datasource.password=${appConfig.dbPassword}`,
     `-Dspring.datasource.url=jdbc:mysql://localhost:3308/animasys_erp?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC`,
     `-Dapp.seed-demo-data=true`,
+    // -D system properties outrank environment variables in Spring Boot, so this is the
+    // value that actually applies. It previously sat here as true while the environment
+    // below said SYNC_DEFAULT_PINS=false — the env var was dead and misleading, so it is
+    // gone. Behaviour is unchanged: still true, as the winning property always was.
     `-Dapp.sync-default-pins=${shouldSyncDefaultPins}`,
     '-jar',
     BACKEND_JAR
@@ -278,8 +323,13 @@ async function startBackend() {
   const backendEnv = {
     ...process.env,
     JWT_SECRET: appConfig.jwtSecret,
+    SPRING_DATASOURCE_PASSWORD: appConfig.dbPassword,
     SEED_DEMO_DATA: 'true',
-    SYNC_DEFAULT_PINS: 'false'
+    // A fresh install writes its generated login PINs here rather than into backend.log,
+    // which this launcher appends to forever. Pinned to the app data folder because the
+    // backend's working directory is wherever Electron was started from, which under
+    // Program Files is not reliably writable.
+    APP_FIRST_RUN_CREDENTIALS_FILE: path.join(APP_DATA_DIR, 'first-run-credentials.txt')
   };
 
   javaProcess = spawn(IS_PROD ? JAVA_EXE : 'java', javaArgs, {
@@ -333,7 +383,11 @@ function stopProcesses() {
     if (mysqlProcess) {
       logElectron('Sending safe shutdown to MySQL Server...');
       try {
-        const shutdownProcess = spawn(MYSQLADMIN_EXE, ['-u', 'root', '--port=3308', `-p${appConfig.dbPassword}`, 'shutdown']);
+        // MYSQL_PWD rather than -p<password>, same reason as the backup dump: a command-line
+        // argument is readable by any local process for as long as the call runs.
+        const shutdownProcess = spawn(MYSQLADMIN_EXE, ['-u', 'root', '--port=3308', 'shutdown'], {
+          env: { ...process.env, MYSQL_PWD: appConfig.dbPassword }
+        });
         shutdownProcess.on('close', (code) => {
           if (code !== 0) {
             logElectron(`[WARN] Graceful MySQL shutdown failed with code ${code}. Force-killing.`);
@@ -373,12 +427,15 @@ function runBackup() {
   
   try {
     const backupFileStream = fs.createWriteStream(backupPath);
+    // MYSQL_PWD instead of -p<password>: this runs on a daily timer, and for those seconds
+    // a -p argument put the database password in a command line any local user could read.
     const dumpProcess = spawn(MYSQLDUMP_EXE, [
       '-u', 'root',
       '--port=3308',
-      `-p${appConfig.dbPassword}`,
       '--databases', 'animasys_erp'
-    ]);
+    ], {
+      env: { ...process.env, MYSQL_PWD: appConfig.dbPassword }
+    });
     
     dumpProcess.stdout.pipe(backupFileStream);
     
@@ -423,14 +480,57 @@ function cleanOldBackups() {
 }
 
 // ─── OFFLINE LICENSING VALIDATION ───────────────────────────────────────────
+/**
+ * Identifies this machine for licence binding, or null if it cannot be identified.
+ *
+ * Returning null matters: this used to fall back to the constant
+ * 'FALLBACK-ANIMAL-UUID-123456' whenever the lookup failed, which made the licence key
+ * derived from it identical on every machine where it failed — so one customer's key
+ * unlocked all of them, and the constant was sitting in the source for anyone to derive
+ * keys from. Licensing now fails closed, the same way a missing license.secret already did.
+ *
+ * Two sources are tried before giving up, so a single flaky WMI/CIM call does not lock a
+ * paying customer out: the SMBIOS UUID, then the registry's MachineGuid.
+ */
 function getMachineUUID() {
-  try {
-    const cmd = 'powershell -Command "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID"';
-    return execSync(cmd).toString().trim();
-  } catch (e) {
-    logElectron(`Could not retrieve UUID: ${e.message}. Using fallback.`);
-    return 'FALLBACK-ANIMAL-UUID-123456';
+  const sources = [
+    {
+      name: 'SMBIOS UUID',
+      run: () => execSync(
+        'powershell -NoProfile -Command "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID"',
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      ).toString().trim()
+    },
+    {
+      name: 'registry MachineGuid',
+      run: () => {
+        const out = execSync(
+          'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+          { stdio: ['ignore', 'pipe', 'pipe'] }
+        ).toString();
+        const match = out.match(/MachineGuid\s+REG_SZ\s+(\S+)/i);
+        return match ? match[1].trim() : '';
+      }
+    }
+  ];
+
+  for (const source of sources) {
+    try {
+      const value = source.run();
+      // A blank or placeholder-looking value is no better than a failure: some OEMs ship
+      // all-zero or all-F SMBIOS UUIDs, which would again be shared across machines.
+      if (value && !/^[0-9A-Fa-f-]{0,8}$/.test(value) && !/^[0F-]+$/i.test(value)) {
+        return value;
+      }
+      logElectron(`[WARN] ${source.name} returned an unusable machine id; trying the next source.`);
+    } catch (e) {
+      logElectron(`[WARN] Could not read ${source.name}: ${e.message}`);
+    }
   }
+
+  logElectron('[ERROR] No usable machine identifier available — licence activation cannot proceed. '
+    + 'Activation will be refused rather than falling back to a shared identifier.');
+  return null;
 }
 
 function loadLicenseSecret() {
@@ -456,6 +556,11 @@ function verifyLicenseKey(key) {
     return false;
   }
   const uuid = getMachineUUID();
+  if (!uuid) {
+    // Unidentifiable machine: there is no key that is correct only for *this* machine, so
+    // accepting anything here would be accepting it everywhere.
+    return false;
+  }
   const validKey = generateLicenseKey(uuid, secret);
   return key === validKey;
 }
@@ -470,8 +575,9 @@ function createSplash() {
     alwaysOnTop: true,
     resizable: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      preload: path.join(__dirname, 'splash-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
     }
   });
 
@@ -606,6 +712,8 @@ ipcMain.handle('trigger-backup', () => {
   return 'Backup Initiated';
 });
 ipcMain.handle('get-license-status', () => {
+  // null when the machine cannot be identified — the activation screen shows that as an
+  // error rather than printing a shared placeholder id the customer would read out to us.
   return {
     registered: appConfig.registered,
     uuid: getMachineUUID()
@@ -681,7 +789,13 @@ ipcMain.handle('save-invoice-pdf', async (event, { html, fileName }) => {
   try {
     fs.writeFileSync(tmpPath, String(html || ''), 'utf8');
 
-    pdfWindow = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+    // Isolation stated explicitly rather than left to Electron's defaults: this window loads
+    // invoice markup handed over from the renderer, which is the least trusted HTML the app
+    // renders, so it should not quietly inherit whatever a future Electron version defaults to.
+    pdfWindow = new BrowserWindow({
+      show: false,
+      webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false }
+    });
     await pdfWindow.loadFile(tmpPath);
 
     const pdfBuffer = await pdfWindow.webContents.printToPDF({
@@ -730,7 +844,8 @@ ipcMain.handle('capture-invoice-image', async (event, { html, fileName }) => {
       show: false,
       width: 900,
       height: 1200,
-      webPreferences: { offscreen: true },
+      // Same reasoning as the PDF window above.
+      webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false },
     });
     await captureWindow.loadFile(tmpHtmlPath);
 

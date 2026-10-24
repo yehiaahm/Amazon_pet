@@ -2,6 +2,7 @@ package com.animasys.modules.sales.service;
 
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.exception.ResourceNotFoundException;
+import com.animasys.modules.finance.repository.CashDepositRepository;
 import com.animasys.modules.finance.repository.DailyClosingRepository;
 import com.animasys.modules.finance.repository.ExpenseRepository;
 import com.animasys.modules.iam.domain.Branch;
@@ -41,6 +42,9 @@ class POSSessionServiceTest {
     @Mock private SalePaymentRepository salePaymentRepository;
     @Mock private DailyClosingRepository dailyClosingRepository;
     @Mock private ExpenseRepository expenseRepository;
+    // Required by POSSessionService.closeSession, which reads cash deposits right beside the
+    // expenses above. It was missing, so @InjectMocks left the field null and closeSession NPE'd.
+    @Mock private CashDepositRepository cashDepositRepository;
 
     @InjectMocks private POSSessionService posSessionService;
 

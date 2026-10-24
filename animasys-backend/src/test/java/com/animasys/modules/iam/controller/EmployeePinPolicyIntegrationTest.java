@@ -96,6 +96,7 @@ class EmployeePinPolicyIntegrationTest extends IntegrationTestBase {
         authenticate(owner);
         EmployeeController.PasswordChangeRequest request = new EmployeeController.PasswordChangeRequest();
         request.setNewPassword("5678");
+        request.setCurrentPassword("1234");
 
         employeeController.changePassword(owner.getId(), request);
 
@@ -109,6 +110,7 @@ class EmployeePinPolicyIntegrationTest extends IntegrationTestBase {
         authenticate(owner);
         EmployeeController.PasswordChangeRequest request = new EmployeeController.PasswordChangeRequest();
         request.setNewPassword("0123");
+        request.setCurrentPassword("1234");
 
         employeeController.changePassword(owner.getId(), request);
 
@@ -139,6 +141,7 @@ class EmployeePinPolicyIntegrationTest extends IntegrationTestBase {
         authenticate(owner);
         EmployeeController.PasswordChangeRequest request = new EmployeeController.PasswordChangeRequest();
         request.setNewPassword("5678");
+        request.setCurrentPassword("1234");
         employeeController.changePassword(owner.getId(), request);
 
         mockMvc.perform(post("/auth/pin-login")

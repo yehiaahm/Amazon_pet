@@ -36,6 +36,11 @@ open with a SQL client. The result is a live shop with nobody able to log in.
 
 * It is a **startup-only** path. No HTTP endpoint is added, so there is nothing on the network
   an attacker can reach — reaching it requires already controlling the deployment's environment.
+  That argument only holds while `app.owner-pin-reset` defaults to **empty** in
+  `application.yml`. It was once committed as `${APP_OWNER_PIN_RESET:2026}` to recover a
+  locked-out deployment; until that was reverted, every fresh install silently set the owner's
+  PIN to 2026 — overwriting the random PIN seeded moments earlier — and `/auth/pin-login` needs
+  no username to use it. Never give this property a non-empty default.
 * Each distinct value is applied **exactly once**. The applied value's SHA-256 is stored in
   `admin_pin_reset_marker` (migration `V55`), and later boots skip it:
 

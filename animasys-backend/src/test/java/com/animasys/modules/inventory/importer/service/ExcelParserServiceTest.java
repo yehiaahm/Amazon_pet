@@ -1,5 +1,6 @@
 package com.animasys.modules.inventory.importer.service;
 
+import com.animasys.core.exception.BusinessRuleException;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -196,6 +197,53 @@ class ExcelParserServiceTest {
 
         assertEquals(List.of("الباركود", "اسم المنتج", "الكمية"), parsed.headers());
         assertEquals("دراي فود قطط", parsed.rows().get(0).get("اسم المنتج"));
+    }
+
+    // ─── Container signature ──────────────────────────────────────────────────
+    // detectFileType() trusts the filename, so anything renamed to .xlsx used to be handed
+    // straight to POI's inflater. Content that is not a zip or an OLE2 document cannot be a
+    // workbook, and checking that first keeps a hostile archive away from the inflater.
+
+    @Test
+    void rejectsANonSpreadsheetRenamedToXlsx() {
+        byte[] notASpreadsheet = "<html><body>definitely not a workbook</body></html>"
+                .getBytes(StandardCharsets.UTF_8);
+
+        BusinessRuleException thrown = assertThrows(BusinessRuleException.class, () ->
+                parser.parse(new MockMultipartFile("file", "stock.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        notASpreadsheet)));
+
+        assertTrue(thrown.getMessage().contains("Excel"), thrown.getMessage());
+    }
+
+    @Test
+    void rejectsAnEmptyFileRenamedToXlsx() {
+        assertThrows(BusinessRuleException.class, () ->
+                parser.parse(new MockMultipartFile("file", "stock.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        new byte[0])));
+    }
+
+    /**
+     * A legacy .xls is an OLE2 document, not a zip, and detectFileType() routes it down the
+     * same path — so the signature check has to accept it or every .xls upload that works
+     * today would start being refused.
+     */
+    @Test
+    void acceptsTheOle2SignatureOfALegacyXls() {
+        byte[] ole2Header = {
+                (byte) 0xD0, (byte) 0xCF, (byte) 0x11, (byte) 0xE0,
+                (byte) 0xA1, (byte) 0xB1, (byte) 0x1A, (byte) 0xE1
+        };
+
+        BusinessRuleException thrown = assertThrows(BusinessRuleException.class, () ->
+                parser.parse(new MockMultipartFile("file", "stock.xls",
+                        "application/vnd.ms-excel", ole2Header)));
+
+        // It gets past the signature gate and fails later as a truncated workbook, which is
+        // what proves the gate let it through rather than rejecting the format outright.
+        assertTrue(thrown.getMessage().contains("تالف"), thrown.getMessage());
     }
 
     @SafeVarargs

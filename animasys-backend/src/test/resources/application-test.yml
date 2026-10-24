@@ -17,6 +17,10 @@ app:
   allow-h2-fallback: true
   seed-demo-data: false
   sync-default-pins: false
+  # DatabaseSeeder is a CommandLineRunner, so it runs in @SpringBootTest too and seeds the
+  # in-memory database — which means it writes its generated PINs somewhere. Keep that under
+  # target/ so a test run never drops a credentials file into the source tree.
+  first-run-credentials-file: ./target/test-first-run-credentials.txt
   jwt:
     secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
     expiration-ms: 86400000

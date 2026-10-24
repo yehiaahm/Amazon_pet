@@ -1027,7 +1027,8 @@ export function useDeleteEmployee() {
 export function useChangePassword() {
   const addNotification = useUIStore(s => s.addNotification);
   return useMutation({
-    mutationFn: (args: { id: string; newPassword: string }) => api.changePassword(args.id, args.newPassword),
+    mutationFn: (args: { id: string; newPassword: string; currentPassword?: string }) =>
+      api.changePassword(args.id, args.newPassword, args.currentPassword),
     onSuccess: () => {
       addNotification('TASKS', 'تم تغيير كلمة المرور', 'تم تحديث كلمة مرور الموظف بنجاح.');
     }

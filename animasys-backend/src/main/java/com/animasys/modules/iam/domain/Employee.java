@@ -43,4 +43,18 @@ public class Employee {
 
     @Builder.Default
     private boolean active = true;
+
+    /**
+     * Revocation counter for already-issued JWTs. Each token carries the value that was
+     * current when it was minted; {@code JwtAuthenticationFilter} refuses any token whose
+     * value no longer matches, so incrementing this invalidates every token outstanding for
+     * this employee. Bumped on logout and on any PIN change, which is what makes those
+     * operations actually end live sessions instead of only clearing the browser's copy.
+     *
+     * Not serialised — internal, and it would change the employee JSON the SPA consumes.
+     */
+    @JsonIgnore
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private int tokenVersion = 0;
 }

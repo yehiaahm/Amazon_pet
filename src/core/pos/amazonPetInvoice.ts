@@ -3,6 +3,8 @@
  * Matches the branded invoice design used at the shop.
  */
 
+import { escapeHtml } from '../utils/escapeHtml';
+
 export type InvoiceLine = {
   name: string;
   quantity: number;
@@ -84,13 +86,12 @@ const SOCIAL_ICONS = {
   whatsapp: `<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#25D366"/><path d="M12 6.2a5.8 5.8 0 0 0-4.94 8.83L6.2 17.8l2.86-.83A5.8 5.8 0 1 0 12 6.2Z" fill="none" stroke="#fff" stroke-width="0"/><path d="M12 6.7a5.3 5.3 0 0 0-4.5 8.1l.16.26-.62 2.24 2.3-.6.25.15A5.3 5.3 0 1 0 12 6.7Zm3.1 7.4c-.13.36-.75.7-1.03.74-.27.04-.6.06-.97-.06a8.6 8.6 0 0 1-1.98-.87c-1.55-.9-2.55-2.4-2.63-2.5-.08-.1-.63-.84-.63-1.6s.4-1.13.55-1.28c.14-.15.3-.19.4-.19h.3c.1 0 .23-.02.36.28.13.31.44 1.06.48 1.14.04.08.06.17.01.27-.05.1-.08.16-.16.25l-.24.28c-.08.08-.16.17-.07.33.09.16.4.68.87 1.1.6.55 1.1.72 1.27.8.16.08.26.07.36-.04.1-.11.4-.47.51-.63.11-.16.22-.13.36-.08.14.05.9.43 1.06.5.16.08.27.12.31.19.04.07.04.4-.09.76Z" fill="#fff"/></svg>`,
 };
 
-function esc(s: string): string {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+/**
+ * Local alias — this file interpolates it in dozens of places. It used to be a private
+ * copy of the same four replacements, which is how two other print templates ended up
+ * with no escaping at all; the shared helper is now the single definition.
+ */
+const esc = escapeHtml;
 
 function fmtNum(n: number): string {
   return (Number(n) || 0).toFixed(2);

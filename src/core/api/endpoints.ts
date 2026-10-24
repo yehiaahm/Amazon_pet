@@ -1182,10 +1182,78 @@ export const api = {
     });
   },
 
-  async changePassword(id: string, newPassword: string): Promise<void> {
-    await apiFetch<void>(`/v1/employees/${encodeURIComponent(id)}/password`, {
-      method: 'PUT',
-      body: JSON.stringify({ newPassword }),
+  /**
+   * `currentPassword` is required by the API whenever the target is your own account.
+   *
+   * A PIN change revokes every token issued for that account beforehand — including the one
+   * making this call when you are changing your own PIN — so the response carries a
+   * replacement token that has to replace the stored one, or the very next request 401s.
+   */
+  async changePassword(id: string, newPassword: string, currentPassword?: string): Promise<void> {
+    const result = await apiFetch<{ token?: string | null }>(
+      `/v1/employees/${encodeURIComponent(id)}/password`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          newPassword,
+          ...(currentPassword ? { currentPassword } : {}),
+        }),
+      }
+    );
+    if (result?.token) {
+      localStorage.setItem('token', result.token);
+    }
+  },
+
+  /**
+   * Renders a variant's barcode through our own backend and returns it as a `data:` URL.
+   *
+   * The label modal used to point an <img> straight at a public third-party renderer
+   * (bwipjs-api.metafloor.com), which sent every product's barcode to someone else's server,
+   * made label printing depend on that server being up and on the till having internet, and
+   * was blocked by the app's own CSP (`img-src 'self' data:`) anyway. The backend already
+   * generates barcodes locally with zxing, so this just uses that.
+   *
+   * Returned as a data URL rather than a URL because the endpoint needs the Authorization
+   * header, which an <img src> cannot send — and a data URL is what the CSP permits.
+   */
+  async getBarcodeImageDataUrl(variantId: string, width = 300, height = 100): Promise<string> {
+    const token = localStorage.getItem('token');
+    const res = await fetchWithTimeout(
+      `${getBackendUrl()}/v1/inventory/variants/${encodeURIComponent(variantId)}` +
+        `/barcode/image?width=${width}&height=${height}`,
+      {
+        headers: {
+          'X-Request-Id': generateRequestId(),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      }
+    );
+    if (!res.ok) {
+      throw new Error(`تعذر توليد صورة الباركود (HTTP ${res.status})`);
+    }
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('تعذر قراءة صورة الباركود'));
+      reader.readAsDataURL(blob);
+    });
+  },
+
+  /**
+   * Revokes every token already issued for the signed-in employee. Best-effort by design:
+   * the local session is cleared either way (see core/auth/logout.ts), so a failure here
+   * must not leave the user stuck on a screen they asked to leave.
+   *
+   * Takes the token explicitly because logout clears localStorage before calling this, and
+   * depending on whether `getHeaders()` happens to run before the first `await` would be a
+   * silent way to lose server-side revocation later.
+   */
+  async revokeMyTokens(token?: string): Promise<void> {
+    await apiFetch<void>('/v1/me/logout', {
+      method: 'POST',
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     });
   },
 

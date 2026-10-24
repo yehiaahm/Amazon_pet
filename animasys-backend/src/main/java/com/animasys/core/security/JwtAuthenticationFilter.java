@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import com.animasys.core.config.RequestCorrelationFilter;
 import com.animasys.modules.iam.domain.Employee;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
+import java.util.Optional;
 
 @Component
 @RequiredArgsConstructor
@@ -44,9 +46,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         try {
             String jwt = getJwtFromRequest(request);
+            Optional<Claims> claims = StringUtils.hasText(jwt)
+                    ? tokenProvider.parseClaims(jwt)
+                    : Optional.empty();
 
-            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
-                String username = tokenProvider.getUsernameFromJwt(jwt);
+            if (claims.isPresent()) {
+                String username = claims.get().getSubject();
 
                 UserDetails userDetails = userPrincipalService.loadUserByUsername(username);
 
@@ -55,6 +60,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     // employee takes effect immediately instead of waiting for their
                     // already-issued JWT to expire naturally.
                     log.warn("JWT rejected for deactivated account [{}]: {}",
+                            MDC.get(RequestCorrelationFilter.MDC_REQUEST_ID), username);
+                } else if (isRevoked(claims.get(), userDetails)) {
+                    log.warn("JWT rejected as revoked [{}]: {}",
                             MDC.get(RequestCorrelationFilter.MDC_REQUEST_ID), username);
                 } else {
                     UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
@@ -84,6 +92,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             MDC.remove("tenantId");
             MDC.remove("employeeId");
         }
+    }
+
+    /**
+     * Refuses a token whose revocation counter no longer matches the employee's, which is how
+     * logout and PIN changes end sessions that are already running (see Employee.tokenVersion).
+     *
+     * A token predating this feature carries no counter; it is read as version 0, so such
+     * tokens keep working until the account's first revocation bumps it past 0. That only
+     * matters for the tokens already in circulation at deploy time, and they expire within a
+     * day anyway.
+     */
+    private static boolean isRevoked(Claims claims, UserDetails userDetails) {
+        if (!(userDetails instanceof UserPrincipal principal) || principal.getEmployee() == null) {
+            return false;
+        }
+        Integer tokenVersion = claims.get(JwtTokenProvider.TOKEN_VERSION_CLAIM, Integer.class);
+        int presented = tokenVersion != null ? tokenVersion : 0;
+        return presented != principal.getEmployee().getTokenVersion();
     }
 
     private String getJwtFromRequest(HttpServletRequest request) {

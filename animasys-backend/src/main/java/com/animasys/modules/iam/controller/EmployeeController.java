@@ -2,12 +2,16 @@ package com.animasys.modules.iam.controller;
 
 import com.animasys.core.exception.BusinessRuleException;
 import com.animasys.core.response.ApiResponseWrapper;
+import com.animasys.core.security.JwtTokenProvider;
+import com.animasys.core.security.LoginRateLimiter;
 import com.animasys.core.security.PinPolicy;
+import com.animasys.core.security.RoleHierarchy;
 import com.animasys.core.security.SecurityUtils;
 import com.animasys.modules.iam.domain.Employee;
 import com.animasys.modules.iam.domain.Tenant;
 import com.animasys.modules.iam.domain.Branch;
 import com.animasys.modules.iam.repository.EmployeeRepository;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -27,6 +31,8 @@ public class EmployeeController {
 
     private final EmployeeRepository employeeRepository;
     private final PasswordEncoder passwordEncoder;
+    private final LoginRateLimiter loginRateLimiter;
+    private final JwtTokenProvider tokenProvider;
 
     @GetMapping
     @PreAuthorize("@authz.has('employees.view')")
@@ -64,6 +70,13 @@ public class EmployeeController {
         }
 
         Employee current = SecurityUtils.requireEmployee();
+
+        // Same bound as updateEmployee: employees.add must not be a way to mint an account
+        // more privileged than your own and then simply log in as it.
+        if (!RoleHierarchy.canManage(current.getRole(), request.getRole().trim())) {
+            throw new BusinessRuleException("لا يمكنك إنشاء حساب بصلاحية أعلى من صلاحيتك");
+        }
+
         Tenant tenant = current.getTenant();
         Branch branch = current.getBranch();
 
@@ -128,6 +141,8 @@ public class EmployeeController {
             throw new BusinessRuleException("الموظف غير موجود في نفس المؤسسة");
         }
 
+        guardRoleBoundary(current, target, request.getRole());
+
         if (request.getFullName() != null && !request.getFullName().trim().isEmpty()) {
             target.setFullName(request.getFullName().trim());
         }
@@ -147,7 +162,7 @@ public class EmployeeController {
 
     @PutMapping("/{id}/password")
     @PreAuthorize("isAuthenticated() and (#id == authentication.principal.employee.id or @authz.has('employees.edit'))")
-    public ResponseEntity<ApiResponseWrapper<Void>> changePassword(
+    public ResponseEntity<ApiResponseWrapper<PasswordChangeResult>> changePassword(
             @PathVariable String id,
             @RequestBody PasswordChangeRequest request) {
         
@@ -172,10 +187,75 @@ public class EmployeeController {
             throw new BusinessRuleException("الموظف غير موجود في نفس المؤسسة");
         }
 
+        if (isSelf) {
+            requireCurrentPin(current, request.getCurrentPassword());
+        } else if (!RoleHierarchy.canManage(current.getRole(), target.getRole())) {
+            // "OWNER or MANAGER" on its own let a MANAGER overwrite the owner's PIN and
+            // then log in as the owner — a full takeover from one rung below.
+            throw new BusinessRuleException("لا يمكنك تغيير رمز دخول حساب بصلاحية أعلى من صلاحيتك");
+        }
+
         target.setPasswordHash(passwordEncoder.encode(request.getNewPassword().trim()));
+        // A PIN change must end the sessions opened with the old PIN. Otherwise an admin
+        // resetting a compromised account does not actually evict whoever is inside it, and
+        // a token lifted by XSS keeps working for the rest of its 24h life.
+        target.setTokenVersion(target.getTokenVersion() + 1);
         employeeRepository.save(target);
 
-        return ResponseEntity.ok(ApiResponseWrapper.success(null, "تم تغيير كلمة المرور بنجاح"));
+        // Changing your own PIN revokes the token you are holding too, so hand back a
+        // replacement — otherwise the caller is signed out by their own successful request.
+        // Minted from `target`, which already carries the new counter; the principal in the
+        // SecurityContext still has the old one and would produce a dead token.
+        // An admin resetting someone else's PIN gets no token; that eviction is the point.
+        String replacementToken = isSelf ? tokenProvider.generateToken(target) : null;
+
+        return ResponseEntity.ok(ApiResponseWrapper.success(
+                new PasswordChangeResult(replacementToken), "تم تغيير كلمة المرور بنجاح"));
+    }
+
+    /**
+     * Changing your own PIN has to re-prove you know it. The JWT lives in localStorage, so
+     * any XSS can reach it; without this check a stolen token converts into permanent access
+     * by just setting a new PIN, and the real owner's next login failure is the first signal.
+     * Throttled because this is also a verification oracle against the caller's own hash.
+     */
+    private void requireCurrentPin(Employee current, String suppliedCurrentPin) {
+        if (suppliedCurrentPin == null || suppliedCurrentPin.isBlank()) {
+            throw new BusinessRuleException("يجب إدخال رمز الدخول الحالي لتغيير رمزك");
+        }
+        String rateLimitKey = "self-pin-change:" + current.getId();
+        loginRateLimiter.checkAllowed(rateLimitKey);
+        if (!passwordEncoder.matches(suppliedCurrentPin.trim(), current.getPasswordHash())) {
+            loginRateLimiter.recordFailure(rateLimitKey);
+            throw new BusinessRuleException("رمز الدخول الحالي غير صحيح");
+        }
+        loginRateLimiter.recordSuccess(rateLimitKey);
+    }
+
+    /**
+     * {@code employees.edit} is a single permission, but the records behind it are not
+     * equal. Without this bound its holder could PUT their own record with role=OWNER —
+     * the role is taken straight from the request body — and a MANAGER could rewrite or
+     * deactivate the owner's account. RBAC can only answer "may edit employees"; the
+     * "which ones, and which roles may they hand out" half belongs here.
+     *
+     * Assigning a <em>less</em> privileged role stays allowed, including to yourself, so
+     * the custom-role flow in Employees.tsx keeps working.
+     */
+    private void guardRoleBoundary(Employee current, Employee target, String requestedRole) {
+        if (!RoleHierarchy.canManage(current.getRole(), target.getRole())) {
+            throw new BusinessRuleException("لا يمكنك تعديل حساب بصلاحية أعلى من صلاحيتك");
+        }
+        if (requestedRole == null || requestedRole.trim().isEmpty()) {
+            return;
+        }
+        String newRole = requestedRole.trim().toUpperCase();
+        if (newRole.equals(target.getRole())) {
+            return;
+        }
+        if (!RoleHierarchy.canManage(current.getRole(), newRole)) {
+            throw new BusinessRuleException("لا يمكنك منح صلاحية أعلى من صلاحيتك");
+        }
     }
 
     /**
@@ -199,6 +279,20 @@ public class EmployeeController {
     @Data
     public static class PasswordChangeRequest {
         private String newPassword;
+        /** Required only when changing your own PIN — see {@link #requireCurrentPin}. */
+        private String currentPassword;
+    }
+
+    @Data
+    @AllArgsConstructor
+    public static class PasswordChangeResult {
+        /**
+         * A replacement JWT, present only when you changed your own PIN. The change revokes
+         * every token issued for the account beforehand, including the one used to make this
+         * request, so the client must swap to this one. Null when an admin reset someone
+         * else's PIN — that account is meant to be signed out.
+         */
+        private String token;
     }
 
     @Data

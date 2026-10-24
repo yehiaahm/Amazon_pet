@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Button from '../../components/ui/Button';
 import Select from '../../components/ui/Select';
 import Input from '../../components/ui/Input';
 import { Printer, Code, X, Check, Copy } from 'lucide-react';
 import { api } from '../../core/api/endpoints';
 import { useUIStore } from '../../core/stores/uiStore';
+import { escapeHtml } from '../../core/utils/escapeHtml';
 
 interface ThermalLabelPrintModalProps {
   isOpen: boolean;
@@ -44,20 +45,61 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
   const [zplCode, setZplCode] = useState<string | null>(null);
   const [loadingZpl, setLoadingZpl] = useState(false);
   const [copiedZpl, setCopiedZpl] = useState(false);
+  const [barcodeImage, setBarcodeImage] = useState<string | null>(null);
+  const [barcodeError, setBarcodeError] = useState(false);
 
   const printAreaRef = useRef<HTMLDivElement>(null);
+
+  // Fetch the rendered barcode whenever the modal opens for a variant that has one. Guarded
+  // against a late response arriving after the modal moved on to a different variant.
+  useEffect(() => {
+    if (!isOpen || !variantId || !barcode) {
+      setBarcodeImage(null);
+      setBarcodeError(false);
+      return;
+    }
+    let active = true;
+    setBarcodeError(false);
+    api
+      .getBarcodeImageDataUrl(variantId)
+      .then((dataUrl) => {
+        if (active) setBarcodeImage(dataUrl);
+      })
+      .catch(() => {
+        if (active) setBarcodeError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isOpen, variantId, barcode]);
 
   if (!isOpen) return null;
 
   const currentSizeObj = PRESET_LABEL_SIZES.find((s) => s.value === selectedSize) || PRESET_LABEL_SIZES[0];
   const qtyNum = Math.max(1, parseInt(quantity, 10) || 1);
 
-  // Generate SVG barcode representation using bwipjs API
-  const barcodeUrl = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(barcode || '12345678')}&scale=2&height=12&textxalign=center&includetext=${includeBarcodeText}`;
+  // Rendered by our own backend (zxing) and held as a data: URL — see api.getBarcodeImageDataUrl.
+  // This used to be a URL pointing at a public third-party barcode renderer, which leaked every
+  // product's barcode off-site, broke label printing whenever that service or the till's
+  // internet was down, and was blocked by the app's CSP in any case.
+  const barcodeUrl = barcodeImage ?? '';
 
   const handleDirectThermalPrint = () => {
     if (!barcode) {
       addNotification('WARNINGS', 'لا يوجد باركود', 'يرجى توليد باركود للمنتج أولاً.');
+      return;
+    }
+
+    // The image is fetched from the backend, so it can still be in flight (or have failed)
+    // when the button is pressed. Printing now would emit stickers with an empty <img>.
+    if (!barcodeImage) {
+      addNotification(
+        'WARNINGS',
+        barcodeError ? 'تعذر توليد صورة الباركود' : 'جارٍ تحضير صورة الباركود',
+        barcodeError
+          ? 'تحقق من اتصال الخادم ثم أعد المحاولة.'
+          : 'انتظر ثانية حتى تظهر المعاينة ثم اطبع.'
+      );
       return;
     }
 
@@ -76,14 +118,15 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
         <div class="sticker-page">
           <div class="sticker-box">
             ${includeShopName ? `<div class="shop-title">Amazon Pet Shop</div>` : ''}
-            ${includeName ? `<div class="prod-title">${productName}</div>` : ''}
+            ${includeName ? `<div class="prod-title">${escapeHtml(productName)}</div>` : ''}
             <div class="meta-row">
-              ${includeSku ? `<span>SKU: ${sku || '—'}</span>` : ''}
+              ${includeSku ? `<span>SKU: ${escapeHtml(sku) || '—'}</span>` : ''}
               ${includePrice ? `<strong>${price.toFixed(2)} ج.م</strong>` : ''}
             </div>
             <div class="barcode-container">
-              <img src="${barcodeUrl}" alt="${barcode}" />
+              <img src="${escapeHtml(barcodeUrl)}" alt="${escapeHtml(barcode)}" />
             </div>
+            ${includeBarcodeText ? `<div class="barcode-text">${escapeHtml(barcode)}</div>` : ''}
           </div>
         </div>
       `;
@@ -160,6 +203,16 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
             justify-content: center;
             align-items: center;
             margin-top: 1px;
+          }
+          /* The old third-party renderer drew the digits under the bars itself
+             (its includetext flag). The backend returns bars only, so the
+             "show barcode number" option is honoured here instead. */
+          .barcode-text {
+            width: 100%;
+            text-align: center;
+            font-size: 7pt;
+            letter-spacing: 1px;
+            line-height: 1.1;
           }
           .barcode-container img {
             max-width: 95%;
@@ -368,12 +421,21 @@ export const ThermalLabelPrintModal: React.FC<ThermalLabelPrintModalProps> = ({
                 {includeSku && <span>SKU: {sku || '—'}</span>}
                 {includePrice && <strong>{price.toFixed(2)} ج.م</strong>}
               </div>
-              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <img
-                  src={barcodeUrl}
-                  alt={barcode}
-                  style={{ maxHeight: `${currentSizeObj.heightMm * 2.2}px`, maxWidth: '95%', objectFit: 'contain' }}
-                />
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                {barcodeImage ? (
+                  <img
+                    src={barcodeImage}
+                    alt={barcode}
+                    style={{ maxHeight: `${currentSizeObj.heightMm * 2.2}px`, maxWidth: '95%', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: '9px', color: '#999' }}>
+                    {barcodeError ? 'تعذر توليد صورة الباركود' : 'جارٍ توليد الباركود…'}
+                  </span>
+                )}
+                {includeBarcodeText && barcode && (
+                  <span style={{ fontSize: '9px', letterSpacing: '1px' }}>{barcode}</span>
+                )}
               </div>
             </div>
           </div>
