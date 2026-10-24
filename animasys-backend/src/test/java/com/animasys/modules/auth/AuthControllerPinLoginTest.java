@@ -102,8 +102,17 @@ class AuthControllerPinLoginTest {
         assertThrows(BusinessRuleException.class, () -> authController.pinLogin(request, httpServletRequest));
     }
 
+    /**
+     * Replaces a test that asserted the opposite — that a shared PIN "prefers the highest
+     * role" and signs you in as the OWNER.
+     *
+     * That was the privilege escalation, written down as intended behaviour: pin-login takes
+     * no username, so guessing *any* employee's PIN handed you the most authoritative account
+     * that happened to share it. There is no correct account to choose here, so the only safe
+     * answer is to refuse and say why.
+     */
     @Test
-    void pinLogin_sharedPinPrefersHighestRole() {
+    void pinLogin_sharedPinIsRefusedRatherThanResolvedToTheStrongerAccount() {
         Employee cashier = Employee.builder()
                 .id("e-cashier").username("cashier").role("CASHIER")
                 .tenant(tenant).branch(branch).passwordHash("hash").build();
@@ -119,17 +128,12 @@ class AuthControllerPinLoginTest {
         when(employeeRepository.findByTenantId("t-auth")).thenReturn(List.of(cashier, owner));
         when(passwordEncoder.matches("2026", "hash")).thenReturn(true);
 
-        Authentication auth = new UsernamePasswordAuthenticationToken(
-                new UserPrincipal(owner, List.of()), null, List.of());
-        when(authenticationManager.authenticate(argThat(token ->
-                token instanceof UsernamePasswordAuthenticationToken up
-                        && "owner".equals(up.getPrincipal())))).thenReturn(auth);
-        when(tokenProvider.generateToken(auth)).thenReturn("owner-jwt");
-        when(permissionResolverService.resolvePermissionCodes(owner)).thenReturn(Set.of());
+        assertThrows(BusinessRuleException.class,
+                () -> authController.pinLogin(request, httpServletRequest));
 
-        ResponseEntity<ApiResponseWrapper<JwtResponse>> response = authController.pinLogin(request, httpServletRequest);
-
-        assertEquals("e-owner", response.getBody().getData().getEmployeeId());
+        // Nothing was authenticated and no token was minted for either account.
+        verifyNoInteractions(authenticationManager);
+        verifyNoInteractions(tokenProvider);
     }
 
     @Test

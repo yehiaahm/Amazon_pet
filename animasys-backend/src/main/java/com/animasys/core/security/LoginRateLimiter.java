@@ -47,6 +47,15 @@ public class LoginRateLimiter {
     private final ConcurrentHashMap<String, Attempts> attemptsByKey = new ConcurrentHashMap<>();
 
     public void checkAllowed(String key) {
+        checkAllowed(key, MAX_ATTEMPTS);
+    }
+
+    /**
+     * Same window, a different budget. Used for buckets that legitimately see traffic from
+     * many people at once — a whole shop's PIN keypad, where ten mistypes in fifteen minutes
+     * is an ordinary afternoon, not an attack.
+     */
+    public void checkAllowed(String key, int maxAttempts) {
         Attempts a = attemptsByKey.get(key);
         if (a == null) {
             return;
@@ -55,7 +64,7 @@ public class LoginRateLimiter {
         if (now - a.windowStart > WINDOW_MILLIS) {
             return;
         }
-        if (a.count.get() >= MAX_ATTEMPTS) {
+        if (a.count.get() >= maxAttempts) {
             long remainingMinutes = Math.max(1, (WINDOW_MILLIS - (now - a.windowStart)) / 60_000);
             throw new RateLimitExceededException(
                     "عدد محاولات الدخول تجاوز الحد المسموح. حاول مرة أخرى بعد " + remainingMinutes + " دقيقة."

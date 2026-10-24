@@ -5,6 +5,12 @@ import { resolveFirstAccessibleModule, canAccessModuleWithPermissions } from '..
 import { getBackendUrl } from '../../core/api/backendUrl';
 import { Sparkles, AlertCircle, Delete, ArrowRight } from 'lucide-react';
 
+/** Must stay in step with PinPolicy.MAX_LENGTH on the backend. */
+const MAX_PIN_LENGTH = 10;
+/** Length at which the keypad submits by itself — the four-digit till habit. */
+const AUTO_SUBMIT_PIN_LENGTH = 4;
+const AUTO_SUBMIT_DELAY_MS = 200;
+
 export const Login: React.FC = () => {
   const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
   const setAuthenticated = useUIStore(s => s.setAuthenticated);
@@ -73,13 +79,20 @@ export const Login: React.FC = () => {
   const handleKeyPress = (num: string) => {
     if (isSubmitting) return;
     setErrorMsg('');
-    if (pinCode.length < 4) {
-      const newPin = pinCode + num;
-      setPinCode(newPin);
-      if (newPin.length === 4) {
-        if (autoLoginTimerRef.current) clearTimeout(autoLoginTimerRef.current);
-        autoLoginTimerRef.current = setTimeout(() => triggerLogin(newPin), 200);
-      }
+    if (pinCode.length >= MAX_PIN_LENGTH) return;
+
+    const newPin = pinCode + num;
+    setPinCode(newPin);
+
+    // Four digits still submits on its own, which is what the till is used to. The keypad now
+    // accepts longer PINs too (PinPolicy allows 4–10), so a fifth digit means the pending
+    // auto-login was wrong: cancel it and let them finish and press Enter / the button.
+    if (autoLoginTimerRef.current) {
+      clearTimeout(autoLoginTimerRef.current);
+      autoLoginTimerRef.current = null;
+    }
+    if (newPin.length === AUTO_SUBMIT_PIN_LENGTH) {
+      autoLoginTimerRef.current = setTimeout(() => triggerLogin(newPin), AUTO_SUBMIT_DELAY_MS);
     }
   };
 
@@ -218,7 +231,12 @@ export const Login: React.FC = () => {
               alignItems: 'center',
               boxSizing: 'border-box'
             }}>
-              {[0, 1, 2, 3].map((idx) => {
+              {/* Four dots at rest, growing with the PIN — otherwise digits past the fourth
+                  gave no feedback at all once the keypad started accepting longer PINs. */}
+              {Array.from(
+                { length: Math.max(AUTO_SUBMIT_PIN_LENGTH, pinCode.length) },
+                (_, idx) => idx
+              ).map((idx) => {
                 const filled = pinCode.length > idx;
                 return (
                   <div

@@ -77,6 +77,8 @@ public class EmployeeController {
             throw new BusinessRuleException("لا يمكنك إنشاء حساب بصلاحية أعلى من صلاحيتك");
         }
 
+        requirePinNotAlreadyInUse(current.getTenant().getId(), request.getPassword().trim(), null);
+
         Tenant tenant = current.getTenant();
         Branch branch = current.getBranch();
 
@@ -195,6 +197,12 @@ public class EmployeeController {
             throw new BusinessRuleException("لا يمكنك تغيير رمز دخول حساب بصلاحية أعلى من صلاحيتك");
         }
 
+        // Deliberately after the identity and authority checks above: answering "is this PIN
+        // already taken?" before the caller has proved who they are would turn this endpoint
+        // into a way to test colleagues' PINs one guess at a time.
+        requirePinNotAlreadyInUse(
+                target.getTenant().getId(), request.getNewPassword().trim(), target.getId());
+
         target.setPasswordHash(passwordEncoder.encode(request.getNewPassword().trim()));
         // A PIN change must end the sessions opened with the old PIN. Otherwise an admin
         // resetting a compromised account does not actually evict whoever is inside it, and
@@ -211,6 +219,29 @@ public class EmployeeController {
 
         return ResponseEntity.ok(ApiResponseWrapper.success(
                 new PasswordChangeResult(replacementToken), "تم تغيير كلمة المرور بنجاح"));
+    }
+
+    /**
+     * Refuses a PIN that another employee in the same tenant already uses.
+     *
+     * /auth/pin-login carries no username: it finds the account by hashing the typed PIN
+     * against everyone in the tenant. A shared PIN therefore makes two accounts
+     * indistinguishable at login — it used to resolve that by signing you in as whichever of
+     * them held the most authority, so a cashier who picked the owner's PIN got the owner's
+     * session. Keeping PINs unique is what makes that lookup unambiguous, so it is enforced
+     * here on every write rather than left to chance.
+     *
+     * Costs one bcrypt comparison per employee in the tenant, on a path used a handful of
+     * times a year; the PIN itself is never stored or compared in plaintext.
+     */
+    private void requirePinNotAlreadyInUse(String tenantId, String pin, String excludeEmployeeId) {
+        boolean taken = employeeRepository.findByTenantId(tenantId).stream()
+                .filter(e -> excludeEmployeeId == null || !excludeEmployeeId.equals(e.getId()))
+                .anyMatch(e -> e.getPasswordHash() != null && passwordEncoder.matches(pin, e.getPasswordHash()));
+        if (taken) {
+            throw new BusinessRuleException(
+                    "هذا الرمز مستخدم بالفعل لحساب آخر. اختر رمزاً مختلفاً حتى يبقى الدخول بالرمز وحده واضحاً.");
+        }
     }
 
     /**

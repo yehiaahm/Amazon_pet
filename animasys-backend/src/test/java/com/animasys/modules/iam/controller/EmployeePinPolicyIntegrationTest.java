@@ -77,8 +77,8 @@ class EmployeePinPolicyIntegrationTest extends IntegrationTestBase {
     // ─── Change password: reject anything that isn't exactly 4 digits ─────────
 
     @ParameterizedTest
-    @ValueSource(strings = {"123", "12345", "12a4", "12-4", "12 4", ""})
-    void changePasswordRejectsAnyPinThatIsNotExactlyFourDigits(String badPin) {
+    @ValueSource(strings = {"123", "12345678901", "12a4", "12-4", "12 4", ""})
+    void changePasswordRejectsAnyPinOutsideTheAllowedNumericRange(String badPin) {
         authenticate(owner);
         EmployeeController.PasswordChangeRequest request = new EmployeeController.PasswordChangeRequest();
         request.setNewPassword(badPin);
@@ -122,16 +122,41 @@ class EmployeePinPolicyIntegrationTest extends IntegrationTestBase {
     // ─── Create employee: same policy applies, so a new account is never born unusable ──
 
     @Test
-    void createEmployeeRejectsAPasswordLongerThanFourDigits() {
+    void createEmployeeRejectsAPinOutsideTheAllowedRange() {
         authenticate(owner);
+
+        assertThatThrownBy(() -> employeeController.createEmployee(createRequestWithPin("12345678901")))
+                .isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> employeeController.createEmployee(createRequestWithPin("123")))
+                .isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> employeeController.createEmployee(createRequestWithPin("20-26")))
+                .isInstanceOf(BusinessRuleException.class);
+    }
+
+    /**
+     * The original bug was a 6-digit PIN written to an account the 4-digit keypad could never
+     * submit again. The keypad now accepts 4–10 digits, so six is a legitimate choice rather
+     * than a lockout — this pins that down so the policy and the keypad cannot drift apart
+     * again in the other direction.
+     */
+    @Test
+    void createEmployeeAcceptsALongerNumericPin() {
+        authenticate(owner);
+
+        EmployeeController.EmployeeCreateRequest request = createRequestWithPin("202600");
+        employeeController.createEmployee(request);
+
+        Employee created = employeeRepository.findByUsername(request.getUsername()).orElseThrow();
+        assertThat(passwordEncoder.matches("202600", created.getPasswordHash())).isTrue();
+    }
+
+    private EmployeeController.EmployeeCreateRequest createRequestWithPin(String pin) {
         EmployeeController.EmployeeCreateRequest request = new EmployeeController.EmployeeCreateRequest();
         request.setUsername("new_cashier_" + UUID.randomUUID().toString().substring(0, 8));
-        request.setPassword("202600"); // the exact shape of the reported bug, just longer
+        request.setPassword(pin);
         request.setFullName("New Cashier");
         request.setRole("CASHIER");
-
-        assertThatThrownBy(() -> employeeController.createEmployee(request))
-                .isInstanceOf(BusinessRuleException.class);
+        return request;
     }
 
     // ─── Full login round trip through the real HTTP endpoint ─────────────────
@@ -158,7 +183,7 @@ class EmployeePinPolicyIntegrationTest extends IntegrationTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"123", "12345", "12a4", "20-26"})
+    @ValueSource(strings = {"123", "12345678901", "12a4", "20-26"})
     void pinLoginEndpointRejectsMalformedPinsBeforeEvenQueryingTheDatabase(String badPin) throws Exception {
         mockMvc.perform(post("/auth/pin-login")
                         .contentType(MediaType.APPLICATION_JSON)

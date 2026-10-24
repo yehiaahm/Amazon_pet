@@ -20,6 +20,7 @@ import com.animasys.modules.inventory.domain.Warehouse;
 import com.animasys.modules.inventory.repository.WarehouseRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,13 +32,27 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
+
+    /**
+     * Budget for the whole tenant's PIN keypad in one window, deliberately well above the
+     * per-address limit: every member of staff shares this bucket, so ten mistyped PINs in
+     * fifteen minutes is an ordinary busy afternoon rather than an attack. It raises the cost
+     * of walking the PIN space from many addresses without locking a shop out of its own till.
+     *
+     * It raises cost; it does not make a short numeric PIN safe. That is what widening
+     * {@link com.animasys.core.security.PinPolicy} to allow longer PINs is for.
+     */
+    private static final int MAX_PIN_LOGIN_ATTEMPTS_PER_TENANT = 60;
 
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
@@ -64,7 +79,14 @@ public class AuthController {
     public ResponseEntity<ApiResponseWrapper<JwtResponse>> authenticateEmployee(
             @Valid @RequestBody LoginRequest loginRequest, HttpServletRequest httpRequest) {
         String rateLimitKey = clientKey(httpRequest);
+        // Throttled per account as well as per source address. On its own the IP bucket is
+        // bypassed by simply spreading guesses over several addresses, which against a
+        // four-to-ten digit PIN is the whole attack; the account bucket does not care where
+        // the attempts come from. A correct password clears it, so the only person who can be
+        // locked out by their own typing is the account holder.
+        String accountKey = accountKey(loginRequest.getUsername());
         loginRateLimiter.checkAllowed(rateLimitKey);
+        loginRateLimiter.checkAllowed(accountKey);
 
         Authentication authentication;
         try {
@@ -76,9 +98,11 @@ public class AuthController {
             );
         } catch (org.springframework.security.core.AuthenticationException ex) {
             loginRateLimiter.recordFailure(rateLimitKey);
+            loginRateLimiter.recordFailure(accountKey);
             throw ex;
         }
         loginRateLimiter.recordSuccess(rateLimitKey);
+        loginRateLimiter.recordSuccess(accountKey);
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String jwt = tokenProvider.generateToken(authentication);
@@ -97,21 +121,37 @@ public class AuthController {
         loginRateLimiter.checkAllowed(rateLimitKey);
 
         String tenantId = resolvePinLoginTenantId(pinRequest);
+        String tenantKey = pinLoginTenantKey(tenantId);
+        loginRateLimiter.checkAllowed(tenantKey, MAX_PIN_LOGIN_ATTEMPTS_PER_TENANT);
+
         List<Employee> employees = employeeRepository.findByTenantId(tenantId);
-        Employee matched = null;
+        List<Employee> matches = new ArrayList<>();
         for (Employee emp : employees) {
             if (emp.getPasswordHash() == null
                     || !passwordEncoder.matches(pinRequest.getPin(), emp.getPasswordHash())) {
                 continue;
             }
-            if (matched == null || pinLoginRoleRank(emp.getRole()) < pinLoginRoleRank(matched.getRole())) {
-                matched = emp;
-            }
+            matches.add(emp);
         }
-        if (matched == null) {
+        if (matches.isEmpty()) {
             loginRateLimiter.recordFailure(rateLimitKey);
+            loginRateLimiter.recordFailure(tenantKey);
             throw new BusinessRuleException("رمز الدخول السري غير صحيح!");
         }
+        if (matches.size() > 1) {
+            // This used to pick the most privileged match (pinLoginRoleRank preferred OWNER),
+            // which turned a PIN collision into a privilege grant: guess any employee's PIN,
+            // get signed in as whoever shares it with the most authority. Since usernames are
+            // not supplied here there is no way to tell which account was meant, so refuse.
+            // PIN uniqueness is enforced on every write path, so this is a guard for data that
+            // predates that rule rather than something a user should normally hit.
+            loginRateLimiter.recordFailure(rateLimitKey);
+            loginRateLimiter.recordFailure(tenantKey);
+            log.warn("PIN login refused: {} accounts in tenant {} share this PIN", matches.size(), tenantId);
+            throw new BusinessRuleException(
+                    "هذا الرمز مستخدم لأكثر من حساب. يرجى تغيير الرمز من شاشة الموظفين أو الدخول باسم المستخدم.");
+        }
+        Employee matched = matches.get(0);
         String matchedUsername = matched.getUsername();
 
         Authentication authentication;
@@ -121,9 +161,11 @@ public class AuthController {
             );
         } catch (org.springframework.security.core.AuthenticationException ex) {
             loginRateLimiter.recordFailure(rateLimitKey);
+            loginRateLimiter.recordFailure(tenantKey);
             throw ex;
         }
         loginRateLimiter.recordSuccess(rateLimitKey);
+        loginRateLimiter.recordSuccess(tenantKey);
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String jwt = tokenProvider.generateToken(authentication);
@@ -256,18 +298,19 @@ public class AuthController {
                 .orElseThrow(() -> new BusinessRuleException("تعذر تحميل بيانات الموظف بعد تسجيل الدخول"));
     }
 
-    /** Lower rank = preferred when several employees share the same PIN (desktop shop login). */
-    private static int pinLoginRoleRank(String role) {
-        if (role == null) {
-            return 99;
-        }
-        return switch (role) {
-            case "OWNER" -> 0;
-            case "MANAGER" -> 1;
-            case "CASHIER" -> 2;
-            case "GROOMER" -> 3;
-            default -> 50;
-        };
+    /** Throttle bucket for one account, independent of where the attempts come from. */
+    private static String accountKey(String username) {
+        String normalized = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+        return "account:" + normalized;
+    }
+
+    /**
+     * Throttle bucket for a whole tenant's keypad. PIN login carries no username, so there is
+     * no account to charge an attempt to until one matches — without this, spreading guesses
+     * across addresses left the PIN space effectively unthrottled.
+     */
+    private static String pinLoginTenantKey(String tenantId) {
+        return "pin-login-tenant:" + tenantId;
     }
 
     /**
