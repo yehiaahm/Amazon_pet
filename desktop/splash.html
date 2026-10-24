@@ -77,10 +77,11 @@
   <div class="status-text" id="status">Starting services...</div>
 
   <script>
-    const { ipcRenderer } = require('electron');
+    // Goes through splash-preload.js rather than require('electron'): this window runs with
+    // contextIsolation on and no Node integration, like every other window in the app.
     const statusEl = document.getElementById('status');
-    
-    ipcRenderer.on('status-update', (event, message) => {
+
+    window.splashAPI.onStatusUpdate((message) => {
       statusEl.textContent = message;
     });
   </script>

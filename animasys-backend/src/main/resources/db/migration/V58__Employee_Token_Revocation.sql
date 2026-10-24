@@ -1,0 +1,19 @@
+-- Revocation counter for JWTs that have already been handed out.
+--
+-- Auth here is stateless: the token carries everything and nothing on the server tracks it.
+-- That left two holes. Logging out only deleted the token from the browser's localStorage,
+-- so a copy taken from that tab stayed valid for the rest of its 24h lifetime; and changing
+-- a PIN did not end sessions that were opened with the old one, so an admin resetting a
+-- compromised account did not actually evict whoever was in it.
+--
+-- Every token carries the counter value that was current when it was minted, and
+-- JwtAuthenticationFilter rejects any token whose value no longer matches the employee's.
+-- Incrementing this column therefore invalidates every token issued for that employee.
+--
+-- A counter rather than a "valid from" timestamp on purpose: a timestamp has to be compared
+-- against the token's own issued-at, which JWT only carries to whole-second precision, so a
+-- token minted in the same second as a revocation could not be told apart from one minted
+-- just after it — logging out one second after logging in failed to revoke anything. It also
+-- made revocation depend on the clock, which on a shop's Windows box can jump backwards.
+-- An integer has neither problem.
+ALTER TABLE employees ADD COLUMN token_version INT NOT NULL DEFAULT 0;

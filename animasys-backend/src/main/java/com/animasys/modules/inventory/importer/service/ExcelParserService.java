@@ -1,9 +1,12 @@
 package com.animasys.modules.inventory.importer.service;
 
 import com.animasys.core.exception.BusinessRuleException;
+import jakarta.annotation.PostConstruct;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
+import org.apache.poi.util.IOUtils;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellAddress;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -37,6 +40,42 @@ public class ExcelParserService {
     private static final List<Charset> CSV_FALLBACK_CHARSETS = List.of(
             Charset.forName("windows-1256"), Charset.forName("ISO-8859-6"), StandardCharsets.ISO_8859_1);
 
+    /**
+     * Caps on what POI will inflate out of an uploaded .xlsx.
+     *
+     * An .xlsx is a zip, and spring.servlet.multipart.max-file-size only bounds the
+     * *compressed* upload. A 20MB file of highly repetitive XML expands to many gigabytes, and
+     * WorkbookFactory.create() materialises the whole sheet in memory before this class's own
+     * MAX_ROWS check ever runs — so the row cap could not prevent the heap being exhausted.
+     * These limits make POI refuse the file while it is still inflating it.
+     */
+    private static final long MAX_INFLATED_ENTRY_BYTES = 256L * 1024 * 1024;
+    private static final long MAX_INFLATED_TEXT_BYTES = 64L * 1024 * 1024;
+    private static final int MAX_BYTE_ARRAY_ALLOCATION = 128 * 1024 * 1024;
+    /** Refuse anything that compressed better than 100:1 — real spreadsheets do not. */
+    private static final double MIN_INFLATE_RATIO = 0.01;
+
+    /** Local file header every .xlsx/.xlsm starts with ("PK\003\004"). */
+    private static final byte[] ZIP_MAGIC = {0x50, 0x4B, 0x03, 0x04};
+
+    /**
+     * OLE2 compound-document header of a legacy .xls. {@link #detectFileType} routes those here
+     * too and POI reads them through HSSF, so the signature check has to accept both or
+     * every .xls upload — which works today — would start being rejected.
+     */
+    private static final byte[] OLE2_MAGIC = {
+            (byte) 0xD0, (byte) 0xCF, (byte) 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, (byte) 0x1A, (byte) 0xE1
+    };
+
+    @PostConstruct
+    void applyPoiLimits() {
+        ZipSecureFile.setMinInflateRatio(MIN_INFLATE_RATIO);
+        ZipSecureFile.setMaxEntrySize(MAX_INFLATED_ENTRY_BYTES);
+        ZipSecureFile.setMaxTextSize(MAX_INFLATED_TEXT_BYTES);
+        IOUtils.setByteArrayMaxOverride(MAX_BYTE_ARRAY_ALLOCATION);
+    }
+
     public ParsedFile parse(MultipartFile file) {
         String fileType = detectFileType(file);
         try {
@@ -66,6 +105,8 @@ public class ExcelParserService {
     }
 
     private ParsedFile parseXlsx(MultipartFile file) throws IOException {
+        requireSpreadsheetContainer(file);
+
         Workbook workbook;
         try {
             workbook = WorkbookFactory.create(file.getInputStream());
@@ -494,6 +535,32 @@ public class ExcelParserService {
             }
         }
         return count;
+    }
+
+    /**
+     * Checks the bytes really are a spreadsheet container before handing them to POI.
+     * {@link #detectFileType} decides from the filename alone, so anything at all renamed to
+     * .xlsx reached the parser; content that is neither a zip nor an OLE2 document cannot be a
+     * workbook, and rejecting it here keeps it away from the inflater entirely.
+     */
+    private static void requireSpreadsheetContainer(MultipartFile file) throws IOException {
+        byte[] header = new byte[OLE2_MAGIC.length];
+        int read;
+        try (InputStream in = file.getInputStream()) {
+            read = in.readNBytes(header, 0, header.length);
+        }
+        if (startsWith(header, read, ZIP_MAGIC) || startsWith(header, read, OLE2_MAGIC)) {
+            return;
+        }
+        throw new BusinessRuleException(
+                "الملف ليس ملف Excel صالحاً. تأكد أنه ملف ‎.xlsx‎ أو ‎.xls‎ حقيقي وليس ملفاً آخر أُعيدت تسميته.");
+    }
+
+    private static boolean startsWith(byte[] header, int readLength, byte[] magic) {
+        if (readLength < magic.length) {
+            return false;
+        }
+        return Arrays.equals(Arrays.copyOf(header, magic.length), magic);
     }
 
     private static byte[] readAll(MultipartFile file) throws IOException {

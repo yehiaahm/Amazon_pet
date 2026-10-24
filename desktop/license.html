@@ -215,7 +215,17 @@
 
     // Get licensing status on launch
     window.electronAPI.getLicenseStatus().then(status => {
-      uuidText.textContent = status.uuid;
+      if (status.uuid) {
+        uuidText.textContent = status.uuid;
+        return;
+      }
+      // uuid is null when this machine could not be identified. Activation will be refused,
+      // so say that plainly instead of leaving "Retrieving ID..." on screen and letting the
+      // customer waste a support call on a key that cannot work.
+      uuidText.textContent = 'Unavailable — cannot identify this machine';
+      copyBtn.disabled = true;
+      activateBtn.disabled = true;
+      showError('This machine could not be identified, so it cannot be activated. Please contact support.');
     });
 
     copyBtn.addEventListener('click', () => {

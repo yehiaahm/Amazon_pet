@@ -24,7 +24,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.security.authentication.AuthenticationManager;
+import com.animasys.core.security.ElevatedApprovalService;
 
 import java.math.BigDecimal;
 import java.util.Collections;
@@ -51,7 +51,7 @@ class SaleServicePosGuardTest {
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
-    @Mock private AuthenticationManager authenticationManager;
+    @Mock private ElevatedApprovalService elevatedApprovalService;
 
     @InjectMocks private SaleService saleService;
 

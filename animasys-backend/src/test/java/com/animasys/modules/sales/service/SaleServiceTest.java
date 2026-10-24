@@ -21,7 +21,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.security.authentication.AuthenticationManager;
+import com.animasys.core.security.ElevatedApprovalService;
 
 import java.math.BigDecimal;
 import java.util.Collections;
@@ -47,7 +47,7 @@ public class SaleServiceTest {
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private com.animasys.modules.inventory.service.InventoryIntegrityService inventoryIntegrityService;
     @Mock private SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
-    @Mock private AuthenticationManager authenticationManager;
+    @Mock private ElevatedApprovalService elevatedApprovalService;
     @Mock private com.animasys.modules.inventory.repository.WarehouseRepository warehouseRepository;
     @Mock private LoyaltyService loyaltyService;
     @Mock private SalePaymentRepository paymentRepository;

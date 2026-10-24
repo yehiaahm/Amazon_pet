@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -26,7 +27,12 @@ import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+// Without the "test" profile this class boots on the default profile, where the datasource
+// points at a real MySQL on localhost and app.allow-h2-fallback is false — so the context
+// failed to load and every test in here errored out. It was the only @SpringBootTest class
+// in the suite declaring neither this nor `extends IntegrationTestBase`.
 @SpringBootTest
+@ActiveProfiles("test")
 @Transactional
 class BarcodeSystemIntegrationTest {
 

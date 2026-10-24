@@ -57,6 +57,7 @@ export const Employees: React.FC = () => {
   const [selectedEmp, setSelectedEmp] = useState<any>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
   if (isLoading) {
@@ -172,6 +173,9 @@ export const Employees: React.FC = () => {
     }
   };
 
+  /** The API requires the current PIN when the target is your own account. */
+  const isChangingOwnPin = !!selectedEmp && currentEmployee?.id === selectedEmp.id;
+
   const handleChangePasswordSubmit = () => {
     setPasswordError('');
     if (!newPassword.trim()) {
@@ -186,16 +190,22 @@ export const Employees: React.FC = () => {
       setPasswordError(PIN_POLICY_MESSAGE);
       return;
     }
+    if (isChangingOwnPin && !currentPassword.trim()) {
+      setPasswordError('يرجى إدخال رمز الدخول الحالي لتأكيد هويتك');
+      return;
+    }
 
     changePassword({
       id: selectedEmp.id,
-      newPassword: newPassword.trim()
+      newPassword: newPassword.trim(),
+      ...(isChangingOwnPin ? { currentPassword: currentPassword.trim() } : {}),
     }, {
       onSuccess: () => {
         setShowPasswordModal(false);
         setSelectedEmp(null);
         setNewPassword('');
         setConfirmPassword('');
+        setCurrentPassword('');
       },
       onError: (err: any) => {
         setPasswordError(err?.message || 'فشل تغيير كلمة المرور.');
@@ -425,11 +435,11 @@ export const Employees: React.FC = () => {
       {/* Change Password Modal */}
       <Modal
         isOpen={showPasswordModal}
-        onClose={() => { setShowPasswordModal(false); setSelectedEmp(null); }}
+        onClose={() => { setShowPasswordModal(false); setSelectedEmp(null); setCurrentPassword(''); }}
         title={`تحديث كلمة مرور الموظف: ${selectedEmp?.fullName || ''}`}
         footer={
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button onClick={() => { setShowPasswordModal(false); setSelectedEmp(null); }} variant="secondary">إلغاء</Button>
+            <Button onClick={() => { setShowPasswordModal(false); setSelectedEmp(null); setCurrentPassword(''); }} variant="secondary">إلغاء</Button>
             <Button onClick={handleChangePasswordSubmit} disabled={changingPassword} variant="primary">تحديث كلمة المرور</Button>
           </div>
         }
@@ -446,6 +456,18 @@ export const Employees: React.FC = () => {
             <strong>اسم المستخدم: </strong>
             <code style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-primary)' }}>{selectedEmp?.username}</code>
           </div>
+
+          {isChangingOwnPin && (
+            <Input
+              label="رمز الدخول الحالي (PIN) *"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="أدخل رمزك الحالي للتأكيد"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+            />
+          )}
 
           <Input
             label="رمز الدخول السري الجديد (PIN) - 4 أرقام بالضبط *"

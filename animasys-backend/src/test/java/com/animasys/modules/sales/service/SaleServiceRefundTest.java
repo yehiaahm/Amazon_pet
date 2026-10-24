@@ -29,7 +29,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.security.authentication.AuthenticationManager;
+import com.animasys.core.security.ElevatedApprovalService;
 
 import java.math.BigDecimal;
 import java.util.Collections;
@@ -56,7 +56,7 @@ class SaleServiceRefundTest {
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private SaleItemBatchAllocationRepository saleItemBatchAllocationRepository;
-    @Mock private AuthenticationManager authenticationManager;
+    @Mock private ElevatedApprovalService elevatedApprovalService;
     @Mock private WarehouseRepository warehouseRepository;
 
     @InjectMocks

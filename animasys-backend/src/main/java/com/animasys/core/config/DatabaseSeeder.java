@@ -20,8 +20,15 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -72,6 +79,14 @@ public class DatabaseSeeder implements CommandLineRunner {
      */
     @Value("${app.sync-default-pins:false}")
     private boolean syncDefaultPins;
+
+    /**
+     * Where the one-time generated login PINs are written on a fresh install, instead of
+     * into the log. The desktop launcher points this at C:\AnimaSysData; the relative
+     * default follows the backend's working directory.
+     */
+    @Value("${app.first-run-credentials-file:./first-run-credentials.txt}")
+    private String firstRunCredentialsFile;
 
     @Override
     public void run(String... args) {
@@ -204,9 +219,70 @@ public class DatabaseSeeder implements CommandLineRunner {
                 .active(true)
                 .build());
 
-        log.warn("First-run setup generated new login PINs — record these now, they will not be logged again: " +
-                        "owner({})={}, cashier({})={}, groomer({})={}",
-                DEFAULT_OWNER_USERNAME, ownerPin, DEFAULT_CASHIER_USERNAME, cashierPin, DEFAULT_GROOMER_USERNAME, groomerPin);
+        Map<String, String> generated = new LinkedHashMap<>();
+        generated.put(DEFAULT_OWNER_USERNAME, ownerPin);
+        generated.put(DEFAULT_CASHIER_USERNAME, cashierPin);
+        generated.put(DEFAULT_GROOMER_USERNAME, groomerPin);
+        publishFirstRunCredentials(generated);
+    }
+
+    /**
+     * Hands the generated PINs over without writing them to the application log.
+     *
+     * They do have to surface once: a fresh install is unusable otherwise, and the only way
+     * back in is {@link OwnerPinRecoveryService}. The log is the wrong channel for it, though.
+     * The desktop launcher pipes this process's stdout into a permanent
+     * {@code C:\AnimaSysData\Logs\backend.log}, and a hosted deployment ships stdout to
+     * whatever aggregator the host provides — so a log line leaves live credentials sitting in
+     * plaintext, forever, in exactly the file people attach to bug reports. A dedicated file
+     * can be read once and deleted.
+     *
+     * Best effort on purpose: if the file cannot be written we fall back to the log, because an
+     * install nobody can sign into is a worse failure than a PIN in a log line.
+     */
+    private void publishFirstRunCredentials(Map<String, String> pinsByUsername) {
+        StringBuilder body = new StringBuilder()
+                .append("Amazon Pet — first-run login PINs\n")
+                .append("Generated: ").append(Instant.now()).append('\n')
+                .append("Hand these to the shop owner, then DELETE this file.\n")
+                .append("They are not recorded anywhere else; if they are lost, see docs/OWNER_PIN_RECOVERY.md.\n\n");
+        pinsByUsername.forEach((username, pin) -> body.append(username).append(" = ").append(pin).append('\n'));
+
+        try {
+            Path target = Path.of(firstRunCredentialsFile).toAbsolutePath();
+            Path parent = target.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            // Append rather than truncate: if the file is still here, nobody has collected
+            // the previous set yet, and overwriting it would destroy working credentials.
+            Files.writeString(target, body.toString(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            restrictToOwner(target);
+            log.warn("First-run setup generated login PINs and wrote them to {} — read that file, hand the " +
+                    "PINs to the owner, then delete it. The PINs are not written to this log.", target);
+            return;
+        } catch (Exception ex) {
+            log.error("Could not write the first-run credentials file ({}): {}. Falling back to logging the " +
+                    "PINs below — delete those log lines once the owner has them.",
+                    firstRunCredentialsFile, ex.getMessage());
+        }
+
+        pinsByUsername.forEach((username, pin) ->
+                log.warn("First-run PIN for '{}' = {}", username, pin));
+    }
+
+    /**
+     * Owner-only where the filesystem supports POSIX permissions. Windows (the desktop
+     * install's platform) does not, so there the file inherits the directory's ACL and the
+     * "delete this file" instruction in its header is the real control.
+     */
+    private static void restrictToOwner(Path target) {
+        try {
+            Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"));
+        } catch (UnsupportedOperationException | IOException ignored) {
+            // Non-POSIX filesystem — nothing to tighten.
+        }
     }
 
     private String generateUnusedPin(Set<String> usedPins) {
@@ -234,7 +310,8 @@ public class DatabaseSeeder implements CommandLineRunner {
                 .role("GROOMER")
                 .active(true)
                 .build());
-        log.warn("Backfilled missing groomer account '{}' with a new PIN: {}", DEFAULT_GROOMER_USERNAME, groomerPin);
+        log.warn("Backfilled missing groomer account '{}'", DEFAULT_GROOMER_USERNAME);
+        publishFirstRunCredentials(new LinkedHashMap<>(Map.of(DEFAULT_GROOMER_USERNAME, groomerPin)));
     }
 
     /**
