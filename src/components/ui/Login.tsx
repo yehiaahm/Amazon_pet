@@ -5,11 +5,9 @@ import { resolveFirstAccessibleModule, canAccessModuleWithPermissions } from '..
 import { getBackendUrl } from '../../core/api/backendUrl';
 import { Sparkles, AlertCircle, Delete, ArrowRight } from 'lucide-react';
 
-/** Must stay in step with PinPolicy.MAX_LENGTH on the backend. */
+/** Must stay in step with PinPolicy.MIN_LENGTH / MAX_LENGTH on the backend. */
+const MIN_PIN_LENGTH = 4;
 const MAX_PIN_LENGTH = 10;
-/** Length at which the keypad submits by itself — the four-digit till habit. */
-const AUTO_SUBMIT_PIN_LENGTH = 4;
-const AUTO_SUBMIT_DELAY_MS = 200;
 
 export const Login: React.FC = () => {
   const setCurrentEmployee = useUIStore(s => s.setCurrentEmployee);
@@ -74,33 +72,18 @@ export const Login: React.FC = () => {
     }
   };
 
-  const autoLoginTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleKeyPress = (num: string) => {
     if (isSubmitting) return;
     setErrorMsg('');
     if (pinCode.length >= MAX_PIN_LENGTH) return;
 
-    const newPin = pinCode + num;
-    setPinCode(newPin);
-
-    // Four digits still submits on its own, which is what the till is used to. The keypad now
-    // accepts longer PINs too (PinPolicy allows 4–10), so a fifth digit means the pending
-    // auto-login was wrong: cancel it and let them finish and press Enter / the button.
-    if (autoLoginTimerRef.current) {
-      clearTimeout(autoLoginTimerRef.current);
-      autoLoginTimerRef.current = null;
-    }
-    if (newPin.length === AUTO_SUBMIT_PIN_LENGTH) {
-      autoLoginTimerRef.current = setTimeout(() => triggerLogin(newPin), AUTO_SUBMIT_DELAY_MS);
-    }
+    // Never submits on its own. PinPolicy allows 4–10 digits, so no length is "the end" of a
+    // PIN: submitting at four sent the first four digits of a longer PIN to the server after a
+    // fixed delay, which rejected them, cleared the pad mid-entry, and spent one of the
+    // throttled attempts on every login. Enter or the arrow button submits.
+    setPinCode(pinCode + num);
   };
-
-  React.useEffect(() => {
-    return () => {
-      if (autoLoginTimerRef.current) clearTimeout(autoLoginTimerRef.current);
-    };
-  }, []);
 
   const handleBackspace = () => {
     setErrorMsg('');
@@ -109,6 +92,9 @@ export const Login: React.FC = () => {
 
   const handleLoginSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    // Under the minimum length the server can only reject it, and each rejection counts
+    // against the address and tenant throttles.
+    if (pinCode.length < MIN_PIN_LENGTH) return;
     triggerLogin(pinCode);
   };
 
@@ -207,7 +193,7 @@ export const Login: React.FC = () => {
             نظام Amazon Pet ERP المؤسسي
           </h2>
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-            ادخل رمز الموظف السري للدخول المباشر لوحة التحكم
+            ادخل رمز الموظف السري ثم اضغط السهم أو Enter للدخول
           </span>
         </div>
 
@@ -234,7 +220,7 @@ export const Login: React.FC = () => {
               {/* Four dots at rest, growing with the PIN — otherwise digits past the fourth
                   gave no feedback at all once the keypad started accepting longer PINs. */}
               {Array.from(
-                { length: Math.max(AUTO_SUBMIT_PIN_LENGTH, pinCode.length) },
+                { length: Math.max(MIN_PIN_LENGTH, pinCode.length) },
                 (_, idx) => idx
               ).map((idx) => {
                 const filled = pinCode.length > idx;
@@ -343,7 +329,7 @@ export const Login: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={pinCode.length === 0}
+              disabled={pinCode.length < MIN_PIN_LENGTH}
               style={{
                 padding: '14px 0',
                 display: 'flex',
@@ -352,9 +338,9 @@ export const Login: React.FC = () => {
                 backgroundColor: 'var(--color-primary)',
                 border: 'none',
                 borderRadius: '12px',
-                cursor: pinCode.length === 0 ? 'not-allowed' : 'pointer',
+                cursor: pinCode.length < MIN_PIN_LENGTH ? 'not-allowed' : 'pointer',
                 color: '#fff',
-                opacity: pinCode.length === 0 ? 0.6 : 1,
+                opacity: pinCode.length < MIN_PIN_LENGTH ? 0.6 : 1,
                 outline: 'none'
               }}
             >
