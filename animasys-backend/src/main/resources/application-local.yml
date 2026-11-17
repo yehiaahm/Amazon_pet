@@ -10,3 +10,7 @@ app:
     mock-enabled: ${AI_MOCK_ENABLED:true}
   cors:
     allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+
+sentry:
+  # Development: do not report to Sentry unless SENTRY_DSN is set explicitly.
+  dsn: ${SENTRY_DSN:}

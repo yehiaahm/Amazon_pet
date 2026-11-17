@@ -1,4 +1,5 @@
 /** Client-side error reporting — never log secrets or tokens. */
+import { Sentry, sentryEnabled } from './sentry';
 
 const MAX_RECENT = 50;
 const recent: Array<{ at: string; message: string; module?: string }> = [];
@@ -24,6 +25,14 @@ export function reportClientError(
   if (recent.length > MAX_RECENT) recent.shift();
 
   console.error('[ERP Error]', context?.module ?? 'app', message, context?.componentStack ?? '');
+
+  if (sentryEnabled) {
+    Sentry.withScope((scope) => {
+      scope.setTag('module', context?.module ?? 'app');
+      if (context?.componentStack) scope.setContext('react', { componentStack: context.componentStack });
+      Sentry.captureException(error instanceof Error ? error : new Error(message));
+    });
+  }
 
   window.dispatchEvent(
     new CustomEvent('erp:error', { detail: { ...entry, stack: error instanceof Error ? error.stack : undefined } })

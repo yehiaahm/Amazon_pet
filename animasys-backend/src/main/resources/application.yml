@@ -115,3 +115,14 @@ app:
     max-image-base64-length: ${AI_MAX_IMAGE_BASE64_LENGTH:15728640}
     gemini:
       api-key: ${GEMINI_API_KEY:}
+
+sentry:
+  # Error monitoring. SENTRY_DSN overrides the amazon-pets project key; SENTRY_DSN= (empty) turns reporting off.
+  # Environment: SENTRY_ENVIRONMENT, else Railway's environment name, else "desktop" (the bundled local backend).
+  dsn: ${SENTRY_DSN:https://fb9f72682a0a2662884abb34b9f0772f@o4512447745818624.ingest.de.sentry.io/4512447896813648}
+  environment: ${SENTRY_ENVIRONMENT:${RAILWAY_ENVIRONMENT_NAME:desktop}}
+  server-name: animasys-backend
+  send-default-pii: false
+  traces-sample-rate: 0.0
+  tags:
+    app: animasys-backend
