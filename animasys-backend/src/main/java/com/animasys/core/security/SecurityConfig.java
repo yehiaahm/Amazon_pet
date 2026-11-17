@@ -57,6 +57,10 @@ public class SecurityConfig {
                 .contentSecurityPolicy(csp -> csp.policyDirectives(
                         "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; " +
                         "img-src 'self' data:; " +
+                        // PostHog analytics (src/core/analytics/posthog.ts): event ingestion + lazily loaded
+                        // session-replay / surveys bundles.
+                        "script-src 'self' https://us-assets.i.posthog.com; " +
+                        "connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com; " +
                         // 'unsafe-inline' is required here: the printable A4/thermal invoice
                         // (amazonPetInvoice.ts) is rendered into an <iframe srcDoc="..."> with its
                         // own inline <style> block and inline style="" badges, which inherits this

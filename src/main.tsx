@@ -1,4 +1,5 @@
 import './core/i18n/forceLatinNumerals'
+import './core/analytics/posthog'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
