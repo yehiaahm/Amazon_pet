@@ -1,3 +1,4 @@
+import './core/utils/sentry'
 import './core/i18n/forceLatinNumerals'
 import React from 'react'
 import ReactDOM from 'react-dom/client'

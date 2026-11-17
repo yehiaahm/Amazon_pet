@@ -57,6 +57,8 @@ public class SecurityConfig {
                 .contentSecurityPolicy(csp -> csp.policyDirectives(
                         "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; " +
                         "img-src 'self' data:; " +
+                        // Browser error reports go to Sentry (src/core/utils/sentry.ts).
+                        "connect-src 'self' https://*.ingest.de.sentry.io; " +
                         // 'unsafe-inline' is required here: the printable A4/thermal invoice
                         // (amazonPetInvoice.ts) is rendered into an <iframe srcDoc="..."> with its
                         // own inline <style> block and inline style="" badges, which inherits this

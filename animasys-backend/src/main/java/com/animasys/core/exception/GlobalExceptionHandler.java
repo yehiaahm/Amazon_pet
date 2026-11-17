@@ -324,6 +324,11 @@ public class GlobalExceptionHandler {
 
         log.error("Unexpected error [{}] tenant={} employee={}: {}",
                 MDC.get("requestId"), MDC.get("tenantId"), MDC.get("employeeId"), ex.getMessage(), ex);
+        io.sentry.Sentry.withScope(scope -> {
+            scope.setTag("requestId", String.valueOf(MDC.get("requestId")));
+            scope.setTag("tenantId", String.valueOf(MDC.get("tenantId")));
+            io.sentry.Sentry.captureException(ex);
+        });
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponseWrapper.error("An unexpected error occurred. Please contact support."));

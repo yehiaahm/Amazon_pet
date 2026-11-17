@@ -19,10 +19,17 @@
 
     <properties>
         <java.version>17</java.version>
+        <sentry.version>8.56.0</sentry.version>
         <jjwt.version>0.11.5</jjwt.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <!-- Error monitoring (Sentry) — configured under "sentry:" in application.yml -->
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+            <version>${sentry.version}</version>
+        </dependency>
         <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
